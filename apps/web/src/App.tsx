@@ -1,16 +1,20 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { ChatLog } from './components/ChatLog';
 import { ControlPanel } from './components/ControlPanel';
 import { DebugPanel } from './components/DebugPanel';
 import { CharacterRequestList } from './components/CharacterRequestList';
 import { ManualEntry } from './components/ManualEntry';
+import { MissedRequestsDialog } from './components/MissedRequestsDialog';
 import { SourcesBadges } from './components/SourcesBadges';
 import { SourcesPanel } from './components/SourcesPanel';
 import { Stats } from './components/Stats';
 import { ToastContainer } from './components/ToastContainer';
 import { identifyCharacter } from './services';
+import { recoverMissedRequests } from './services/vod';
+import { donateBotName } from './services/twitch';
 import { useSettings, useAuth, ChannelProvider, useChannel, useToasts, useLastChannel } from './store';
 import { migrateGlobalToChannel } from './utils/migrate';
+import type { Request } from './types';
 
 const DEFAULT_CHANNEL = 'mandymess';
 
@@ -22,9 +26,10 @@ const getChannelFromHash = (hash: string) => parseHash(hash).channel;
 const isDebugMode = () => parseHash(window.location.hash).debug;
 
 function ChannelApp() {
-  const { useRequests, useSources, canManageChannel } = useChannel();
+  const { channel, useRequests, useSources, useChannelInfo, canManageChannel } = useChannel();
   const requests = useRequests((s) => s.requests);
   const update = useRequests((s) => s.update);
+  const setAll = useRequests((s) => s.setAll);
   const { chatHidden, setChatHidden } = useSettings();
   const { show } = useToasts();
   const sortMode = useSources((s) => s.sortMode);
@@ -34,6 +39,92 @@ function ChannelApp() {
   const [shownToasts] = useState(() => new Set<number>());
   const isFirstLoad = useRef(true);
   const readOnly = !canManageChannel;
+
+  // Missed requests recovery state
+  const ircState = useChannelInfo((s) => s.localIrcConnectionState);
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const [recoveryStatus, setRecoveryStatus] = useState('');
+  const [recoveredRequests, setRecoveredRequests] = useState<Request[]>([]);
+  const hasTriedRecovery = useRef(false);
+
+  // Trigger recovery when IRC connects
+  useEffect(() => {
+    if (ircState !== 'connected' || !canManageChannel || hasTriedRecovery.current) return;
+    hasTriedRecovery.current = true;
+
+    const sourcesState = useSources.getState();
+    const config = {
+      botName: donateBotName,
+      minDonation: sourcesState.minDonation,
+      sourcesEnabled: sourcesState.enabled,
+      chatCommand: sourcesState.chatCommand,
+    };
+
+    setRecoveryOpen(true);
+    setRecoveryLoading(true);
+    setRecoveredRequests([]);
+
+    const currentRequests = useRequests.getState().requests;
+    recoverMissedRequests(channel, config, currentRequests, setRecoveryStatus)
+      .then((found) => {
+        setRecoveryLoading(false);
+        if (found.length === 0) {
+          // No missed requests - auto-close after a short delay
+          setTimeout(() => setRecoveryOpen(false), 1500);
+        }
+        setRecoveredRequests(found);
+      })
+      .catch(() => {
+        setRecoveryLoading(false);
+        setRecoveryOpen(false);
+      });
+  }, [ircState, canManageChannel, channel, useSources, useRequests]);
+
+  // Reset recovery state when IRC disconnects
+  useEffect(() => {
+    if (ircState === 'disconnected') {
+      hasTriedRecovery.current = false;
+    }
+  }, [ircState]);
+
+  const handleRecoveryConfirm = useCallback((selected: Request[]) => {
+    if (selected.length === 0) {
+      setRecoveryOpen(false);
+      return;
+    }
+
+    const currentRequests = useRequests.getState().requests;
+    const { sortMode: currentSortMode, priority: currentPriority } = useSources.getState();
+
+    // Merge recovered requests with existing, maintaining correct order
+    const merged = [...currentRequests, ...selected];
+    if (currentSortMode === 'fifo') {
+      // Sort all by timestamp for chronological order
+      merged.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    } else {
+      // Sort by done status, then priority, then timestamp
+      merged.sort((a, b) => {
+        if (a.done && !b.done) return 1;
+        if (!a.done && b.done) return -1;
+        const aPri = currentPriority.indexOf(a.source);
+        const bPri = currentPriority.indexOf(b.source);
+        if (aPri !== bPri) return aPri - bPri;
+        return a.timestamp.getTime() - b.timestamp.getTime();
+      });
+    }
+
+    setAll(merged);
+    setRecoveryOpen(false);
+    show(
+      `${selected.length} pedido${selected.length !== 1 ? 's' : ''} recuperado${selected.length !== 1 ? 's' : ''} da stream`,
+      'Pedidos recuperados'
+    );
+  }, [useRequests, useSources, setAll, show]);
+
+  const handleRecoveryClose = useCallback(() => {
+    setRecoveryOpen(false);
+  }, []);
 
   // Auto-identify requests that need it (only owner should call extract API)
   useEffect(() => {
@@ -173,6 +264,14 @@ function ChannelApp() {
       </div>
 
       <ManualEntry isOpen={manualOpen} onClose={() => setManualOpen(false)} />
+      <MissedRequestsDialog
+        isOpen={recoveryOpen}
+        requests={recoveredRequests}
+        isLoading={recoveryLoading}
+        loadingStatus={recoveryStatus}
+        onConfirm={handleRecoveryConfirm}
+        onClose={handleRecoveryClose}
+      />
       <ToastContainer />
     </>
   );
