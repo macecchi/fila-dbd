@@ -148,7 +148,7 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
               {badgeText}
             </span>
           )}
-          <span className="time">{formatRelativeTime(r.timestamp)}</span>
+          <span className="time" title={r.timestamp.toLocaleString('pt-BR')}>{formatRelativeTime(r.timestamp)}</span>
         </div>
       </div>
       {!readOnly && (
