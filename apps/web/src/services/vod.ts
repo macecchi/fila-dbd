@@ -188,7 +188,8 @@ export async function recoverMissedRequests(
   const cp = config.checkpoint;
   let offset = (cp && cp.vodId === vodId) ? cp.offset + 1 : 0;
 
-  // Build set of existing request signatures for deduplication
+  // Build sets for deduplication: by ID and by donor:message signature
+  const existingIds = new Set(existingRequests.map(r => r.id));
   const existingSignatures = new Set(
     existingRequests.map(r => `${r.donor.toLowerCase()}:${r.message.toLowerCase()}`)
   );
@@ -219,11 +220,12 @@ export async function recoverMissedRequests(
         if (parsed) {
           const amountVal = parseAmount(parsed.amount);
           if (amountVal >= config.minDonation) {
+            const reqId = hashStringToNumber(`vod:${node.id}`);
             const sig = `${parsed.donor.toLowerCase()}:${parsed.message.toLowerCase()}`;
-            if (!existingSignatures.has(sig)) {
+            if (!existingIds.has(reqId) && !existingSignatures.has(sig)) {
               const local = tryLocalMatch(parsed.message);
               const req: Request = {
-                id: hashStringToNumber(`vod:${node.id}`),
+                id: reqId,
                 timestamp,
                 donor: parsed.donor,
                 amount: parsed.amount,
@@ -245,11 +247,12 @@ export async function recoverMissedRequests(
       if (username !== botName && message.toLowerCase().startsWith(chatCommand) && config.sourcesEnabled.chat) {
         const requestText = message.slice(chatCommand.length).trim();
         if (requestText) {
+          const reqId = hashStringToNumber(`vod:${node.id}`);
           const sig = `${displayName.toLowerCase()}:${requestText.toLowerCase()}`;
-          if (!existingSignatures.has(sig)) {
+          if (!existingIds.has(reqId) && !existingSignatures.has(sig)) {
             const local = tryLocalMatch(requestText);
             const req: Request = {
-              id: hashStringToNumber(`vod:${node.id}`),
+              id: reqId,
               timestamp,
               donor: displayName,
               amount: '',

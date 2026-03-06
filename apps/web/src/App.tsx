@@ -118,8 +118,19 @@ function ChannelApp() {
     const currentRequests = useRequests.getState().requests;
     const { sortMode: currentSortMode, priority: currentPriority } = useSources.getState();
 
-    // Merge recovered requests with existing, maintaining correct order
-    const merged = [...currentRequests, ...selected];
+    // Filter out any that arrived via IRC during the scan
+    const existingIds = new Set(currentRequests.map(r => r.id));
+    const existingSigs = new Set(currentRequests.map(r => `${r.donor.toLowerCase()}:${r.message.toLowerCase()}`));
+    const deduped = selected.filter(r =>
+      !existingIds.has(r.id) && !existingSigs.has(`${r.donor.toLowerCase()}:${r.message.toLowerCase()}`)
+    );
+
+    if (deduped.length === 0) {
+      setRecoveryOpen(false);
+      return;
+    }
+
+    const merged = [...currentRequests, ...deduped];
     if (currentSortMode === 'fifo') {
       // Sort all by timestamp for chronological order
       merged.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
@@ -138,7 +149,7 @@ function ChannelApp() {
     setAll(merged);
     setRecoveryOpen(false);
     show(
-      `${selected.length} pedido${selected.length !== 1 ? 's' : ''} recuperado${selected.length !== 1 ? 's' : ''} da stream`,
+      `${deduped.length} pedido${deduped.length !== 1 ? 's' : ''} recuperado${deduped.length !== 1 ? 's' : ''} da stream`,
       'Pedidos recuperados'
     );
   }, [useRequests, useSources, setAll, show, saveRecoveryCheckpoint]);
