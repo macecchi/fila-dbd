@@ -1,0 +1,12 @@
+- podia ter uma notificacao quando a live é aberta (precisa de um webhook da twitch e configurar notificacoes para web)
+- melhorar persistencia dos dados (salvar em algum db alem do partykit pra podermos extrair depois)
+- depois de persistir, limpar do partykit os ja feitos pra lista nao crescer sem limite
+- mostrar uma secao de informações no modo leitura pra entender como funciona, tipo algo que clica e abre um modal explicando os modos
+- botão de compartilhar link da fila (exibir quando streamer abrir fila)
+- analytics direito
+- domínio filadbd
+- estatísticas da última sessão
+- background da pagina com fog que lembra dbd
+- home page com streams abertos e explicando o que é o site
+- filtrar melhor donates/resubs sem pedidos pra tirar noise
+- mover botão de criar fila para outro lugar, confuso
