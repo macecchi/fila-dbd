@@ -49,7 +49,7 @@ function LiveChannels() {
   useEffect(() => {
     fetch(`${API_URL}/rooms/active`)
       .then(r => r.json())
-      .then((data: { rooms: ActiveRoom[] }) => setRooms(data.rooms))
+      .then((data: { rooms: ActiveRoom[] }) => setRooms(data.rooms.filter(r => r.channel_login !== 'meriw_')))
       .catch(() => { })
       .finally(() => setLoading(false));
   }, []);
