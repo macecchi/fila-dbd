@@ -6,8 +6,9 @@ export function ChatLog() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    const el = containerRef.current?.parentElement;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
     }
   }, [messages]);
 
@@ -16,7 +17,7 @@ export function ChatLog() {
   }
 
   return (
-    <div ref={containerRef} style={{ height: '100%', overflow: 'auto' }}>
+    <div ref={containerRef}>
       {messages.map((m, i) => (
         <div key={i} className={`chat-msg${m.isDonate ? ' donate' : ''}`}>
           <span
