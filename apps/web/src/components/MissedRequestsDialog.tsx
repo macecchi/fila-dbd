@@ -100,11 +100,11 @@ export function MissedRequestsDialog({ isOpen, requests, isLoading, loadingStatu
                 const isIdentifying = req.needsIdentification || req.character === 'Identificando...';
                 const charDisplay = isIdentifying ? '' :
                   (!req.character || req.type === 'unknown') ? 'Desconhecido' :
-                  req.character;
+                    req.character;
 
                 const badgeText = req.source === 'donation' ? req.amount :
                   req.source === 'chat' ? `TIER ${req.subTier || 1}` :
-                  req.source === 'resub' ? 'RESUB' : '';
+                    req.source === 'resub' ? 'RESUB' : '';
 
                 return (
                   <label key={req.id} className={`missed-request-item${selected.has(req.id) ? ' checked' : ''}`}>
@@ -127,7 +127,7 @@ export function MissedRequestsDialog({ isOpen, requests, isLoading, loadingStatu
                       )}
                       <div className="request-card-body">
                         <span className="donor-name">{req.donor}</span>
-                        <span className="msg-preview">{req.message}</span>
+                        {req.message}
                       </div>
                     </div>
                     <div className="missed-request-meta">

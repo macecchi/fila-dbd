@@ -243,6 +243,8 @@ interface SourcesStore {
   priority: SourceType[];
   sortMode: SortMode;
   minDonation: number;
+  recoveryVodId?: string;
+  recoveryVodOffset?: number;
   setEnabled: (enabled: SourcesEnabled) => void;
   toggleSource: (source: keyof SourcesEnabled) => void;
   setChatCommand: (cmd: string) => void;
@@ -250,6 +252,7 @@ interface SourcesStore {
   setPriority: (priority: SourceType[]) => void;
   setSortMode: (mode: SortMode) => void;
   setMinDonation: (min: number) => void;
+  setRecoveryCheckpoint: (vodId: string, offset: number) => void;
   handlePartyMessage: (msg: PartyMessage) => void;
 }
 
@@ -319,6 +322,10 @@ export function createSourcesStore(
           set({ minDonation });
           maybeBroadcast(get);
         },
+        setRecoveryCheckpoint: (recoveryVodId, recoveryVodOffset) => {
+          set({ recoveryVodId, recoveryVodOffset });
+          maybeBroadcast(get);
+        },
         handlePartyMessage: (msg) => {
           if (msg.type === 'sync-full' || msg.type === 'update-sources') {
             const sources = msg.sources;
@@ -329,6 +336,8 @@ export function createSourcesStore(
               priority: sources.priority,
               sortMode: sources.sortMode,
               minDonation: sources.minDonation,
+              recoveryVodId: sources.recoveryVodId,
+              recoveryVodOffset: sources.recoveryVodOffset,
             });
           }
         },

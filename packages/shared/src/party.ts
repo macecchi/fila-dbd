@@ -7,6 +7,8 @@ export interface SourcesSettings {
   priority: ('donation' | 'resub' | 'chat' | 'manual')[];
   sortMode: 'priority' | 'fifo';
   minDonation: number;
+  recoveryVodId?: string;
+  recoveryVodOffset?: number;
 }
 
 export type ChannelStatus = 'offline' | 'online' | 'live';

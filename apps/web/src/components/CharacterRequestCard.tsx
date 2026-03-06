@@ -38,8 +38,8 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
   const isIdentifying = r.needsIdentification || r.character === 'Identificando...';
   const isValidating = r.validating;
   const charDisplay = isIdentifying ? 'Identificando...' :
-                      (!r.character || r.type === 'unknown') ? 'Não identificado' :
-                      r.character;
+    (!r.character || r.type === 'unknown') ? 'Não identificado' :
+      r.character;
   const isCollapsed = r.done;
 
   const handleClick = () => {
@@ -59,8 +59,8 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
   };
 
   const badgeText = r.source === 'donation' ? r.amount :
-                    r.source === 'chat' ? `TIER ${r.subTier || 1}` :
-                    r.source === 'resub' ? 'RESUB' : '';
+    r.source === 'chat' ? `TIER ${r.subTier || 1}` :
+      r.source === 'resub' ? 'RESUB' : '';
 
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.effectAllowed = 'move';
@@ -122,8 +122,8 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
     >
       <div className="request-card-content">
         <span className="request-position">{position ? String(position).padStart(2, '0') : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>}</span>
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>}</span>
         <CharacterAvatar portrait={portrait ?? undefined} type={r.type} />
         <div className="request-card-info">
           <div className="character">
@@ -139,7 +139,7 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
           </div>
           <div className="request-card-body">
             <span className="donor-name">{r.donor}</span>
-            <span className="msg-preview" title={r.message}>{r.message}</span>
+            {r.message}
           </div>
         </div>
         <div className="request-card-meta">

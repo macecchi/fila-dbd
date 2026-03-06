@@ -49,8 +49,10 @@ function ChannelApp() {
   const hasTriedRecovery = useRef(false);
 
   // Trigger recovery when IRC connects
+  const recoveryResultRef = useRef<{ vodId: string; lastOffset: number } | null>(null);
+  // TODO: restore gates: if (ircState !== 'connected' || !canManageChannel || hasTriedRecovery.current) return;
   useEffect(() => {
-    if (ircState !== 'connected' || !canManageChannel || hasTriedRecovery.current) return;
+    if (hasTriedRecovery.current) return;
     hasTriedRecovery.current = true;
 
     const sourcesState = useSources.getState();
@@ -59,6 +61,9 @@ function ChannelApp() {
       minDonation: sourcesState.minDonation,
       sourcesEnabled: sourcesState.enabled,
       chatCommand: sourcesState.chatCommand,
+      checkpoint: sourcesState.recoveryVodId
+        ? { vodId: sourcesState.recoveryVodId, offset: sourcesState.recoveryVodOffset ?? 0 }
+        : undefined,
     };
 
     setRecoveryOpen(true);
@@ -67,13 +72,19 @@ function ChannelApp() {
 
     const currentRequests = useRequests.getState().requests;
     recoverMissedRequests(channel, config, currentRequests, setRecoveryStatus)
-      .then((found) => {
+      .then((result) => {
         setRecoveryLoading(false);
-        if (found.length === 0) {
-          // No missed requests - auto-close after a short delay
+        if (!result || result.requests.length === 0) {
+          if (result) {
+            // Save checkpoint even if no new requests found
+            useSources.getState().setRecoveryCheckpoint(result.vodId, result.lastOffset);
+          }
           setTimeout(() => setRecoveryOpen(false), 1500);
+          setRecoveredRequests([]);
+        } else {
+          recoveryResultRef.current = { vodId: result.vodId, lastOffset: result.lastOffset };
+          setRecoveredRequests(result.requests);
         }
-        setRecoveredRequests(found);
       })
       .catch(() => {
         setRecoveryLoading(false);
@@ -88,7 +99,17 @@ function ChannelApp() {
     }
   }, [ircState]);
 
+  const saveRecoveryCheckpoint = useCallback(() => {
+    if (recoveryResultRef.current) {
+      const { vodId, lastOffset } = recoveryResultRef.current;
+      useSources.getState().setRecoveryCheckpoint(vodId, lastOffset);
+      recoveryResultRef.current = null;
+    }
+  }, [useSources]);
+
   const handleRecoveryConfirm = useCallback((selected: Request[]) => {
+    saveRecoveryCheckpoint();
+
     if (selected.length === 0) {
       setRecoveryOpen(false);
       return;
@@ -120,11 +141,12 @@ function ChannelApp() {
       `${selected.length} pedido${selected.length !== 1 ? 's' : ''} recuperado${selected.length !== 1 ? 's' : ''} da stream`,
       'Pedidos recuperados'
     );
-  }, [useRequests, useSources, setAll, show]);
+  }, [useRequests, useSources, setAll, show, saveRecoveryCheckpoint]);
 
   const handleRecoveryClose = useCallback(() => {
+    saveRecoveryCheckpoint();
     setRecoveryOpen(false);
-  }, []);
+  }, [saveRecoveryCheckpoint]);
 
   // Auto-identify requests that need it (only owner should call extract API)
   useEffect(() => {

@@ -122,6 +122,13 @@ export interface RecoveryConfig {
   minDonation: number;
   sourcesEnabled: { donation: boolean; resub: boolean; chat: boolean; manual: boolean };
   chatCommand: string;
+  checkpoint?: { vodId: string; offset: number };
+}
+
+export interface RecoveryResult {
+  requests: Request[];
+  vodId: string;
+  lastOffset: number;
 }
 
 function hashStringToNumber(s: string): number {
@@ -159,11 +166,11 @@ export async function recoverMissedRequests(
   config: RecoveryConfig,
   existingRequests: Request[],
   onProgress?: (status: string) => void
-): Promise<Request[]> {
+): Promise<RecoveryResult | null> {
   onProgress?.('Buscando VOD da stream atual...');
 
   const vodInfo = await fetchCurrentVodId(channel);
-  if (!vodInfo) return [];
+  if (!vodInfo) return null;
 
   const { vodId, createdAt } = vodInfo;
   const vodStart = new Date(createdAt).getTime();
@@ -171,7 +178,10 @@ export async function recoverMissedRequests(
   const chatCommand = config.chatCommand.toLowerCase();
   const requests: Request[] = [];
   const seen = new Set<string>();
-  let offset = 0;
+
+  // Resume from last checkpoint if same VOD
+  const cp = config.checkpoint;
+  let offset = (cp && cp.vodId === vodId) ? cp.offset + 1 : 0;
 
   // Build set of existing request signatures for deduplication
   const existingSignatures = new Set(
@@ -254,5 +264,5 @@ export async function recoverMissedRequests(
     offset = lastOffset + 1;
   }
 
-  return requests;
+  return { requests, vodId, lastOffset: offset > 0 ? offset - 1 : 0 };
 }
