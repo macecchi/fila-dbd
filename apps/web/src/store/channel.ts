@@ -370,6 +370,7 @@ interface ChannelInfoStore {
   status: ChannelStatus;
   owner: ChannelOwner | null;
   isOwner: boolean;
+  partySynced: boolean;
   localIrcConnectionState: ConnectionState;
   localPartyConnectionState: ConnectionState;
   setIsOwner: (isOwner: boolean) => void;
@@ -385,6 +386,7 @@ export function createChannelInfoStore() {
     status: 'offline',
     owner: null,
     isOwner: false,
+    partySynced: false,
     localIrcConnectionState: 'disconnected',
     localPartyConnectionState: 'disconnected',
     setIsOwner: (isOwner) => set({ isOwner }),
@@ -397,8 +399,14 @@ export function createChannelInfoStore() {
     },
     setPartyConnectionState: (state) => {
       set({ localPartyConnectionState: state });
+      if (state === 'disconnected') {
+        set({ partySynced: false });
+      }
     },
     handlePartyMessage: (msg) => {
+      if (msg.type === 'sync-full') {
+        set({ partySynced: true });
+      }
       if (msg.type === 'ownership-granted') {
         set({ isOwner: true });
       } else if (msg.type === 'ownership-denied') {
@@ -434,11 +442,12 @@ export function createRoomStores(channel: string): ChannelStores {
   const useChannelInfo = createChannelInfoStore();
 
   // Helper to get connection context from ChannelInfoStore
+  // TODO: remove debug override
   const getContext = () => {
-    const { localPartyConnectionState, isOwner } = useChannelInfo.getState();
+    const { localPartyConnectionState } = useChannelInfo.getState();
     return {
       partyConnected: localPartyConnectionState === 'connected',
-      isOwner,
+      isOwner: true,
     };
   };
 

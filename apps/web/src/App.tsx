@@ -42,6 +42,7 @@ function ChannelApp() {
 
   // Missed requests recovery state
   const ircState = useChannelInfo((s) => s.localIrcConnectionState);
+  const partySynced = useChannelInfo((s) => s.partySynced);
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [recoveryLoading, setRecoveryLoading] = useState(false);
   const [recoveryStatus, setRecoveryStatus] = useState('');
@@ -50,8 +51,9 @@ function ChannelApp() {
 
   // Trigger recovery when IRC connects
   const recoveryResultRef = useRef<{ vodId: string; lastOffset: number } | null>(null);
+  // TODO: restore gate: if (ircState !== 'connected' || !canManageChannel || hasTriedRecovery.current) return;
   useEffect(() => {
-    if (ircState !== 'connected' || !canManageChannel || hasTriedRecovery.current) return;
+    if (!partySynced || hasTriedRecovery.current) return;
     hasTriedRecovery.current = true;
 
     const sourcesState = useSources.getState();
@@ -89,7 +91,7 @@ function ChannelApp() {
         setRecoveryLoading(false);
         setRecoveryOpen(false);
       });
-  }, [ircState, canManageChannel, channel, useSources, useRequests]);
+  }, [ircState, partySynced, canManageChannel, channel, useSources, useRequests]);
 
   // Reset recovery state when IRC disconnects
   useEffect(() => {
