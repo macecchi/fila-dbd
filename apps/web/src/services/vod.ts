@@ -161,13 +161,18 @@ export async function fetchCurrentVodId(channel: string): Promise<{ vodId: strin
   }
 }
 
+export interface RecoveryCallbacks {
+  onProgress?: (status: string) => void;
+  onRequest?: (request: Request) => void;
+}
+
 export async function recoverMissedRequests(
   channel: string,
   config: RecoveryConfig,
   existingRequests: Request[],
-  onProgress?: (status: string) => void
+  callbacks?: RecoveryCallbacks
 ): Promise<RecoveryResult | null> {
-  onProgress?.('Buscando VOD da stream atual...');
+  callbacks?.onProgress?.('Buscando VOD da stream atual...');
 
   const vodInfo = await fetchCurrentVodId(channel);
   if (!vodInfo) return null;
@@ -188,7 +193,7 @@ export async function recoverMissedRequests(
     existingRequests.map(r => `${r.donor.toLowerCase()}:${r.message.toLowerCase()}`)
   );
 
-  onProgress?.('Analisando chat da VOD...');
+  callbacks?.onProgress?.('Analisando chat da VOD...');
 
   while (true) {
     const data = await fetchVODChat(vodId, offset);
@@ -217,7 +222,7 @@ export async function recoverMissedRequests(
             const sig = `${parsed.donor.toLowerCase()}:${parsed.message.toLowerCase()}`;
             if (!existingSignatures.has(sig)) {
               const local = tryLocalMatch(parsed.message);
-              requests.push({
+              const req: Request = {
                 id: hashStringToNumber(`vod:${node.id}`),
                 timestamp,
                 donor: parsed.donor,
@@ -228,7 +233,9 @@ export async function recoverMissedRequests(
                 type: local?.type || 'unknown',
                 source: 'donation',
                 needsIdentification: !local
-              });
+              };
+              requests.push(req);
+              callbacks?.onRequest?.(req);
             }
           }
         }
@@ -241,7 +248,7 @@ export async function recoverMissedRequests(
           const sig = `${displayName.toLowerCase()}:${requestText.toLowerCase()}`;
           if (!existingSignatures.has(sig)) {
             const local = tryLocalMatch(requestText);
-            requests.push({
+            const req: Request = {
               id: hashStringToNumber(`vod:${node.id}`),
               timestamp,
               donor: displayName,
@@ -252,17 +259,21 @@ export async function recoverMissedRequests(
               type: local?.type || 'unknown',
               source: 'chat',
               needsIdentification: !local
-            });
+            };
+            requests.push(req);
+            callbacks?.onRequest?.(req);
           }
         }
       }
     }
 
-    onProgress?.(`Analisando chat... ${seen.size} msgs, ${requests.length} pedidos encontrados`);
+    callbacks?.onProgress?.(`Analisando chat... ${seen.size} msgs, ${requests.length} pedidos encontrados`);
 
     if (!newCount) break;
     offset = lastOffset + 1;
   }
 
-  return { requests, vodId, lastOffset: offset > 0 ? offset - 1 : 0 };
+  // Use the highest contentOffsetSeconds we actually saw, or fall back to checkpoint
+  const finalOffset = seen.size > 0 ? offset - 1 : (cp && cp.vodId === vodId ? cp.offset : 0);
+  return { requests, vodId, lastOffset: finalOffset };
 }

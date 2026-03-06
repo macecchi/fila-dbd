@@ -51,9 +51,8 @@ function ChannelApp() {
 
   // Trigger recovery when IRC connects
   const recoveryResultRef = useRef<{ vodId: string; lastOffset: number } | null>(null);
-  // TODO: restore gate: if (ircState !== 'connected' || !canManageChannel || hasTriedRecovery.current) return;
   useEffect(() => {
-    if (!partySynced || hasTriedRecovery.current) return;
+    if (!partySynced || !canManageChannel || hasTriedRecovery.current) return;
     hasTriedRecovery.current = true;
 
     const sourcesState = useSources.getState();
@@ -67,29 +66,29 @@ function ChannelApp() {
         : undefined,
     };
 
-    setRecoveryOpen(true);
-    setRecoveryLoading(true);
     setRecoveredRequests([]);
+    setRecoveryLoading(true);
 
     const currentRequests = useRequests.getState().requests;
-    recoverMissedRequests(channel, config, currentRequests, setRecoveryStatus)
+    recoverMissedRequests(channel, config, currentRequests, {
+      onProgress: setRecoveryStatus,
+      onRequest: (req) => {
+        setRecoveryOpen(true);
+        setRecoveredRequests(prev => [...prev, req]);
+      },
+    })
       .then((result) => {
         setRecoveryLoading(false);
         if (!result || result.requests.length === 0) {
-          if (result) {
-            // Save checkpoint even if no new requests found
+          if (result && result.lastOffset > (sourcesState.recoveryVodOffset ?? 0)) {
             useSources.getState().setRecoveryCheckpoint(result.vodId, result.lastOffset);
           }
-          setTimeout(() => setRecoveryOpen(false), 1500);
-          setRecoveredRequests([]);
         } else {
           recoveryResultRef.current = { vodId: result.vodId, lastOffset: result.lastOffset };
-          setRecoveredRequests(result.requests);
         }
       })
       .catch(() => {
-        setRecoveryLoading(false);
-        setRecoveryOpen(false);
+        // silently fail
       });
   }, [ircState, partySynced, canManageChannel, channel, useSources, useRequests]);
 

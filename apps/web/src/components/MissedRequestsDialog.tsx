@@ -68,7 +68,7 @@ export function MissedRequestsDialog({ isOpen, requests, isLoading, loadingStatu
           </button>
         </div>
 
-        {isLoading ? (
+        {isLoading && requests.length === 0 ? (
           <div className="missed-requests-loading">
             <div className="missed-requests-spinner" />
             <span>{loadingStatus || 'Buscando pedidos perdidos...'}</span>
@@ -81,7 +81,14 @@ export function MissedRequestsDialog({ isOpen, requests, isLoading, loadingStatu
         ) : (
           <>
             <div className="missed-requests-subtitle">
-              Encontramos <strong>{requests.length}</strong> pedido{requests.length > 1 ? 's' : ''} na stream atual que {requests.length > 1 ? 'podem ter sido perdidos' : 'pode ter sido perdido'}.
+              {isLoading ? (
+                <>
+                  <span className="missed-requests-spinner-inline" />
+                  Analisando stream... <strong>{requests.length}</strong> pedido{requests.length > 1 ? 's' : ''} encontrado{requests.length > 1 ? 's' : ''}
+                </>
+              ) : (
+                <>Encontramos <strong>{requests.length}</strong> pedido{requests.length > 1 ? 's' : ''} na stream atual</>
+              )}
             </div>
             <div className="missed-requests-actions">
               <button

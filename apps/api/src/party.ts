@@ -145,7 +145,6 @@ export default class PartyServer implements Party.Server {
       return;
     }
 
-    // Reject messages from non-lock-holders
     if (!isLockHolder) {
       console.warn(`${this.tag} Rejected msg from non-owner ${sender.id}`);
       return;

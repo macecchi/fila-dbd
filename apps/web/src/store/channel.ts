@@ -442,12 +442,11 @@ export function createRoomStores(channel: string): ChannelStores {
   const useChannelInfo = createChannelInfoStore();
 
   // Helper to get connection context from ChannelInfoStore
-  // TODO: remove debug override
   const getContext = () => {
-    const { localPartyConnectionState } = useChannelInfo.getState();
+    const { localPartyConnectionState, isOwner } = useChannelInfo.getState();
     return {
       partyConnected: localPartyConnectionState === 'connected',
-      isOwner: true,
+      isOwner,
     };
   };
 

@@ -230,6 +230,9 @@ export function DebugPanel() {
           <button className="btn btn-ghost" onClick={handleClearAll}>
             Limpar tudo
           </button>
+          <button className="btn btn-ghost" onClick={() => useSources.getState().setRecoveryCheckpoint('', 0)}>
+            Reset recovery
+          </button>
           <button className="btn btn-ghost" onClick={handleLoadMock}>
             Carregar mock
           </button>
