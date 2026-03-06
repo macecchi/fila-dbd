@@ -10,5 +10,17 @@ invocation_logs = false
 [vars]
 FRONTEND_URL = "http://localhost:5173"
 
+[[d1_databases]]
+binding = "DB"
+database_name = "fila-dbd"
+database_id = "local"
+migrations_dir = "migrations"
+
 [env.production]
 vars = { FRONTEND_URL = "https://macecchi.github.io/dbd-utils" }
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "fila-dbd"
+database_id = "0b7fe20d-bc00-4399-b58d-2923aaab201c"
+migrations_dir = "migrations"

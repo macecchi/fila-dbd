@@ -18,9 +18,10 @@ apps/
 │   │   └── App.tsx
 │   └── public/
 └── api/              # Cloudflare Worker backend (Hono) + PartyKit
+    ├── migrations/     # D1 database migrations
     └── src/
-        ├── index.ts    # Hono API (auth)
-        └── party.ts    # PartyKit server (real-time sync)
+        ├── index.ts    # Hono API (auth, LLM, internal D1 endpoints)
+        └── party.ts    # PartyKit server (real-time sync + D1 write-through)
 ```
 
 ## Commands
@@ -50,14 +51,16 @@ bun run deploy:party # Deploy PartyKit
 
 ## Data
 
-All state in localStorage:
+**Primary (real-time):** PartyKit room storage (Durable Objects)
+- Requests queue and sources settings per room
+- Write-through to D1 via async HTTP calls to Hono API
 
-- `dbd_donations` - Request queue (each has `source` field)
+**D1 database (persistent backup):**
+- `rooms` table — flattened sources settings per channel
+- `requests` table — one row per request with `position` for ordering
+- Debounced sync (2s) for requests, immediate for sources
+- Internal auth via `INTERNAL_API_SECRET` shared between Worker and PartyKit
+
+**localStorage (seeding only):**
 - `dbd_chat` - Recent chat messages
-- `dbd_channel`, `dbd_bot_name`, `dbd_min_donation`
-- `gemini_key`, `gemini_models`
-- `dbd_sources_enabled` - {donation, resub, chat, manual}
-- `dbd_chat_command` - Chat command string
-- `dbd_chat_tiers` - Allowed subscriber tiers [1,2,3]
-- `dbd_source_priority` - Source order for sorting
 - `dbd-auth` - Twitch auth tokens and user info

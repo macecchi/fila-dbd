@@ -36,9 +36,16 @@ bun dev  # Servidor local com frontend + API + PartyKit
 **Secrets no Cloudflare (via `wrangler secret put`):**
 - `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` - app Twitch
 - `JWT_SECRET` - qualquer string segura
+- `INTERNAL_API_SECRET` - secret compartilhado entre Worker e PartyKit
 
-**Secrets no PartyKit (via `bunx partykit env add JWT_SECRET`):**
+**Database D1 (via `wrangler d1 create fila-dbd`):**
+- Criar o database e atualizar o `database_id` no `wrangler.toml`
+- Aplicar migrations: `wrangler d1 migrations apply fila-dbd`
+
+**Secrets no PartyKit (via `bunx partykit env add`):**
 - `JWT_SECRET` - mesmo valor do Cloudflare
+- `INTERNAL_API_SECRET` - mesmo valor do Cloudflare
+- `API_URL` - URL do Worker em produção (ex: `https://dbd-tracker.<account>.workers.dev`)
 
 ## Uso
 

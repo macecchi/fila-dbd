@@ -2,5 +2,9 @@
   "$schema": "https://www.partykit.io/schema.json",
   "compatibilityDate": "2026-01-16",
   "name": "dbd-tracker-party",
-  "main": "src/party.ts"
+  "main": "src/party.ts",
+  "vars": {
+    "API_URL": "http://localhost:8787",
+    "INTERNAL_API_SECRET": "filadbd123"
+  }
 }

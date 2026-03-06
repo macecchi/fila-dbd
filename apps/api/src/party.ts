@@ -21,6 +21,7 @@ export default class PartyServer implements Party.Server {
   channel: ChannelState = { status: 'offline', owner: null };
   connections: Map<string, ConnectionInfo> = new Map();
   activeOwnerConnId: string | null = null;
+  private syncRequestsTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(public room: Party.Room) { }
 
@@ -215,6 +216,7 @@ export default class PartyServer implements Party.Server {
       case 'update-sources': {
         this.sources = msg.sources;
         await this.room.storage.put('sources', this.sources);
+        this.syncSourcesToD1();
         this.broadcast(message, sender.id);
         console.log(`${this.tag} ${user}: update-sources`, JSON.stringify(msg.sources.enabled));
         break;
@@ -233,7 +235,61 @@ export default class PartyServer implements Party.Server {
 
   private async persist() {
     await this.room.storage.put('requests', this.requests);
+    this.scheduleSyncRequests();
     console.log(`${this.tag} Persisted ${this.requests.length} requests`);
+  }
+
+  private scheduleSyncRequests() {
+    if (this.syncRequestsTimer) clearTimeout(this.syncRequestsTimer);
+    this.syncRequestsTimer = setTimeout(() => this.syncRequestsToD1(), 2000);
+  }
+
+  private async syncRequestsToD1() {
+    const apiUrl = this.room.env.API_URL as string | undefined;
+    const secret = this.room.env.INTERNAL_API_SECRET as string | undefined;
+    if (!apiUrl || !secret) return;
+
+    try {
+      const res = await fetch(`${apiUrl}/internal/rooms/${this.room.id}/requests`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer internal:${secret}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ requests: this.requests }),
+      });
+      if (!res.ok) {
+        console.error(`${this.tag} D1 sync requests failed: ${res.status}`);
+      } else {
+        console.log(`${this.tag} D1 synced ${this.requests.length} requests`);
+      }
+    } catch (e) {
+      console.error(`${this.tag} D1 sync requests error:`, e);
+    }
+  }
+
+  private async syncSourcesToD1() {
+    const apiUrl = this.room.env.API_URL as string | undefined;
+    const secret = this.room.env.INTERNAL_API_SECRET as string | undefined;
+    if (!apiUrl || !secret) return;
+
+    try {
+      const res = await fetch(`${apiUrl}/internal/rooms/${this.room.id}/sources`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer internal:${secret}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(this.sources),
+      });
+      if (!res.ok) {
+        console.error(`${this.tag} D1 sync sources failed: ${res.status}`);
+      } else {
+        console.log(`${this.tag} D1 synced sources`);
+      }
+    } catch (e) {
+      console.error(`${this.tag} D1 sync sources error:`, e);
+    }
   }
 
   private broadcast(message: string, excludeId: string) {

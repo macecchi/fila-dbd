@@ -11,6 +11,8 @@ type Bindings = {
   JWT_SECRET: string;
   FRONTEND_URL: string;
   GEMINI_API_KEY: string;
+  INTERNAL_API_SECRET: string;
+  DB: D1Database;
 };
 
 type Variables = {
@@ -213,5 +215,128 @@ api.post("/extract-character", async (c) => {
 });
 
 app.route("/api", api);
+
+// ============ INTERNAL API ROUTES (PartyKit → D1) ============
+
+const internal = new Hono<{ Bindings: Bindings }>();
+
+// Internal auth middleware — validates shared secret
+internal.use("*", async (c, next) => {
+  const authHeader = c.req.header("Authorization");
+  if (!authHeader?.startsWith("Bearer internal:")) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  const secret = authHeader.slice("Bearer internal:".length);
+  if (!c.env.INTERNAL_API_SECRET || secret !== c.env.INTERNAL_API_SECRET) {
+    return c.json({ error: "invalid_secret" }, 401);
+  }
+
+  await next();
+});
+
+// PUT /internal/rooms/:roomId/requests — bulk upsert all requests
+internal.put("/rooms/:roomId/requests", async (c) => {
+  const roomId = c.req.param("roomId");
+  const body = await c.req.json<{ requests: Array<Record<string, unknown>> }>();
+
+  if (!Array.isArray(body.requests)) {
+    return c.json({ error: "invalid_input" }, 400);
+  }
+
+  const statements: D1PreparedStatement[] = [];
+
+  // Ensure room exists
+  statements.push(
+    c.env.DB.prepare(
+      "INSERT INTO rooms (id, channel_login) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET updated_at = datetime('now')"
+    ).bind(roomId, roomId)
+  );
+
+  // Delete existing requests for this room
+  statements.push(
+    c.env.DB.prepare("DELETE FROM requests WHERE room_id = ?").bind(roomId)
+  );
+
+  // Insert all current requests with position
+  for (let i = 0; i < body.requests.length; i++) {
+    const r = body.requests[i];
+    statements.push(
+      c.env.DB.prepare(
+        `INSERT INTO requests (id, room_id, position, timestamp, donor, amount, amount_val, message, character, type, done, source, sub_tier, needs_identification)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        r.id,
+        roomId,
+        i,
+        r.timestamp,
+        r.donor,
+        r.amount ?? "",
+        r.amountVal ?? 0,
+        r.message ?? "",
+        r.character ?? "",
+        r.type ?? "unknown",
+        r.done ? 1 : 0,
+        r.source,
+        r.subTier ?? null,
+        r.needsIdentification ? 1 : 0
+      )
+    );
+  }
+
+  await c.env.DB.batch(statements);
+  return c.json({ ok: true, count: body.requests.length });
+});
+
+// PUT /internal/rooms/:roomId/sources — upsert room sources settings
+internal.put("/rooms/:roomId/sources", async (c) => {
+  const roomId = c.req.param("roomId");
+  const body = await c.req.json<{
+    enabled: Record<string, boolean>;
+    chatCommand: string;
+    chatTiers: number[];
+    priority: string[];
+    sortMode: string;
+    minDonation: number;
+    recoveryVodId?: string;
+    recoveryVodOffset?: number;
+  }>();
+
+  await c.env.DB.prepare(
+    `INSERT INTO rooms (id, channel_login, enabled_donation, enabled_chat, enabled_resub, enabled_manual, chat_command, chat_tiers, priority, sort_mode, min_donation, recovery_vod_id, recovery_vod_offset, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(id) DO UPDATE SET
+       enabled_donation = excluded.enabled_donation,
+       enabled_chat = excluded.enabled_chat,
+       enabled_resub = excluded.enabled_resub,
+       enabled_manual = excluded.enabled_manual,
+       chat_command = excluded.chat_command,
+       chat_tiers = excluded.chat_tiers,
+       priority = excluded.priority,
+       sort_mode = excluded.sort_mode,
+       min_donation = excluded.min_donation,
+       recovery_vod_id = excluded.recovery_vod_id,
+       recovery_vod_offset = excluded.recovery_vod_offset,
+       updated_at = datetime('now')`
+  ).bind(
+    roomId,
+    roomId,
+    body.enabled?.donation ? 1 : 0,
+    body.enabled?.chat ? 1 : 0,
+    body.enabled?.resub ? 1 : 0,
+    body.enabled?.manual ? 1 : 0,
+    body.chatCommand ?? "!fila",
+    JSON.stringify(body.chatTiers ?? [2, 3]),
+    JSON.stringify(body.priority ?? ["donation", "chat", "resub", "manual"]),
+    body.sortMode ?? "fifo",
+    body.minDonation ?? 5,
+    body.recoveryVodId ?? null,
+    body.recoveryVodOffset ?? null
+  ).run();
+
+  return c.json({ ok: true });
+});
+
+app.route("/internal", internal);
 
 export default app;
