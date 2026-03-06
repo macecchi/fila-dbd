@@ -5,7 +5,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 const commitHash = process.env.GITHUB_SHA?.slice(0, 7) ?? 'dev';
 
 export default defineConfig({
-  base: '/dbd-utils/',
+  base: process.env.GITHUB_ACTIONS ? '/dbd-utils/' : '/',
   define: {
     __APP_VERSION__: JSON.stringify(commitHash)
   },
