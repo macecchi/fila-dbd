@@ -102,6 +102,10 @@ export function MissedRequestsDialog({ isOpen, requests, isLoading, loadingStatu
                   (!req.character || req.type === 'unknown') ? 'Desconhecido' :
                   req.character;
 
+                const badgeText = req.source === 'donation' ? req.amount :
+                  req.source === 'chat' ? `TIER ${req.subTier || 1}` :
+                  req.source === 'resub' ? 'RESUB' : '';
+
                 return (
                   <label key={req.id} className={`missed-request-item${selected.has(req.id) ? ' checked' : ''}`}>
                     <input
@@ -111,30 +115,27 @@ export function MissedRequestsDialog({ isOpen, requests, isLoading, loadingStatu
                     />
                     <CharacterAvatar portrait={portrait} type={req.type} size="sm" />
                     <div className="missed-request-info">
-                      <div className="missed-request-top">
-                        <span className={`missed-request-badge source-${req.source}`}>
-                          {req.source === 'donation' ? 'Donate' : 'Chat'}
-                        </span>
-                        <span className="missed-request-donor">{req.donor}</span>
-                        {req.amount && <span className="missed-request-amount">{req.amount}</span>}
-                      </div>
-                      <div className="missed-request-bottom">
-                        {charDisplay && (
-                          <span className="missed-request-character">
-                            <img
-                              src={`${import.meta.env.BASE_URL}images/${req.type === 'killer' ? 'IconKiller.webp' : req.type === 'survivor' ? 'IconSurv.webp' : 'IconShuffle.webp'}`}
-                              alt=""
-                              className="char-type-icon"
-                            />
-                            {charDisplay}
-                          </span>
-                        )}
-                        <span className="missed-request-message" title={req.message}>{req.message}</span>
+                      {charDisplay && (
+                        <div className="character">
+                          <img
+                            src={`${import.meta.env.BASE_URL}images/${req.type === 'killer' ? 'IconKiller.webp' : req.type === 'survivor' ? 'IconSurv.webp' : 'IconShuffle.webp'}`}
+                            alt=""
+                            className="char-type-icon"
+                          />
+                          <span className="char-name">{charDisplay}</span>
+                        </div>
+                      )}
+                      <div className="request-card-body">
+                        <span className="donor-name">{req.donor}</span>
+                        <span className="msg-preview">{req.message}</span>
                       </div>
                     </div>
-                    <span className="missed-request-time">
-                      {req.timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                    </span>
+                    <div className="missed-request-meta">
+                      {badgeText && <span className={`amount source-${req.source}`}>{badgeText}</span>}
+                      <span className="missed-request-time">
+                        {req.timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
                   </label>
                 );
               })}
