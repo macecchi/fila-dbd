@@ -177,6 +177,7 @@
   font-size: var(--text-sm);
   color: var(--text-muted);
   font-style: italic;
+  overflow-wrap: break-word;
 }
 
 .donor-name {
