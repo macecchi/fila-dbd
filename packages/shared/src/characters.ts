@@ -69,7 +69,7 @@ export const CHARACTERS: CharacterData = {
         { name: "Spirit", aliases: ["Espírito"], portrait: "https://deadbydaylight.wiki.gg/images/K13_TheSpirit_Portrait.png" },
         { name: "Legion", aliases: ["Legião"], portrait: "https://deadbydaylight.wiki.gg/images/K14_TheLegion_Portrait.png" },
         { name: "Plague", aliases: ["Praga"], portrait: "https://deadbydaylight.wiki.gg/images/K15_ThePlague_Portrait.png" },
-        { name: "Ghost Face", aliases: [], portrait: "https://deadbydaylight.wiki.gg/images/K16_TheGhostFace_Portrait.png" },
+        { name: "Ghost Face", aliases: ["ghostface"], portrait: "https://deadbydaylight.wiki.gg/images/K16_TheGhostFace_Portrait.png" },
         { name: "Demogorgon", aliases: ["Demo"], portrait: "https://deadbydaylight.wiki.gg/images/K17_TheDemogorgon_Portrait.png" },
         { name: "Oni", aliases: [], portrait: "https://deadbydaylight.wiki.gg/images/K18_TheOni_Portrait.png" },
         { name: "Deathslinger", aliases: ["Pistoleiro"], portrait: "https://deadbydaylight.wiki.gg/images/K19_TheDeathslinger_Portrait.png" },
@@ -87,15 +87,15 @@ export const CHARACTERS: CharacterData = {
         { name: "Skull Merchant", aliases: ["Adriana", "A Mercadora de Crânios"], portrait: "https://deadbydaylight.wiki.gg/images/K31_TheSkullMerchant_Portrait.png" },
         { name: "Singularity", aliases: ["Singularidade"], portrait: "https://deadbydaylight.wiki.gg/images/K32_TheSingularity_Portrait.png" },
         { name: "Xenomorph", aliases: ["Alien", "Xenomorfo"], portrait: "https://deadbydaylight.wiki.gg/images/K33_TheXenomorph_Portrait.png" },
-        { name: "Good Guy", aliases: ["Chucky", "Boneco Assassino"], portrait: "https://deadbydaylight.wiki.gg/images/K34_TheGoodGuy_Portrait.png" },
-        { name: "Unknown", aliases: ["Desconhecido", "Cido"], portrait: "https://deadbydaylight.wiki.gg/images/K35_TheUnknown_Portrait.png" },
-        { name: "Lich", aliases: ["Vecna"], portrait: "https://deadbydaylight.wiki.gg/images/K36_TheLich_Portrait.png" },
+        { name: "Good Guy", aliases: ["Chucky", "Boneco Assassino", "Tiffany"], portrait: "https://deadbydaylight.wiki.gg/images/K34_TheGoodGuy_Portrait.png" },
+        { name: "Unknown", aliases: ["Desconhecido", "Cido", "Taylor"], portrait: "https://deadbydaylight.wiki.gg/images/K35_TheUnknown_Portrait.png" },
+        { name: "Lich", aliases: ["Vecna", "Vecna D&D"], portrait: "https://deadbydaylight.wiki.gg/images/K36_TheLich_Portrait.png" },
         { name: "Dark Lord", aliases: ["Dracula", "O Lorde das Trevas"], portrait: "https://deadbydaylight.wiki.gg/images/K37_TheDarkLord_Portrait.png" },
         { name: "Houndmaster", aliases: ["Mestra dos Cães"], portrait: "https://deadbydaylight.wiki.gg/images/K38_TheHoundmaster_Portrait.png" },
         { name: "Ghoul", aliases: ["Kaneki", "Carniçal"], portrait: "https://deadbydaylight.wiki.gg/images/K39_TheGhoul_Portrait.png" },
         { name: "Animatronic", aliases: ["Freddy Fazbear", "FNAF", "Animatrônico"], portrait: "https://deadbydaylight.wiki.gg/images/K40_TheAnimatronic_Portrait.png" },
         { name: "Krasue", aliases: ["Senhora Linguiça"], portrait: "https://deadbydaylight.wiki.gg/images/K41_TheKrasue_Portrait.png" },
-        { name: "The First", aliases: ["First", "Vecna", "One", "Número Um", "Henry Creel"], portrait: "https://deadbydaylight.wiki.gg/images/K42_TheFirst_Portrait.png" },
+        { name: "The First", aliases: ["First", "Vecna", "Vecna Stranger Things", "Vecna Novo", "One", "Número Um", "Henry Creel"], portrait: "https://deadbydaylight.wiki.gg/images/K42_TheFirst_Portrait.png" },
     ]
 };
 
