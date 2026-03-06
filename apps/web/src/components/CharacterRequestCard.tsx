@@ -83,7 +83,8 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
     `source-${r.source || 'donation'}`,
     isDragging && 'dragging',
     isDragOver && 'drag-over',
-    exiting && 'deleting'
+    exiting && 'deleting',
+    readOnly && 'read-only'
   ].filter(Boolean).join(' ');
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -109,13 +110,15 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
       className={className}
       data-request-id={r.id}
       onContextMenu={handleContext}
-      onDragOver={handleDragOver}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-      onMouseDown={handleMouseDown}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
-      onTouchStart={handleTouchStart}
+      {...(!readOnly && {
+        onDragOver: handleDragOver,
+        onDragStart: handleDragStart,
+        onDragEnd: handleDragEnd,
+        onMouseDown: handleMouseDown,
+        onMouseUp: handleMouseUp,
+        onMouseLeave: handleMouseUp,
+        onTouchStart: handleTouchStart,
+      })}
     >
       <div className="request-card-content">
         <span className="request-position">{position ? String(position).padStart(2, '0') : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">

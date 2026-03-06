@@ -12,6 +12,11 @@
   cursor: grabbing;
 }
 
+.request-card.read-only,
+.request-card.read-only:active {
+  cursor: default;
+}
+
 .request-position {
   font-family: 'JetBrains Mono', monospace;
   font-size: 1.5em;
