@@ -73,6 +73,15 @@ body {
   line-height: 1.5;
 }
 
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
 /* Mobile - prevent keyboard resize and horizontal overflow */
 @media (max-width: 480px) {
   html {

@@ -24,8 +24,7 @@ export function disconnect() {
     intentionalClose = true;
     ws.close();
     ws = null;
-    getStores().useChannelInfo.getState().setIrcConnectionState('disconnected');
-    window.location.hash = '';
+    activeStores?.useChannelInfo.getState().setIrcConnectionState('disconnected');
   }
 }
 

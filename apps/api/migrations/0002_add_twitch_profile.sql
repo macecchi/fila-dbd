@@ -1,0 +1,3 @@
+ALTER TABLE rooms ADD COLUMN avatar_url TEXT;
+ALTER TABLE rooms ADD COLUMN banner_url TEXT;
+ALTER TABLE rooms ADD COLUMN status TEXT NOT NULL DEFAULT 'offline';

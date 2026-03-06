@@ -4,15 +4,7 @@ import { useContextMenu } from '../context/ContextMenuContext';
 import { getKillerPortrait } from '../data/characters';
 import { CharacterAvatar } from './CharacterAvatar';
 
-const rtf = new Intl.RelativeTimeFormat('pt-BR', { numeric: 'auto' });
-
-function formatRelativeTime(date: Date): string {
-  const diff = (date.getTime() - Date.now()) / 1000;
-  if (Math.abs(diff) < 60) return rtf.format(Math.round(diff), 'second');
-  if (Math.abs(diff) < 3600) return rtf.format(Math.round(diff / 60), 'minute');
-  if (Math.abs(diff) < 86400) return rtf.format(Math.round(diff / 3600), 'hour');
-  return rtf.format(Math.round(diff / 86400), 'day');
-}
+import { formatRelativeTime } from '../utils/helpers';
 
 interface Props {
   request: Request;

@@ -124,14 +124,17 @@ export default class PartyServer implements Party.Server {
       }
       // Grant ownership
       this.activeOwnerConnId = sender.id;
+      const login = connInfo?.user?.login ?? 'dev';
       this.channel = {
         status: 'online',
-        owner: { login: connInfo!.user!.login, displayName: connInfo!.user!.display_name, avatar: connInfo!.user!.profile_image_url }
+        owner: { login, displayName: connInfo?.user?.display_name ?? login, avatar: connInfo?.user?.profile_image_url ?? '' }
       };
       const grantMsg: PartyMessage = { type: 'ownership-granted' };
       sender.send(JSON.stringify(grantMsg));
-      this.broadcastChannel(); // All clients see updated channel.owner
-      console.log(`${this.tag} Granted ownership to ${connInfo!.user!.login}`);
+      this.broadcastChannel();
+      this.syncRequestsToD1();
+      this.syncSourcesToD1();
+      console.log(`${this.tag} Granted ownership to ${login}`);
       return;
     }
 
@@ -321,5 +324,28 @@ export default class PartyServer implements Party.Server {
       count++;
     }
     console.log(`${this.tag} Broadcast channel state to ${count} client(s): status=${this.channel.status}, owner=${this.channel.owner?.login ?? 'null'}`);
+    this.syncStatusToD1();
+  }
+
+  private async syncStatusToD1() {
+    const apiUrl = this.room.env.API_URL as string | undefined;
+    const secret = this.room.env.INTERNAL_API_SECRET as string | undefined;
+    if (!apiUrl || !secret) return;
+
+    try {
+      const res = await fetch(`${apiUrl}/internal/rooms/${this.room.id}/status`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer internal:${secret}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: this.channel.status }),
+      });
+      if (!res.ok) {
+        console.error(`${this.tag} D1 sync status failed: ${res.status}`);
+      }
+    } catch (e) {
+      console.error(`${this.tag} D1 sync status error:`, e);
+    }
   }
 }

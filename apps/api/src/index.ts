@@ -13,6 +13,7 @@ type Bindings = {
   GEMINI_API_KEY: string;
   INTERNAL_API_SECRET: string;
   DB: D1Database;
+  CACHE: KVNamespace;
 };
 
 type Variables = {
@@ -337,6 +338,121 @@ internal.put("/rooms/:roomId/sources", async (c) => {
   return c.json({ ok: true });
 });
 
+// PUT /internal/rooms/:roomId/status — update room status
+internal.put("/rooms/:roomId/status", async (c) => {
+  const roomId = c.req.param("roomId");
+  const body = await c.req.json<{ status: string }>();
+
+  await c.env.DB.prepare(
+    `INSERT INTO rooms (id, channel_login, status) VALUES (?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET status = excluded.status, updated_at = datetime('now')`
+  ).bind(roomId, roomId, body.status).run();
+
+  return c.json({ ok: true });
+});
+
 app.route("/internal", internal);
+
+// ============ PUBLIC API ROUTES ============
+
+app.get("/rooms/active", async (c) => {
+  const rows = await c.env.DB.prepare(
+    `SELECT r.id, r.channel_login, r.avatar_url, r.banner_url, r.status,
+            COUNT(req.id) AS request_count,
+            SUM(CASE WHEN req.done = 0 THEN 1 ELSE 0 END) AS pending_count,
+            r.updated_at
+     FROM rooms r
+     LEFT JOIN requests req ON req.room_id = r.id
+     WHERE r.updated_at > datetime('now', '-24 hours')
+     GROUP BY r.id
+     ORDER BY r.updated_at DESC
+     LIMIT 20`
+  ).all();
+
+  const rooms = rows.results as Array<Record<string, unknown>>;
+  if (rooms.length === 0) return c.json({ rooms: [] });
+
+  // Get Twitch app access token (cached in KV)
+  const APP_TOKEN_KV_KEY = "twitch_app_token";
+  let access_token = await c.env.CACHE.get(APP_TOKEN_KV_KEY);
+
+  if (!access_token) {
+    const tokenRes = await fetch("https://id.twitch.tv/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: c.env.TWITCH_CLIENT_ID,
+        client_secret: c.env.TWITCH_CLIENT_SECRET,
+        grant_type: "client_credentials",
+      }),
+    });
+
+    if (!tokenRes.ok) return c.json({ rooms });
+
+    const data = await tokenRes.json() as { access_token: string; expires_in: number };
+    access_token = data.access_token;
+    await c.env.CACHE.put(APP_TOKEN_KV_KEY, access_token, { expirationTtl: data.expires_in - 300 });
+  }
+
+  const logins = rooms.map((r) => r.channel_login as string);
+  const twitchHeaders = {
+    Authorization: `Bearer ${access_token}`,
+    "Client-Id": c.env.TWITCH_CLIENT_ID,
+  };
+
+  // Only fetch profiles from Twitch for rooms missing avatar_url
+  const missingProfile = rooms.filter((r) => !r.avatar_url);
+  const profileMap = new Map<string, { avatar_url: string; banner_url: string }>();
+
+  if (missingProfile.length > 0) {
+    const param = missingProfile.map((r) => `login=${r.channel_login}`).join("&");
+    const usersRes = await fetch(`https://api.twitch.tv/helix/users?${param}`, { headers: twitchHeaders });
+    if (usersRes.ok) {
+      const data = await usersRes.json() as { data: Array<{ login: string; profile_image_url: string; offline_image_url: string }> };
+      const statements: D1PreparedStatement[] = [];
+      for (const u of data.data) {
+        profileMap.set(u.login.toLowerCase(), {
+          avatar_url: u.profile_image_url,
+          banner_url: u.offline_image_url,
+        });
+        statements.push(
+          c.env.DB.prepare("UPDATE rooms SET avatar_url = ?, banner_url = ? WHERE id = ?")
+            .bind(u.profile_image_url, u.offline_image_url, u.login.toLowerCase())
+        );
+      }
+      if (statements.length > 0) c.executionCtx.waitUntil(c.env.DB.batch(statements));
+    }
+  }
+
+  // Always fetch live streams (real-time data)
+  const streamMap = new Map<string, { thumbnail_url: string; viewer_count: number }>();
+  const streamsParam = logins.map((l) => `user_login=${l}`).join("&");
+  const streamsRes = await fetch(`https://api.twitch.tv/helix/streams?${streamsParam}`, { headers: twitchHeaders });
+  if (streamsRes.ok) {
+    const data = await streamsRes.json() as { data: Array<{ user_login: string; thumbnail_url: string; viewer_count: number }> };
+    for (const s of data.data) {
+      streamMap.set(s.user_login.toLowerCase(), {
+        thumbnail_url: s.thumbnail_url.replace("{width}", "440").replace("{height}", "248"),
+        viewer_count: s.viewer_count,
+      });
+    }
+  }
+
+  const enriched = rooms.map((r) => {
+    const login = (r.channel_login as string).toLowerCase();
+    const fresh = profileMap.get(login);
+    const stream = streamMap.get(login);
+    return {
+      ...r,
+      avatar_url: (r.avatar_url as string) ?? fresh?.avatar_url ?? null,
+      banner_url: (r.banner_url as string) ?? fresh?.banner_url ?? null,
+      is_live: !!stream,
+      thumbnail_url: stream?.thumbnail_url ?? null,
+      viewer_count: stream?.viewer_count ?? null,
+    };
+  });
+
+  return c.json({ rooms: enriched });
+});
 
 export default app;

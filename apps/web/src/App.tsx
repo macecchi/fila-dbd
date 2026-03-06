@@ -3,6 +3,7 @@ import { ChatLog } from './components/ChatLog';
 import { ControlPanel } from './components/ControlPanel';
 import { DebugPanel } from './components/DebugPanel';
 import { CharacterRequestList } from './components/CharacterRequestList';
+import { LandingPage } from './components/LandingPage';
 import { ManualEntry } from './components/ManualEntry';
 import { MissedRequestsDialog } from './components/MissedRequestsDialog';
 import { SourcesBadges } from './components/SourcesBadges';
@@ -15,8 +16,6 @@ import { donateBotName } from './services/twitch';
 import { useSettings, useAuth, ChannelProvider, useChannel, useToasts, useLastChannel } from './store';
 import { migrateGlobalToChannel } from './utils/migrate';
 import type { Request } from './types';
-
-const DEFAULT_CHANNEL = 'mandymess';
 
 const parseHash = (hash: string) => {
   const parts = hash.replace(/^#\/?/, '').split('/');
@@ -209,12 +208,12 @@ function ChannelApp() {
     <>
       <div className="app">
         <header className="header">
-          <div className="brand">
+          <a className="brand" href="#/">
             <div className="brand-icon">
               <img src={`${import.meta.env.BASE_URL}images/Dead-by-Daylight-Emblem.png`} alt="DBD" />
             </div>
             <h1>Fila DBD<span>Fila de pedidos</span></h1>
-          </div>
+          </a>
           <Stats />
         </header>
 
@@ -322,13 +321,13 @@ function ChannelApp() {
 
 export function App() {
   const { handleCallback } = useAuth();
-  const { lastChannel, setLastChannel } = useLastChannel();
+  const { setLastChannel } = useLastChannel();
   const [channel, setChannel] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
 
   // Handle migration and initial channel on mount
   useEffect(() => {
-    // Run migration first
-    const migratedChannel = migrateGlobalToChannel();
+    migrateGlobalToChannel();
 
     // Handle OAuth callback
     const success = handleCallback();
@@ -339,40 +338,46 @@ export function App() {
         setLastChannel(ch);
         window.location.hash = `#/${ch}`;
         setChannel(ch);
+        setReady(true);
         return;
       }
     }
 
-    // Set channel from hash, lastChannel, migration, or default
+    // Set channel from hash — if none, show landing page
     const hashChannel = getChannelFromHash(window.location.hash);
     if (hashChannel) {
-      setChannel(hashChannel.toLowerCase());
-      setLastChannel(hashChannel.toLowerCase());
-    } else {
-      const ch = migratedChannel || lastChannel || DEFAULT_CHANNEL;
-      window.location.hash = `#/${ch}`;
+      const ch = hashChannel.toLowerCase();
       setChannel(ch);
       setLastChannel(ch);
+    } else {
+      setChannel(null);
     }
-  }, [handleCallback, lastChannel, setLastChannel]);
+    setReady(true);
+  }, [handleCallback, setLastChannel]);
 
-  // Handle hashchange
+  // Handle navigation (hashchange + popstate for browser back)
   useEffect(() => {
-    const onHashChange = () => {
+    const syncChannel = () => {
       const hashChannel = getChannelFromHash(window.location.hash);
       if (hashChannel) {
         const ch = hashChannel.toLowerCase();
         setChannel(ch);
         setLastChannel(ch);
+      } else {
+        setChannel(null);
       }
     };
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
+    window.addEventListener('hashchange', syncChannel);
+    window.addEventListener('popstate', syncChannel);
+    return () => {
+      window.removeEventListener('hashchange', syncChannel);
+      window.removeEventListener('popstate', syncChannel);
+    };
   }, [setLastChannel]);
 
-  if (!channel) {
-    return null;
-  }
+  if (!ready) return null;
+
+  if (!channel) return <LandingPage />;
 
   return (
     <ChannelProvider channel={channel}>

@@ -18,11 +18,19 @@ database_name = "fila-dbd"
 database_id = "local"
 migrations_dir = "migrations"
 
+[[kv_namespaces]]
+binding = "CACHE"
+id = "local"
+
 [env.production]
-vars = { FRONTEND_URL = "https://macecchi.github.io/dbd-utils" }
+vars = { FRONTEND_URL = "https://filadbd.pages.dev" }
 
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "fila-dbd"
 database_id = "0b7fe20d-bc00-4399-b58d-2923aaab201c"
 migrations_dir = "migrations"
+
+[[env.production.kv_namespaces]]
+binding = "CACHE"
+id = "d969f51392e9471790da97ea9c053506"

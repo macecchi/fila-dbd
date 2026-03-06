@@ -76,7 +76,31 @@ export function CharacterRequestList({ showDone = false }: Props) {
     setDragOverId(null);
   }, [draggedId]);
 
+  const partySynced = useChannelInfo((s) => s.partySynced);
+
   if (filtered.length === 0) {
+    if (!partySynced) {
+      return (
+        <div>
+          {Array.from({ length: 3 }, (_, i) => (
+            <div key={i} className="request-card skeleton">
+              <div className="request-card-content">
+                <span className="request-position skeleton-bone" style={{ width: '2ch', height: '1.2em' }} />
+                <div className="char-portrait-wrapper skeleton-bone" />
+                <div className="request-card-info">
+                  <div className="skeleton-bone" style={{ width: '40%', height: '1em' }} />
+                  <div className="skeleton-bone" style={{ width: '70%', height: '0.8em', marginTop: '0.5em' }} />
+                </div>
+                <div className="request-card-meta">
+                  <span className="skeleton-bone" style={{ width: '3rem', height: '1.2em', borderRadius: 'var(--radius-sm)' }} />
+                  <span className="skeleton-bone" style={{ width: '2rem', height: '0.7em' }} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
     const emptyMessage = showDone
       ? 'Nenhum pedido'
       : !isOwnChannel && channelStatus !== 'live'
