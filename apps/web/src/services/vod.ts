@@ -18,11 +18,7 @@ export interface VODCallbacks {
   onRequest: (request: Request) => void;
 }
 
-async function fetchVODChat(vodId: string, offset = 0) {
-  const query = {
-    query: `query($videoID:ID!,$contentOffsetSeconds:Int){video(id:$videoID){comments(contentOffsetSeconds:$contentOffsetSeconds,first:100){edges{node{id contentOffsetSeconds commenter{login displayName}message{fragments{text}}}}}}}`,
-    variables: { videoID: vodId, contentOffsetSeconds: offset }
-  };
+async function fetchGQL(query: object) {
   const opts: RequestInit = {
     method: 'POST',
     headers: { 'Client-ID': TWITCH_CLIENT_ID, 'Content-Type': 'application/json' },
@@ -37,6 +33,13 @@ async function fetchVODChat(vodId: string, offset = 0) {
     const res = await fetch('https://corsproxy.io/?url=' + encodeURIComponent('https://gql.twitch.tv/gql'), proxyOpts);
     return res.json();
   }
+}
+
+async function fetchVODChat(vodId: string, offset = 0) {
+  return fetchGQL({
+    query: `query($videoID:ID!,$contentOffsetSeconds:Int){video(id:$videoID){comments(contentOffsetSeconds:$contentOffsetSeconds,first:100){edges{node{id contentOffsetSeconds commenter{login displayName}message{fragments{text}}}}}}}`,
+    variables: { videoID: vodId, contentOffsetSeconds: offset }
+  });
 }
 
 export async function loadAndReplayVOD(
@@ -110,4 +113,175 @@ export async function loadAndReplayVOD(
 
 export function cancelVODReplay() {
   vodReplayAbort = true;
+}
+
+// ============ VOD RECOVERY ============
+
+export interface RecoveryConfig {
+  botName: string;
+  minDonation: number;
+  // resub: included for type compat but VOD GQL has no USERNOTICE data
+  sourcesEnabled: { donation: boolean; resub: boolean; chat: boolean; manual: boolean };
+  chatCommand: string;
+  checkpoint?: { vodId: string; offset: number };
+}
+
+export interface RecoveryResult {
+  requests: Request[];
+  vodId: string;
+  lastOffset: number;
+}
+
+function hashStringToNumber(s: string): number {
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) {
+    hash = ((hash << 5) - hash) + s.charCodeAt(i);
+    hash = hash & hash;
+  }
+  return Math.abs(hash);
+}
+
+export async function fetchCurrentVodId(channel: string): Promise<{ vodId: string; createdAt: string } | null> {
+  try {
+    const data = await fetchGQL({
+      query: `query($login:String!){user(login:$login){videos(first:1,type:ARCHIVE,sort:TIME){edges{node{id createdAt status}}}}}`,
+      variables: { login: channel }
+    });
+
+    const node = data?.data?.user?.videos?.edges?.[0]?.node;
+    if (!node) return null;
+
+    // Only recover from recent VODs (within 24 hours)
+    const createdAt = new Date(node.createdAt);
+    const hoursAgo = (Date.now() - createdAt.getTime()) / (1000 * 60 * 60);
+    if (hoursAgo > 24) return null;
+
+    return { vodId: node.id, createdAt: node.createdAt };
+  } catch {
+    return null;
+  }
+}
+
+export interface RecoveryCallbacks {
+  onProgress?: (status: string) => void;
+  onRequest?: (request: Request) => void;
+}
+
+export async function recoverMissedRequests(
+  channel: string,
+  config: RecoveryConfig,
+  existingRequests: Request[],
+  callbacks?: RecoveryCallbacks,
+  signal?: AbortSignal
+): Promise<RecoveryResult | null> {
+  if (signal?.aborted) return null;
+
+  callbacks?.onProgress?.('Buscando VOD da stream atual...');
+
+  const vodInfo = await fetchCurrentVodId(channel);
+  if (!vodInfo) return null;
+
+  const { vodId, createdAt } = vodInfo;
+  const vodStart = new Date(createdAt).getTime();
+  const botName = config.botName.toLowerCase();
+  const chatCommand = config.chatCommand.toLowerCase();
+  const requests: Request[] = [];
+  const seen = new Set<string>();
+
+  // Resume from last checkpoint if same VOD
+  const cp = config.checkpoint;
+  let offset = (cp && cp.vodId === vodId) ? cp.offset + 1 : 0;
+
+  // Build sets for deduplication: by ID and by donor:message signature
+  const existingIds = new Set(existingRequests.map(r => r.id));
+  const existingSignatures = new Set(
+    existingRequests.map(r => `${r.donor.toLowerCase()}:${r.message.toLowerCase()}`)
+  );
+
+  callbacks?.onProgress?.('Analisando chat da VOD...');
+
+  while (!signal?.aborted) {
+    const data = await fetchVODChat(vodId, offset);
+    if (signal?.aborted) break;
+    const edges = data?.data?.video?.comments?.edges || [];
+    if (!edges.length) break;
+
+    let newCount = 0, lastOffset = offset;
+    for (const { node } of edges) {
+      if (seen.has(node.id)) continue;
+      seen.add(node.id);
+      newCount++;
+
+      const username = node.commenter?.login?.toLowerCase() || '';
+      const displayName = node.commenter?.displayName || username;
+      const message = node.message?.fragments?.map((f: any) => f.text).join('') || '';
+      lastOffset = node.contentOffsetSeconds || lastOffset;
+
+      const timestamp = new Date(vodStart + (node.contentOffsetSeconds || 0) * 1000);
+
+      // Check for donations
+      if (username === botName && config.sourcesEnabled.donation) {
+        const parsed = parseDonationMessage(message);
+        if (parsed) {
+          const amountVal = parseAmount(parsed.amount);
+          if (amountVal >= config.minDonation) {
+            const reqId = hashStringToNumber(`vod:${node.id}`);
+            const sig = `${parsed.donor.toLowerCase()}:${parsed.message.toLowerCase()}`;
+            if (!existingIds.has(reqId) && !existingSignatures.has(sig)) {
+              const local = tryLocalMatch(parsed.message);
+              const req: Request = {
+                id: reqId,
+                timestamp,
+                donor: parsed.donor,
+                amount: parsed.amount,
+                amountVal,
+                message: parsed.message,
+                character: local?.character || 'Identificando...',
+                type: local?.type || 'unknown',
+                source: 'donation',
+                needsIdentification: !local
+              };
+              requests.push(req);
+              callbacks?.onRequest?.(req);
+            }
+          }
+        }
+      }
+
+      // Check for chat commands
+      if (username !== botName && message.toLowerCase().startsWith(chatCommand) && config.sourcesEnabled.chat) {
+        const requestText = message.slice(chatCommand.length).trim();
+        if (requestText) {
+          const reqId = hashStringToNumber(`vod:${node.id}`);
+          const sig = `${displayName.toLowerCase()}:${requestText.toLowerCase()}`;
+          if (!existingIds.has(reqId) && !existingSignatures.has(sig)) {
+            const local = tryLocalMatch(requestText);
+            const req: Request = {
+              id: reqId,
+              timestamp,
+              donor: displayName,
+              amount: '',
+              amountVal: 0,
+              message: requestText,
+              character: local?.character || 'Identificando...',
+              type: local?.type || 'unknown',
+              source: 'chat',
+              needsIdentification: !local
+            };
+            requests.push(req);
+            callbacks?.onRequest?.(req);
+          }
+        }
+      }
+    }
+
+    callbacks?.onProgress?.(`Analisando chat... ${seen.size} msgs, ${requests.length} pedidos encontrados`);
+
+    if (!newCount) break;
+    offset = lastOffset + 1;
+  }
+
+  // Use the highest contentOffsetSeconds we actually saw, or fall back to checkpoint
+  const finalOffset = seen.size > 0 ? offset - 1 : (cp && cp.vodId === vodId ? cp.offset : 0);
+  return { requests, vodId, lastOffset: finalOffset };
 }

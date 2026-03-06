@@ -60,12 +60,6 @@
   opacity: 0.5;
 }
 
-.msg-preview {
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-  font-style: italic;
-}
-
 /* Hover action overlay */
 .request-actions {
   position: absolute;
@@ -180,11 +174,13 @@
   min-width: 0;
   margin-top: 0.5em;
   line-height: normal;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 .donor-name {
   font-weight: 600;
-  font-size: 0.8em;
   color: var(--accent);
   margin-right: 0.4em;
 }

@@ -243,6 +243,8 @@ interface SourcesStore {
   priority: SourceType[];
   sortMode: SortMode;
   minDonation: number;
+  recoveryVodId?: string;
+  recoveryVodOffset?: number;
   setEnabled: (enabled: SourcesEnabled) => void;
   toggleSource: (source: keyof SourcesEnabled) => void;
   setChatCommand: (cmd: string) => void;
@@ -250,6 +252,7 @@ interface SourcesStore {
   setPriority: (priority: SourceType[]) => void;
   setSortMode: (mode: SortMode) => void;
   setMinDonation: (min: number) => void;
+  setRecoveryCheckpoint: (vodId: string, offset: number) => void;
   handlePartyMessage: (msg: PartyMessage) => void;
 }
 
@@ -319,6 +322,10 @@ export function createSourcesStore(
           set({ minDonation });
           maybeBroadcast(get);
         },
+        setRecoveryCheckpoint: (recoveryVodId, recoveryVodOffset) => {
+          set({ recoveryVodId, recoveryVodOffset });
+          maybeBroadcast(get);
+        },
         handlePartyMessage: (msg) => {
           if (msg.type === 'sync-full' || msg.type === 'update-sources') {
             const sources = msg.sources;
@@ -329,6 +336,8 @@ export function createSourcesStore(
               priority: sources.priority,
               sortMode: sources.sortMode,
               minDonation: sources.minDonation,
+              recoveryVodId: sources.recoveryVodId,
+              recoveryVodOffset: sources.recoveryVodOffset,
             });
           }
         },
@@ -361,6 +370,7 @@ interface ChannelInfoStore {
   status: ChannelStatus;
   owner: ChannelOwner | null;
   isOwner: boolean;
+  partySynced: boolean;
   localIrcConnectionState: ConnectionState;
   localPartyConnectionState: ConnectionState;
   setIsOwner: (isOwner: boolean) => void;
@@ -376,6 +386,7 @@ export function createChannelInfoStore() {
     status: 'offline',
     owner: null,
     isOwner: false,
+    partySynced: false,
     localIrcConnectionState: 'disconnected',
     localPartyConnectionState: 'disconnected',
     setIsOwner: (isOwner) => set({ isOwner }),
@@ -388,8 +399,14 @@ export function createChannelInfoStore() {
     },
     setPartyConnectionState: (state) => {
       set({ localPartyConnectionState: state });
+      if (state === 'disconnected') {
+        set({ partySynced: false });
+      }
     },
     handlePartyMessage: (msg) => {
+      if (msg.type === 'sync-full') {
+        set({ partySynced: true });
+      }
       if (msg.type === 'ownership-granted') {
         set({ isOwner: true });
       } else if (msg.type === 'ownership-denied') {

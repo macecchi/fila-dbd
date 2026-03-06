@@ -21,7 +21,7 @@ interface ChannelProviderProps {
 
 export function ChannelProvider({ channel, children }: ChannelProviderProps) {
   const { user, isAuthenticated, getAccessToken } = useAuth();
-  const isOwnChannel = isAuthenticated && !!user && channel.toLowerCase() === user.login.toLowerCase();
+  const isOwnChannel = import.meta.env.DEV || (isAuthenticated && !!user && channel.toLowerCase() === user.login.toLowerCase());
   const stores = useMemo(() => createRoomStores(channel), [channel]);
 
   useEffect(() => {
