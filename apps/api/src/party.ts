@@ -109,7 +109,7 @@ export default class PartyServer implements Party.Server {
 
     // Handle claim-ownership - anyone can send this
     if (msg.type === 'claim-ownership') {
-      if (!this.isDev && !isRoomOwner) {
+      if (!isRoomOwner && !(this.isDev && connInfo?.user)) {
         const denyMsg: PartyMessage = { type: 'ownership-denied', currentOwner: 'not-room-owner' };
         sender.send(JSON.stringify(denyMsg));
         console.log(`${this.tag} Denied ownership to ${connInfo?.user?.login ?? sender.id}: not room owner`);
@@ -149,7 +149,7 @@ export default class PartyServer implements Party.Server {
       return;
     }
 
-    if (!this.isDev && !isLockHolder) {
+    if (!isLockHolder) {
       console.warn(`${this.tag} Rejected msg from non-owner ${sender.id}`);
       return;
     }

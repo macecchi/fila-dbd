@@ -118,6 +118,21 @@ textarea {
   background: var(--green);
 }
 
+.btn-pulse {
+  animation: glow 2s ease-in-out infinite alternate;
+}
+
+@keyframes glow {
+  from {
+    box-shadow: 0 0 4px 2px rgba(139, 92, 246, 0.4);
+    background-color: var(--accent);
+  }
+  to {
+    box-shadow: 0 0 12px 4px rgba(139, 92, 246, 0.8);
+    background-color: #9d75f9; /* slightly lighter than accent for extra pop */
+  }
+}
+
 .btn-icon {
   display: flex;
   align-items: center;

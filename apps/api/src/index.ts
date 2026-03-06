@@ -4,6 +4,7 @@ import { sign } from "hono/jwt";
 import { Twitch } from "arctic";
 import { verifyJwt, type JwtPayload } from "./jwt";
 import { extractCharacter } from "./gemini";
+import { getAppToken, fetchProfiles, fetchStreams, cacheProfiles } from "./twitch";
 
 type Bindings = {
   TWITCH_CLIENT_ID: string;
@@ -355,8 +356,19 @@ app.route("/internal", internal);
 
 // ============ PUBLIC API ROUTES ============
 
+interface RoomRow {
+  id: string;
+  channel_login: string;
+  avatar_url: string | null;
+  banner_url: string | null;
+  status: string;
+  updated_at: string;
+  request_count?: number;
+  pending_count?: number;
+}
+
 app.get("/rooms/active", async (c) => {
-  const rows = await c.env.DB.prepare(
+  const { results } = await c.env.DB.prepare(
     `SELECT r.id, r.channel_login, r.avatar_url, r.banner_url, r.status,
             COUNT(req.id) AS request_count,
             SUM(CASE WHEN req.done = 0 THEN 1 ELSE 0 END) AS pending_count,
@@ -367,85 +379,33 @@ app.get("/rooms/active", async (c) => {
      GROUP BY r.id
      ORDER BY r.updated_at DESC
      LIMIT 20`
-  ).all();
+  ).all<RoomRow>();
 
-  const rooms = rows.results as Array<Record<string, unknown>>;
-  if (rooms.length === 0) return c.json({ rooms: [] });
+  if (results.length === 0) return c.json({ rooms: [] });
 
-  // Get Twitch app access token (cached in KV)
-  const APP_TOKEN_KV_KEY = "twitch_app_token";
-  let access_token = await c.env.CACHE.get(APP_TOKEN_KV_KEY);
+  const token = await getAppToken(c.env);
+  if (!token) return c.json({ rooms: results });
 
-  if (!access_token) {
-    const tokenRes = await fetch("https://id.twitch.tv/oauth2/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: c.env.TWITCH_CLIENT_ID,
-        client_secret: c.env.TWITCH_CLIENT_SECRET,
-        grant_type: "client_credentials",
-      }),
-    });
+  const logins = results.map((r) => r.channel_login);
 
-    if (!tokenRes.ok) return c.json({ rooms });
+  // Fetch missing profiles from Twitch and cache in D1
+  const missingLogins = results.filter((r) => !r.avatar_url).map((r) => r.channel_login);
+  const profiles = await fetchProfiles(missingLogins, token, c.env.TWITCH_CLIENT_ID);
+  const profileMap = new Map(profiles.map((p) => [p.login, p]));
+  cacheProfiles(c.env.DB, profiles, c.executionCtx);
 
-    const data = await tokenRes.json() as { access_token: string; expires_in: number };
-    access_token = data.access_token;
-    await c.env.CACHE.put(APP_TOKEN_KV_KEY, access_token, { expirationTtl: data.expires_in - 300 });
-  }
+  // Fetch live streams
+  const streams = await fetchStreams(logins, token, c.env.TWITCH_CLIENT_ID);
+  const streamMap = new Map(streams.map((s) => [s.user_login, s]));
 
-  const logins = rooms.map((r) => r.channel_login as string);
-  const twitchHeaders = {
-    Authorization: `Bearer ${access_token}`,
-    "Client-Id": c.env.TWITCH_CLIENT_ID,
-  };
-
-  // Only fetch profiles from Twitch for rooms missing avatar_url
-  const missingProfile = rooms.filter((r) => !r.avatar_url);
-  const profileMap = new Map<string, { avatar_url: string; banner_url: string }>();
-
-  if (missingProfile.length > 0) {
-    const param = missingProfile.map((r) => `login=${r.channel_login}`).join("&");
-    const usersRes = await fetch(`https://api.twitch.tv/helix/users?${param}`, { headers: twitchHeaders });
-    if (usersRes.ok) {
-      const data = await usersRes.json() as { data: Array<{ login: string; profile_image_url: string; offline_image_url: string }> };
-      const statements: D1PreparedStatement[] = [];
-      for (const u of data.data) {
-        profileMap.set(u.login.toLowerCase(), {
-          avatar_url: u.profile_image_url,
-          banner_url: u.offline_image_url,
-        });
-        statements.push(
-          c.env.DB.prepare("UPDATE rooms SET avatar_url = ?, banner_url = ? WHERE id = ?")
-            .bind(u.profile_image_url, u.offline_image_url, u.login.toLowerCase())
-        );
-      }
-      if (statements.length > 0) c.executionCtx.waitUntil(c.env.DB.batch(statements));
-    }
-  }
-
-  // Always fetch live streams (real-time data)
-  const streamMap = new Map<string, { thumbnail_url: string; viewer_count: number }>();
-  const streamsParam = logins.map((l) => `user_login=${l}`).join("&");
-  const streamsRes = await fetch(`https://api.twitch.tv/helix/streams?${streamsParam}`, { headers: twitchHeaders });
-  if (streamsRes.ok) {
-    const data = await streamsRes.json() as { data: Array<{ user_login: string; thumbnail_url: string; viewer_count: number }> };
-    for (const s of data.data) {
-      streamMap.set(s.user_login.toLowerCase(), {
-        thumbnail_url: s.thumbnail_url.replace("{width}", "440").replace("{height}", "248"),
-        viewer_count: s.viewer_count,
-      });
-    }
-  }
-
-  const enriched = rooms.map((r) => {
-    const login = (r.channel_login as string).toLowerCase();
+  const enriched = results.map((r) => {
+    const login = r.channel_login.toLowerCase();
     const fresh = profileMap.get(login);
     const stream = streamMap.get(login);
     return {
       ...r,
-      avatar_url: (r.avatar_url as string) ?? fresh?.avatar_url ?? null,
-      banner_url: (r.banner_url as string) ?? fresh?.banner_url ?? null,
+      avatar_url: r.avatar_url ?? fresh?.avatar_url ?? null,
+      banner_url: r.banner_url ?? fresh?.banner_url ?? null,
       is_live: !!stream,
       thumbnail_url: stream?.thumbnail_url ?? null,
       viewer_count: stream?.viewer_count ?? null,
@@ -453,6 +413,28 @@ app.get("/rooms/active", async (c) => {
   });
 
   return c.json({ rooms: enriched });
+});
+
+app.get("/rooms/:roomId", async (c) => {
+  const roomId = c.req.param("roomId").toLowerCase();
+  const row = await c.env.DB.prepare(
+    "SELECT id, channel_login, avatar_url, status, updated_at FROM rooms WHERE id = ?"
+  ).bind(roomId).first<RoomRow>();
+
+  const room = row ?? { id: roomId, channel_login: roomId, avatar_url: null as string | null, banner_url: null, status: "offline", updated_at: null };
+
+  if (!room.avatar_url) {
+    const token = await getAppToken(c.env);
+    if (token) {
+      const profiles = await fetchProfiles([roomId], token, c.env.TWITCH_CLIENT_ID);
+      if (profiles[0]) {
+        room.avatar_url = profiles[0].avatar_url;
+        cacheProfiles(c.env.DB, profiles, c.executionCtx);
+      }
+    }
+  }
+
+  return c.json({ room });
 });
 
 export default app;

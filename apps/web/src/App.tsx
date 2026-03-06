@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { ChatLog } from './components/ChatLog';
-import { ControlPanel } from './components/ControlPanel';
+import { ChannelHeader } from './components/ChannelHeader';
 import { DebugPanel } from './components/DebugPanel';
 import { CharacterRequestList } from './components/CharacterRequestList';
 import { LandingPage } from './components/LandingPage';
@@ -217,7 +217,7 @@ function ChannelApp() {
           <Stats />
         </header>
 
-        <ControlPanel />
+        <ChannelHeader />
 
         <main className={`grid${chatHidden ? ' chat-hidden' : ''}`}>
           <div className="panel">
