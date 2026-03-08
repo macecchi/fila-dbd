@@ -58,7 +58,7 @@ export const CHARACTERS: CharacterData = {
         { name: "Wraith", aliases: ["Espectro"], portrait: "https://deadbydaylight.wiki.gg/images/K02_TheWraith_Portrait.png" },
         { name: "Hillbilly", aliases: ["Billy", "Caipira"], portrait: "https://deadbydaylight.wiki.gg/images/K03_TheHillbilly_Portrait.png" },
         { name: "Nurse", aliases: ["Enfermeira"], portrait: "https://deadbydaylight.wiki.gg/images/K04_TheNurse_Portrait.png" },
-        { name: "Shape", aliases: ["Michael Myers", "Forma"], portrait: "https://deadbydaylight.wiki.gg/images/K05_TheShape_Portrait.png" },
+        { name: "Shape", aliases: ["Michael Myers", "Myers"], portrait: "https://deadbydaylight.wiki.gg/images/K05_TheShape_Portrait.png" },
         { name: "Hag", aliases: ["Bruxa"], portrait: "https://deadbydaylight.wiki.gg/images/K06_TheHag_Portrait.png" },
         { name: "Doctor", aliases: ["Médico"], portrait: "https://deadbydaylight.wiki.gg/images/K07_TheDoctor_Portrait.png" },
         { name: "Huntress", aliases: ["Caçadora"], portrait: "https://deadbydaylight.wiki.gg/images/K08_TheHuntress_Portrait.png" },
@@ -78,7 +78,7 @@ export const CHARACTERS: CharacterData = {
         { name: "Twins", aliases: ["Gêmeos"], portrait: "https://deadbydaylight.wiki.gg/images/K22_TheTwins_Portrait.png" },
         { name: "Trickster", aliases: ["Trapaceiro"], portrait: "https://deadbydaylight.wiki.gg/images/K23_TheTrickster_Portrait.png" },
         { name: "Nemesis", aliases: [], portrait: "https://deadbydaylight.wiki.gg/images/K24_TheNemesis_Portrait.png" },
-        { name: "Cenobite", aliases: ["Cenobita"], portrait: "https://deadbydaylight.wiki.gg/images/K25_TheCenobite_Portrait.png" },
+        { name: "Cenobite", aliases: ["Cenobita", "Pinhead"], portrait: "https://deadbydaylight.wiki.gg/images/K25_TheCenobite_Portrait.png" },
         { name: "Artist", aliases: ["Artista"], portrait: "https://deadbydaylight.wiki.gg/images/K26_TheArtist_Portrait.png" },
         { name: "Onryō", aliases: ["Sadako", "Samara"], portrait: "https://deadbydaylight.wiki.gg/images/K27_TheOnryo_Portrait.png" },
         { name: "Dredge", aliases: ["Draga"], portrait: "https://deadbydaylight.wiki.gg/images/K28_TheDredge_Portrait.png" },
@@ -106,4 +106,51 @@ export const DEFAULT_CHARACTERS = {
 
 export function getKillerPortrait(name: string): string | undefined {
     return CHARACTERS.killers.find(k => k.name === name)?.portrait || CHARACTERS.killers.find(k => k.aliases.includes(name))?.portrait;
+}
+
+const GENERIC_SURVIVOR_PATTERNS = [
+    /\b(?:jog[aue]|uma?)\s+(?:de\s+)?surv(?:ivor)?(?:zinho|zinha)?\b/i,
+    /\b(?:de\s+)?surv(?:ivor)?(?:zinho|zinha)?\b/i,
+    /\bsobrevivente\b/i,
+];
+
+export type LocalMatchResult = { character: string; type: 'killer' | 'survivor'; ambiguous?: boolean };
+
+export function tryLocalMatch(message: string): LocalMatchResult | null {
+    const lower = message.toLowerCase();
+    const matches: { character: string; type: 'killer' | 'survivor'; position: number }[] = [];
+
+    for (const type of ['killers', 'survivors'] as const) {
+        for (const char of CHARACTERS[type]) {
+            for (const name of [char.name, ...char.aliases]) {
+                const regex = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+                let match;
+                while ((match = regex.exec(lower)) !== null) {
+                    matches.push({
+                        character: char.name,
+                        type: type === 'killers' ? 'killer' : 'survivor',
+                        position: match.index
+                    });
+                }
+            }
+        }
+    }
+
+    if (matches.length === 0) {
+        for (const pattern of GENERIC_SURVIVOR_PATTERNS) {
+            if (pattern.test(lower)) {
+                return { character: 'Survivor', type: 'survivor' };
+            }
+        }
+        return null;
+    }
+
+    const uniqueChars = new Set(matches.map(m => m.character));
+    const lastMatch = matches.reduce((a, b) => b.position > a.position ? b : a);
+
+    return {
+        character: lastMatch.character,
+        type: lastMatch.type,
+        ambiguous: uniqueChars.size > 1
+    };
 }

@@ -1,6 +1,6 @@
 import { DEFAULT_CHARACTERS } from '@dbd-utils/shared';
 
-const MODELS = ['gemini-3-flash-preview', 'gemini-3.1-flash-lite-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+const MODELS = ['gemini-3.1-flash-lite-preview', 'gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
 const RETRIABLE_CODES = [429, 500, 502, 503, 504];
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [2000, 4000, 8000];
@@ -38,9 +38,17 @@ ${message}
 </user_message>
 
 Identify the Dead by Daylight character from the above user message. Return ONLY JSON with character name and type.
+- The character name MUST be their official name, which is the first name in the slash-separated list provided above
+  - e.g. Even if the message mentions "Myers", return "Shape", not "Michael Myers".
+- Only extract a character if the user is clearly requesting one to play. Look for patterns like "joga de X", "vai de X", "uma de X", "play X", or a character name stated as a standalone request.
+- Messages that are personal stories, questions, greetings, or general conversation WITHOUT a gameplay request should return type "none" — do NOT guess a character from vague context, metaphors, or unrelated words.
+- If the text mentions multiple characters, determine by the intent of the message which ONE the user actually wants to play with or is requesting.
+  - e.g. "I love pig, but play one with hag" should return "Hag".
+  - e.g. "chega de Hag! Joga de Pinhead" should return "Cenobite" (Pinhead), not "Hag".
 - If user requests a generic survivor (e.g. "joga de surv", "uma de survivor"), return character "Survivor" with type "survivor".
+- Recognize creative spellings, slang, and affectionate variations of character names (e.g. "Drakuluxuuu" = Dracula, "demogogo" = Demogorgon, "pigzinha" = Pig).
 - If exact character unknown, return empty character.
-- If no character mentioned, return type "none".`;
+- If no character mentioned or requested, return type "none".`;
 
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
