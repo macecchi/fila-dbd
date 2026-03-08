@@ -210,7 +210,7 @@ function ChannelApp() {
         <header className="header">
           <a className="brand" href="#/">
             <div className="brand-icon">
-              <img src={`${import.meta.env.BASE_URL}images/Dead-by-Daylight-Emblem.png`} alt="DBD" />
+              <img src={`${import.meta.env.BASE_URL}images/Dead-by-Daylight-Emblem.webp`} alt="DBD" />
             </div>
             <h1>Fila DBD<span>Fila de pedidos</span></h1>
           </a>
@@ -320,26 +320,18 @@ function ChannelApp() {
 }
 
 export function App() {
-  const { handleCallback } = useAuth();
-  const { setLastChannel } = useLastChannel();
-  const [channel, setChannel] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
-
-  // Handle migration and initial channel on mount
-  useEffect(() => {
+  const [channel, setChannel] = useState<string | null>(() => {
     migrateGlobalToChannel();
 
     // Handle OAuth callback
-    const success = handleCallback();
+    const success = useAuth.getState().handleCallback();
     if (success) {
       const freshUser = useAuth.getState().user;
       if (freshUser?.login) {
         const ch = freshUser.login.toLowerCase();
-        setLastChannel(ch);
+        useLastChannel.getState().setLastChannel(ch);
         window.location.hash = `#/${ch}`;
-        setChannel(ch);
-        setReady(true);
-        return;
+        return ch;
       }
     }
 
@@ -347,13 +339,11 @@ export function App() {
     const hashChannel = getChannelFromHash(window.location.hash);
     if (hashChannel) {
       const ch = hashChannel.toLowerCase();
-      setChannel(ch);
-      setLastChannel(ch);
-    } else {
-      setChannel(null);
+      useLastChannel.getState().setLastChannel(ch);
+      return ch;
     }
-    setReady(true);
-  }, [handleCallback, setLastChannel]);
+    return null;
+  });
 
   // Handle navigation (hashchange + popstate for browser back)
   useEffect(() => {
@@ -362,7 +352,7 @@ export function App() {
       if (hashChannel) {
         const ch = hashChannel.toLowerCase();
         setChannel(ch);
-        setLastChannel(ch);
+        useLastChannel.getState().setLastChannel(ch);
       } else {
         setChannel(null);
       }
@@ -373,9 +363,7 @@ export function App() {
       window.removeEventListener('hashchange', syncChannel);
       window.removeEventListener('popstate', syncChannel);
     };
-  }, [setLastChannel]);
-
-  if (!ready) return null;
+  }, []);
 
   if (!channel) return <LandingPage />;
 

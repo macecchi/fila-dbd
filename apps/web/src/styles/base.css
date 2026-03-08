@@ -1,3 +1,13 @@
+/* Fallback font with adjusted metrics to match DM Sans and reduce CLS on font swap */
+@font-face {
+  font-family: 'DM Sans Fallback';
+  src: local('Arial');
+  size-adjust: 96.2%;
+  ascent-override: 95%;
+  descent-override: 25%;
+  line-height-override: 110%;
+}
+
 /* CSS Variables, Resets, Body Styles, Typography */
 
 *,
@@ -68,7 +78,7 @@
 }
 
 body {
-  font-family: 'DM Sans', -apple-system, sans-serif;
+  font-family: 'DM Sans', 'DM Sans Fallback', -apple-system, sans-serif;
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;

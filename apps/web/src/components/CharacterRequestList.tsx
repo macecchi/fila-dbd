@@ -82,14 +82,17 @@ export function CharacterRequestList({ showDone = false }: Props) {
     if (!partySynced) {
       return (
         <div>
-          {Array.from({ length: 3 }, (_, i) => (
+          {Array.from({ length: 7 }, (_, i) => (
             <div key={i} className="request-card skeleton">
               <div className="request-card-content">
                 <span className="request-position skeleton-bone" style={{ width: '2ch', height: '1.2em' }} />
                 <div className="char-portrait-wrapper skeleton-bone" />
                 <div className="request-card-info">
                   <div className="skeleton-bone" style={{ width: '40%', height: '1em' }} />
-                  <div className="skeleton-bone" style={{ width: '70%', height: '0.8em', marginTop: '0.5em' }} />
+                  <div className="request-card-body">
+                    <span className="skeleton-bone" style={{ width: '25%', height: '0.8em', display: 'inline-block' }} />
+                    <span className="skeleton-bone" style={{ width: '55%', height: '0.8em', display: 'inline-block', marginLeft: '0.4em' }} />
+                  </div>
                 </div>
                 <div className="request-card-meta">
                   <span className="skeleton-bone" style={{ width: '3rem', height: '1.2em', borderRadius: 'var(--radius-sm)' }} />

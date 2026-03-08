@@ -209,9 +209,26 @@
 }
 
 .landing-channel-card.skeleton {
-  aspect-ratio: 360 / 289;
-  background: var(--bg-elevated);
   animation: skeletonPulse 1.5s ease-in-out infinite;
+}
+
+.skeleton-circle {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.skeleton-line {
+  height: 14px;
+  border-radius: var(--radius-sm);
+  background: var(--border);
+  flex: 1;
+}
+
+.skeleton-line.short {
+  width: 40%;
+  flex: none;
 }
 
 .landing-channel-thumb {
@@ -307,7 +324,7 @@
   text-align: center;
   color: var(--text-muted);
   font-size: var(--text-sm);
-  padding: 2rem 0;
+  padding: 3rem 0;
 }
 
 /* Footer */

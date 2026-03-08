@@ -58,7 +58,18 @@ function LiveChannels() {
     return (
       <div className="landing-channels-grid">
         {[1, 2].map(i => (
-          <div key={i} className="landing-channel-card skeleton" />
+          <div key={i} className="landing-channel-card skeleton">
+            <div className="landing-channel-thumb" />
+            <div className="landing-channel-info">
+              <div className="landing-channel-card-header">
+                <div className="skeleton-circle" />
+                <div className="skeleton-line" />
+              </div>
+              <div className="landing-channel-stats">
+                <div className="skeleton-line short" />
+              </div>
+            </div>
+          </div>
         ))}
       </div>
     );
@@ -76,7 +87,7 @@ function LiveChannels() {
             {(room.thumbnail_url || room.banner_url) ? (
               <img src={(room.thumbnail_url || room.banner_url)!} alt={room.channel_login} />
             ) : (
-              <img className="landing-channel-thumb-placeholder" src={`${import.meta.env.BASE_URL}images/Dead-by-Daylight-Emblem.png`} alt="" />
+              <img className="landing-channel-thumb-placeholder" src={`${import.meta.env.BASE_URL}images/Dead-by-Daylight-Emblem.webp`} alt="" />
             )}
             {room.is_live && <span className="landing-channel-live">AO VIVO</span>}
           </div>
@@ -155,7 +166,7 @@ export function LandingPage() {
       <section className="landing-hero">
         <div className="landing-hero-content">
           <div className="landing-brand">
-            <img src={`${import.meta.env.BASE_URL}images/Dead-by-Daylight-Emblem.png`} alt="DBD" />
+            <img src={`${import.meta.env.BASE_URL}images/Dead-by-Daylight-Emblem.webp`} alt="DBD" />
           </div>
           <h1>Fila <span>DBD</span></h1>
           <p className="landing-tagline">
