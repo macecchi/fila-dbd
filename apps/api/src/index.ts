@@ -24,11 +24,23 @@ type Variables = {
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-// CORS for frontend
+// CORS for frontend (also allows *.filadbd.pages.dev preview subdomains)
 app.use(
   "*",
   cors({
-    origin: (origin, c) => new URL(c.env.FRONTEND_URL).origin,
+    origin: (origin, c) => {
+      const frontendOrigin = new URL(c.env.FRONTEND_URL).origin;
+      if (origin === frontendOrigin) return origin;
+      // Allow preview subdomains (e.g., abc123.filadbd.pages.dev)
+      const frontendHost = new URL(c.env.FRONTEND_URL).hostname;
+      if (origin) {
+        try {
+          const originHost = new URL(origin).hostname;
+          if (originHost.endsWith(`.${frontendHost}`)) return origin;
+        } catch { /* invalid origin */ }
+      }
+      return frontendOrigin;
+    },
     credentials: true,
   })
 );

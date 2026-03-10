@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy --env production",
+    "deploy:preview": "wrangler deploy --env preview",
     "deploy:migrations": "wrangler d1 migrations apply fila-dbd --remote --env production",
     "cf-typegen": "wrangler types",
     "dev:party": "partykit dev --var DEV_MODE=true",

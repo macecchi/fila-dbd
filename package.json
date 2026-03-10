@@ -10,6 +10,7 @@
     "build": "bun run --filter '*' build",
     "test": "bun run --filter '*' test",
     "deploy:api": "bun run --filter @dbd-utils/api deploy",
+    "deploy:api:preview": "bun run --filter @dbd-utils/api deploy:preview",
     "deploy:migrations": "bun run --filter @dbd-utils/api deploy:migrations",
     "dev:party": "bun run --filter @dbd-utils/api dev:party",
     "deploy:party": "bun run --filter @dbd-utils/api deploy:party",
