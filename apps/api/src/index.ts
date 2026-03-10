@@ -445,10 +445,12 @@ app.get("/rooms/active", async (c) => {
         });
         if (res.ok) {
           const data = await res.json<{ status: string; connections: number; pending_count: number }>();
-          if (data.status !== r.status) {
-            console.log(`[rooms/active] ${r.id}: D1 status="${r.status}" → PartyKit status="${data.status}"`);
+          // If no connections remain, the room is definitively offline regardless of stored status
+          const effectiveStatus = data.connections === 0 ? 'offline' : data.status;
+          if (effectiveStatus !== r.status) {
+            console.log(`[rooms/active] ${r.id}: D1 status="${r.status}" → PartyKit status="${effectiveStatus}" (connections=${data.connections})`);
           }
-          partyStatusMap.set(r.id, { status: data.status, pending_count: data.pending_count });
+          partyStatusMap.set(r.id, { status: effectiveStatus, pending_count: data.pending_count });
         } else {
           console.warn(`[rooms/active] PartyKit returned ${res.status} for ${r.id}`);
         }
@@ -459,6 +461,11 @@ app.get("/rooms/active", async (c) => {
     await Promise.all(fetches);
   }
 
+  // Staleness check: if PartyKit was unreachable and D1 says non-offline,
+  // but updated_at is older than 1 hour, treat as offline (D1 sync likely failed)
+  const STALE_MS = 60 * 60 * 1000; // 1 hour
+  const now = Date.now();
+
   const enriched = results.map((r) => {
     const login = r.channel_login.toLowerCase();
     const fresh = profileMap.get(login);
@@ -467,8 +474,17 @@ app.get("/rooms/active", async (c) => {
 
     // Use PartyKit as source of truth for status and pending count when available
     const partyInfo = partyStatusMap.get(r.id);
-    const status = partyInfo?.status ?? r.status;
+    let status = partyInfo?.status ?? r.status;
     const pendingCount = partyInfo ? partyInfo.pending_count : (r.pending_count ?? 0);
+
+    // If PartyKit was unreachable and D1 says non-offline, check staleness
+    if (!partyInfo && status !== 'offline') {
+      const updatedAt = new Date(r.updated_at + 'Z').getTime();
+      if (now - updatedAt > STALE_MS) {
+        console.log(`[rooms/active] ${r.id}: D1 status="${status}" is stale (updated ${Math.round((now - updatedAt) / 60000)}m ago), treating as offline`);
+        status = 'offline';
+      }
+    }
 
     return {
       ...r,
