@@ -13,7 +13,7 @@ See [README.md](README.md) for full setup instructions.
 
 ## Ways to Contribute
 
-- **Bug reports** — open a [GitHub issue](https://github.com/macecchi/dbd-utils/issues) with steps to reproduce
+- **Bug reports** — open a [GitHub issue](https://github.com/macecchi/dbd-utils/issues) or report on [Discord](https://discord.gg/6pY7Efhxd) with steps to reproduce
 - **Feature requests** — open an issue describing the use case
 - **Code contributions** — fork the repo, create a branch, and open a PR
 - **Discussions & help** — join our [Discord server](https://discord.gg/6pY7Efhxd)
@@ -48,7 +48,7 @@ Veja o [README.md](README.md) para instruções completas de setup.
 
 ### Como Contribuir
 
-- **Reportar bugs** — abra uma [issue no GitHub](https://github.com/macecchi/dbd-utils/issues) com passos para reproduzir
+- **Reportar bugs** — abra uma [issue no GitHub](https://github.com/macecchi/dbd-utils/issues) ou reporte no [Discord](https://discord.gg/6pY7Efhxd) com passos para reproduzir
 - **Sugerir funcionalidades** — abra uma issue descrevendo o caso de uso
 - **Contribuir com código** — faça um fork, crie uma branch e abra um PR
 - **Discussões e ajuda** — entre no nosso [servidor do Discord](https://discord.gg/6pY7Efhxd)
