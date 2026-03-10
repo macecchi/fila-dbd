@@ -289,6 +289,31 @@ internal.put("/rooms/:roomId/requests", async (c) => {
     ).bind(roomId, roomId)
   );
 
+  // Soft-delete requests no longer in the queue
+  const incomingIds = body.requests.map((r: Record<string, unknown>) => r.id);
+  if (incomingIds.length > 0) {
+    statements.push(
+      c.env.DB.prepare(
+        `UPDATE requests SET deleted_at = datetime('now') WHERE room_id = ? AND deleted_at IS NULL AND id NOT IN (${incomingIds.map(() => '?').join(',')})`
+      ).bind(roomId, ...incomingIds)
+    );
+  } else {
+    statements.push(
+      c.env.DB.prepare(
+        "UPDATE requests SET deleted_at = datetime('now') WHERE room_id = ? AND deleted_at IS NULL"
+      ).bind(roomId)
+    );
+  }
+
+  // Restore any previously soft-deleted requests that are back in the queue
+  if (incomingIds.length > 0) {
+    statements.push(
+      c.env.DB.prepare(
+        `UPDATE requests SET deleted_at = NULL WHERE room_id = ? AND deleted_at IS NOT NULL AND id IN (${incomingIds.map(() => '?').join(',')})`
+      ).bind(roomId, ...incomingIds)
+    );
+  }
+
   // Upsert all current requests
   for (let i = 0; i < body.requests.length; i++) {
     const r = body.requests[i];
@@ -411,7 +436,7 @@ app.get("/rooms/active", async (c) => {
             SUM(CASE WHEN req.done = 0 THEN 1 ELSE 0 END) AS pending_count,
             r.updated_at
      FROM rooms r
-     LEFT JOIN requests req ON req.room_id = r.id
+     LEFT JOIN requests req ON req.room_id = r.id AND req.deleted_at IS NULL
      WHERE r.updated_at > datetime('now', '-24 hours')
      GROUP BY r.id
      ORDER BY CASE WHEN r.status != 'offline' THEN 0 ELSE 1 END,

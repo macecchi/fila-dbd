@@ -429,7 +429,7 @@ describe('PartyServer', () => {
       expect(server.requests.map(r => r.id)).toEqual([3, 1, 2]);
     });
 
-    it('handles set-all by merging with existing requests', async () => {
+    it('handles set-all as authoritative replacement', async () => {
       server.requests = [
         createTestRequest({ id: 10, character: 'Meg Thomas' }),
         createTestRequest({ id: 20, character: 'Dwight Fairfield' }),
@@ -442,67 +442,35 @@ describe('PartyServer', () => {
 
       await server.onMessage(msg, ownerConn as any);
 
-      expect(server.requests).toHaveLength(3);
-      // Updated existing
+      expect(server.requests).toHaveLength(2);
       expect(server.requests[0].id).toBe(10);
       expect(server.requests[0].character).toBe('Claudette Morel');
-      // New request added
       expect(server.requests[1].id).toBe(30);
-      // Orphan preserved
-      expect(server.requests[2].id).toBe(20);
-      expect(server.requests[2].character).toBe('Dwight Fairfield');
     });
 
-    it('set-all preserves requests not in incoming list', async () => {
-      const existing = [
-        createTestRequest({ id: 1, done: true }),
-        createTestRequest({ id: 2, done: false }),
-        createTestRequest({ id: 3, done: true }),
-      ];
-      server.requests = existing;
-
-      // Client sends only request 2 (stale/partial list)
-      const msg = JSON.stringify({ type: 'set-all', requests: [createTestRequest({ id: 2, done: true })] });
-
-      await server.onMessage(msg, ownerConn as any);
-
-      // All 3 requests still exist
-      expect(server.requests).toHaveLength(3);
-      expect(server.requests.find(r => r.id === 1)?.done).toBe(true);
-      expect(server.requests.find(r => r.id === 2)?.done).toBe(true);
-      expect(server.requests.find(r => r.id === 3)?.done).toBe(true);
-    });
-
-    it('set-all does not reset done flags from stale client state', async () => {
+    it('set-all removes requests not in incoming list', async () => {
       server.requests = [
-        createTestRequest({ id: 1, done: true }),
-        createTestRequest({ id: 2, done: true }),
+        createTestRequest({ id: 1 }),
+        createTestRequest({ id: 2 }),
+        createTestRequest({ id: 3 }),
       ];
 
-      // Client sends same requests but with done=false (stale)
-      const stale = [
-        createTestRequest({ id: 1, done: false }),
-        createTestRequest({ id: 2, done: false }),
-      ];
-      const msg = JSON.stringify({ type: 'set-all', requests: stale });
+      const msg = JSON.stringify({ type: 'set-all', requests: [createTestRequest({ id: 2 })] });
 
       await server.onMessage(msg, ownerConn as any);
 
-      // Done flags ARE updated (client is the lock holder, so it's intentional)
-      expect(server.requests[0].done).toBe(false);
-      expect(server.requests[1].done).toBe(false);
+      expect(server.requests).toHaveLength(1);
+      expect(server.requests[0].id).toBe(2);
     });
 
-    it('set-all broadcasts merged result to other connections', async () => {
-      server.requests = [createTestRequest({ id: 1 }), createTestRequest({ id: 2 })];
+    it('set-all broadcasts to other connections', async () => {
       const incoming = [createTestRequest({ id: 1 })];
 
       await server.onMessage(JSON.stringify({ type: 'set-all', requests: incoming }), ownerConn as any);
 
-      // Viewer receives the merged list (both requests)
       const viewerMsg = viewerConn.getLastMessage();
       expect(viewerMsg?.type).toBe('set-all');
-      expect((viewerMsg as any).requests).toHaveLength(2);
+      expect((viewerMsg as any).requests).toHaveLength(1);
     });
 
     it('handles update-sources', async () => {

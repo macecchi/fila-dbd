@@ -188,7 +188,7 @@ export function createRequestsStore(
                   const local = localById.get(r.id);
                   if (local && local.done !== r.done) {
                     hasChanges = true;
-                    return { ...r, done: local.done };
+                    return { ...r, done: local.done, doneAt: local.doneAt };
                   }
                   return r;
                 });

@@ -219,24 +219,10 @@ export default class PartyServer implements Party.Server {
         break;
       }
       case 'set-all': {
-        // Merge instead of replace — upsert incoming, keep orphans
-        const incomingById = new Map(msg.requests.map(r => [r.id, r]));
-        const merged: SerializedRequest[] = [];
-        // Update existing requests with incoming data, preserve order from incoming
-        for (const r of msg.requests) {
-          const existing = this.requests.find(e => e.id === r.id);
-          merged.push(existing ? { ...existing, ...r } : r);
-        }
-        // Keep requests not in incoming list (orphan protection)
-        for (const r of this.requests) {
-          if (!incomingById.has(r.id)) {
-            merged.push(r);
-          }
-        }
-        this.requests = merged;
+        this.requests = msg.requests;
         await this.persist();
-        this.broadcast(JSON.stringify({ type: 'set-all', requests: this.requests }), sender.id);
-        console.log(`${this.tag} ${user}: set-all (${msg.requests.length} incoming, ${this.requests.length} after merge)`);
+        this.broadcast(message, sender.id);
+        console.log(`${this.tag} ${user}: set-all (${msg.requests.length} requests)`);
         break;
       }
       case 'update-sources': {
