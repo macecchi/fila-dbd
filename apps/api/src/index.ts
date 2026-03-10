@@ -425,15 +425,32 @@ app.get("/rooms/active", async (c) => {
   const streams = await fetchStreams(logins, token, c.env.TWITCH_CLIENT_ID);
   const streamMap = new Map(streams.map((s) => [s.user_login, s]));
 
+  const STALE_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
+  const now = Date.now();
+
   const enriched = results.map((r) => {
     const login = r.channel_login.toLowerCase();
     const fresh = profileMap.get(login);
     const stream = streamMap.get(login);
+    const isLive = !!stream;
+
+    // Override stale non-offline status: if room claims to be online/live
+    // but hasn't been updated in over 1 hour and isn't live on Twitch,
+    // the status sync on disconnect likely failed — treat as offline
+    let status = r.status;
+    if (status !== 'offline' && !isLive) {
+      const updatedAt = new Date(r.updated_at + 'Z').getTime();
+      if (now - updatedAt > STALE_THRESHOLD_MS) {
+        status = 'offline';
+      }
+    }
+
     return {
       ...r,
+      status,
       avatar_url: r.avatar_url ?? fresh?.avatar_url ?? null,
       banner_url: r.banner_url ?? fresh?.banner_url ?? null,
-      is_live: !!stream,
+      is_live: isLive,
       thumbnail_url: stream?.thumbnail_url ?? null,
       viewer_count: stream?.viewer_count ?? null,
     };

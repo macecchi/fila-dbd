@@ -79,7 +79,7 @@ export default class PartyServer implements Party.Server {
     if (this.activeOwnerConnId === conn.id) {
       this.activeOwnerConnId = null;
       this.channel = { status: 'offline', owner: null };
-      this.broadcastChannel();
+      this.flushAndSyncOffline();
     }
   }
 
@@ -90,7 +90,7 @@ export default class PartyServer implements Party.Server {
     if (this.activeOwnerConnId === conn.id) {
       this.activeOwnerConnId = null;
       this.channel = { status: 'offline', owner: null };
-      this.broadcastChannel();
+      this.flushAndSyncOffline();
     }
   }
 
@@ -314,6 +314,16 @@ export default class PartyServer implements Party.Server {
 
   private get isDev() {
     return this.room.env.DEV_MODE === 'true';
+  }
+
+  private flushAndSyncOffline() {
+    this.broadcastChannel();
+    // Cancel pending debounced sync and flush immediately
+    if (this.syncRequestsTimer) {
+      clearTimeout(this.syncRequestsTimer);
+      this.syncRequestsTimer = null;
+    }
+    this.syncRequestsToD1();
   }
 
   private broadcastChannel() {
