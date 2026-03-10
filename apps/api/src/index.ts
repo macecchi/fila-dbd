@@ -13,6 +13,7 @@ type Bindings = {
   FRONTEND_URL: string;
   GEMINI_API_KEY: string;
   INTERNAL_API_SECRET: string;
+  PARTY_HOST: string;
   DB: D1Database;
   CACHE: KVNamespace;
 };
@@ -425,8 +426,27 @@ app.get("/rooms/active", async (c) => {
   const streams = await fetchStreams(logins, token, c.env.TWITCH_CLIENT_ID);
   const streamMap = new Map(streams.map((s) => [s.user_login, s]));
 
-  const STALE_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
-  const now = Date.now();
+  // For rooms that D1 claims are non-offline, ask PartyKit for authoritative status
+  const partyHost = c.env.PARTY_HOST;
+  const partyStatusMap = new Map<string, { status: string; pending_count: number }>();
+  if (partyHost) {
+    const nonOffline = results.filter((r) => r.status !== 'offline');
+    const protocol = partyHost.startsWith('localhost') ? 'http' : 'https';
+    const fetches = nonOffline.map(async (r) => {
+      try {
+        const res = await fetch(`${protocol}://${partyHost}/parties/main/${r.id}`, {
+          signal: AbortSignal.timeout(3000),
+        });
+        if (res.ok) {
+          const data = await res.json<{ status: string; connections: number; pending_count: number }>();
+          partyStatusMap.set(r.id, { status: data.status, pending_count: data.pending_count });
+        }
+      } catch {
+        // PartyKit unreachable — fall back to D1 data
+      }
+    });
+    await Promise.all(fetches);
+  }
 
   const enriched = results.map((r) => {
     const login = r.channel_login.toLowerCase();
@@ -434,20 +454,15 @@ app.get("/rooms/active", async (c) => {
     const stream = streamMap.get(login);
     const isLive = !!stream;
 
-    // Override stale non-offline status: if room claims to be online/live
-    // but hasn't been updated in over 1 hour and isn't live on Twitch,
-    // the status sync on disconnect likely failed — treat as offline
-    let status = r.status;
-    if (status !== 'offline' && !isLive) {
-      const updatedAt = new Date(r.updated_at + 'Z').getTime();
-      if (now - updatedAt > STALE_THRESHOLD_MS) {
-        status = 'offline';
-      }
-    }
+    // Use PartyKit as source of truth for status and pending count when available
+    const partyInfo = partyStatusMap.get(r.id);
+    const status = partyInfo?.status ?? r.status;
+    const pendingCount = partyInfo ? partyInfo.pending_count : (r.pending_count ?? 0);
 
     return {
       ...r,
       status,
+      pending_count: pendingCount,
       avatar_url: r.avatar_url ?? fresh?.avatar_url ?? null,
       banner_url: r.banner_url ?? fresh?.banner_url ?? null,
       is_live: isLive,

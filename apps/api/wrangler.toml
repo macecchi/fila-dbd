@@ -11,6 +11,7 @@ invocation_logs = false
 
 [vars]
 FRONTEND_URL = "http://localhost:5173"
+PARTY_HOST = "localhost:1999"
 
 [[d1_databases]]
 binding = "DB"
@@ -23,7 +24,7 @@ binding = "CACHE"
 id = "local"
 
 [env.production]
-vars = { FRONTEND_URL = "https://filadbd.pages.dev" }
+vars = { FRONTEND_URL = "https://filadbd.pages.dev", PARTY_HOST = "dbd-tracker-party.meriw.partykit.dev" }
 
 [[env.production.d1_databases]]
 binding = "DB"

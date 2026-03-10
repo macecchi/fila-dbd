@@ -39,6 +39,14 @@ export default class PartyServer implements Party.Server {
     }
   }
 
+  async onRequest() {
+    return Response.json({
+      status: this.channel.status,
+      connections: this.connections.size,
+      pending_count: this.requests.filter(r => !r.done).length,
+    });
+  }
+
   async onConnect(conn: Party.Connection, ctx: Party.ConnectionContext) {
     const url = new URL(ctx.request.url);
     const token = url.searchParams.get('token');
@@ -143,7 +151,7 @@ export default class PartyServer implements Party.Server {
       if (isLockHolder) {
         this.activeOwnerConnId = null;
         this.channel = { status: 'offline', owner: null };
-        this.broadcastChannel();
+        this.flushAndSyncOffline();
         console.log(`${this.tag} ${connInfo?.user?.login} released ownership`);
       }
       return;
