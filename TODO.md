@@ -1,7 +1,7 @@
 - podia ter uma notificacao quando a live é aberta (precisa de um webhook da twitch e configurar notificacoes para web)
+    - menos urgente pq tem a recuperacao de pedidos já
 - depois de persistir no D1, limpar do partykit os ja feitos pra lista nao crescer sem limite
 - mostrar uma secao de informações no modo leitura pra entender como funciona, tipo algo que clica e abre um modal explicando os modos
-- analytics direito
-- estatísticas da última sessão quando encerrar
-- background da pagina com fog que lembra dbd
-- filtrar melhor donates/resubs sem pedidos pra tirar noise
+- analytics direito: como ter mais metricas do que o basico do cloudflare web analytics
+- wrapped com estatísticas de pedidos (mais pra frente qd tiver mais dados)
+- auto re-identificar pedidos antigos: cutoff date hardcoded, ao sincronizar re-roda extração nos pendentes anteriores ao cutoff (low pri — poucos erros, 92%+ accuracy)

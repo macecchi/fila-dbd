@@ -98,6 +98,29 @@ describe('Hono API', () => {
       expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
       expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
     });
+
+    it('allows preview subdomain origins', async () => {
+      const res = await app.request('/auth/me', {
+        method: 'OPTIONS',
+        headers: {
+          Origin: 'https://91e2b42d.example.com',
+        },
+      }, TEST_ENV);
+
+      expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://91e2b42d.example.com');
+      expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
+    });
+
+    it('rejects unrelated origins', async () => {
+      const res = await app.request('/auth/me', {
+        method: 'OPTIONS',
+        headers: {
+          Origin: 'https://evil.com',
+        },
+      }, TEST_ENV);
+
+      expect(res.headers.get('Access-Control-Allow-Origin')).not.toBe('https://evil.com');
+    });
   });
 
   // Note: OAuth routes (/auth/login, /auth/callback) require integration testing
