@@ -151,7 +151,7 @@ export function RequestsReviewDialog({ isOpen, requests, onApply, onClose }: Pro
 
                   return (
                     <tr key={r.id} className={changed ? 'review-row-changed' : undefined}>
-                      <td className="review-col-num mono">{i + 1}</td>
+                      <td className="review-col-num mono">{editedRequests.indexOf(r)}</td>
                       <td className="review-col-id mono">{r.id}</td>
                       <td className="review-col-char">
                         <div className="review-char-wrap">
