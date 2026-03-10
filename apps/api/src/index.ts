@@ -299,8 +299,8 @@ internal.put("/rooms/:roomId/requests", async (c) => {
     const r = body.requests[i];
     statements.push(
       c.env.DB.prepare(
-        `INSERT INTO requests (id, room_id, position, timestamp, donor, amount, amount_val, message, character, type, done, source, sub_tier, needs_identification)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO requests (id, room_id, position, timestamp, donor, amount, amount_val, message, character, type, done, done_at, source, sub_tier, needs_identification)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
         r.id,
         roomId,
@@ -313,6 +313,7 @@ internal.put("/rooms/:roomId/requests", async (c) => {
         r.character ?? "",
         r.type ?? "unknown",
         r.done ? 1 : 0,
+        r.doneAt ?? null,
         r.source,
         r.subTier ?? null,
         r.needsIdentification ? 1 : 0

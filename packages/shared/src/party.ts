@@ -28,6 +28,7 @@ export interface SerializedRequest {
   character: string;
   type: 'survivor' | 'killer' | 'unknown' | 'none';
   done?: boolean;
+  doneAt?: string;
   source: 'donation' | 'resub' | 'chat' | 'manual';
   subTier?: number;
   needsIdentification?: boolean;
@@ -54,6 +55,7 @@ export function serializeRequest(req: Request): SerializedRequest {
   return {
     ...req,
     timestamp: req.timestamp.toISOString(),
+    doneAt: req.doneAt?.toISOString(),
   };
 }
 
@@ -61,6 +63,7 @@ export function deserializeRequest(req: SerializedRequest): Request {
   return {
     ...req,
     timestamp: new Date(req.timestamp),
+    doneAt: req.doneAt ? new Date(req.doneAt) : undefined,
   };
 }
 

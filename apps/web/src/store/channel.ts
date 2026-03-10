@@ -85,7 +85,7 @@ export function createRequestsStore(
         toggleDone: (id) => {
           const { partyConnected, isOwner } = getContext();
           set((s) => ({
-            requests: s.requests.map((r) => (r.id === id ? { ...r, done: !r.done } : r)),
+            requests: s.requests.map((r) => (r.id === id ? { ...r, done: !r.done, doneAt: !r.done ? new Date() : undefined } : r)),
           }));
           if (partyConnected && isOwner) {
             broadcastToggleDone(id);
@@ -180,7 +180,7 @@ export function createRequestsStore(
               set((s) => ({
                 requests: s.requests.map((r) =>
                   r.id === msg.id
-                    ? { ...r, ...msg.updates, timestamp: msg.updates.timestamp ? new Date(msg.updates.timestamp) : r.timestamp }
+                    ? { ...r, ...msg.updates, timestamp: msg.updates.timestamp ? new Date(msg.updates.timestamp) : r.timestamp, doneAt: msg.updates.doneAt !== undefined ? (msg.updates.doneAt ? new Date(msg.updates.doneAt) : undefined) : r.doneAt }
                     : r
                 ),
               }));
@@ -225,7 +225,7 @@ export function createRequestsStore(
             }
             case 'toggle-done':
               set((s) => ({
-                requests: s.requests.map((r) => (r.id === msg.id ? { ...r, done: !r.done } : r)),
+                requests: s.requests.map((r) => (r.id === msg.id ? { ...r, done: !r.done, doneAt: !r.done ? new Date() : undefined } : r)),
               }));
               break;
             case 'reorder':

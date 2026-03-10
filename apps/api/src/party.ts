@@ -189,6 +189,7 @@ export default class PartyServer implements Party.Server {
         const idx = this.requests.findIndex(r => r.id === msg.id);
         if (idx !== -1) {
           this.requests[idx].done = !this.requests[idx].done;
+          this.requests[idx].doneAt = this.requests[idx].done ? new Date().toISOString() : undefined;
           await this.persist();
           this.broadcast(message, sender.id);
           console.log(`${this.tag} ${user}: toggle-done #${msg.id} → ${this.requests[idx].done}`);

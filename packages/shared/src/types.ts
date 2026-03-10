@@ -19,6 +19,7 @@ export interface Request {
   character: string;
   type: 'survivor' | 'killer' | 'unknown' | 'none';
   done?: boolean;
+  doneAt?: Date;
   source: 'donation' | 'resub' | 'chat' | 'manual';
   subTier?: number;
   needsIdentification?: boolean;

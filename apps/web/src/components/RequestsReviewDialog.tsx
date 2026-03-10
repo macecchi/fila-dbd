@@ -19,6 +19,14 @@ const SOURCE_LABELS: Record<string, string> = {
   manual: 'Manual',
 };
 
+function formatSourceBadge(source: string, amount: string): string {
+  const label = SOURCE_LABELS[source] ?? source;
+  if (source === 'donation' && amount) return amount;
+  return label;
+}
+
+const TIME_FMT: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
+
 export function RequestsReviewDialog({ isOpen, requests, onApply, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('current');
   const [edits, setEdits] = useState<Map<number, Partial<Request>>>(new Map);
@@ -61,7 +69,7 @@ export function RequestsReviewDialog({ isOpen, requests, onApply, onClose }: Pro
       if (newDone === !!orig.done) {
         next.delete(id);
       } else {
-        next.set(id, { ...current, done: newDone });
+        next.set(id, { ...current, done: newDone, doneAt: newDone ? new Date() : undefined });
       }
       return next;
     });
@@ -127,10 +135,9 @@ export function RequestsReviewDialog({ isOpen, requests, onApply, onClose }: Pro
                   <th className="review-col-char">Personagem</th>
                   <th className="review-col-donor">Doador</th>
                   <th className="review-col-source">Fonte</th>
-                  <th className="review-col-amount">Valor</th>
                   <th className="review-col-msg">Mensagem</th>
                   <th className="review-col-done">Feito</th>
-                  <th className="review-col-time">Hora</th>
+                  <th className="review-col-dates">Recebido / Feito</th>
                 </tr>
               </thead>
               <tbody>
@@ -145,19 +152,20 @@ export function RequestsReviewDialog({ isOpen, requests, onApply, onClose }: Pro
                     <tr key={r.id} className={changed ? 'review-row-changed' : undefined}>
                       <td className="review-col-num mono">{i + 1}</td>
                       <td className="review-col-char">
-                        <CharacterAvatar portrait={portrait} type={r.type} size="sm" />
-                        <span className="review-char-name" title={r.character || undefined}>
-                          {r.character || <span className="text-muted">—</span>}
-                        </span>
+                        <div className="review-char-wrap">
+                          <CharacterAvatar portrait={portrait} type={r.type} size="sm" />
+                          <span className="review-char-name" title={r.character || undefined}>
+                            {r.character || <span className="text-muted">—</span>}
+                          </span>
+                        </div>
                       </td>
                       <td className="review-col-donor">{r.donor}</td>
                       <td className="review-col-source">
                         <span className={`amount source-${r.source}`}>
-                          {SOURCE_LABELS[r.source] ?? r.source}
+                          {formatSourceBadge(r.source, r.amount)}
                         </span>
                       </td>
-                      <td className="review-col-amount mono">{r.amount || '—'}</td>
-                      <td className="review-col-msg" title={r.message}>
+                      <td className="review-col-msg">
                         <span className="review-msg-text">{r.message || <span className="text-muted">—</span>}</span>
                       </td>
                       <td className="review-col-done">
@@ -185,8 +193,15 @@ export function RequestsReviewDialog({ isOpen, requests, onApply, onClose }: Pro
                           </button>
                         )}
                       </td>
-                      <td className="review-col-time mono">
-                        {r.timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                      <td className="review-col-dates mono">
+                        <div className="review-dates-wrap">
+                          <span>{r.timestamp.toLocaleTimeString('pt-BR', TIME_FMT)}</span>
+                          {r.doneAt && (
+                            <span className="review-done-time" title="Feito às">
+                              {'✓ '}{r.doneAt.toLocaleTimeString('pt-BR', TIME_FMT)}
+                            </span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );

@@ -73,6 +73,7 @@ export function broadcastUpdate(id: number, updates: Partial<Request>): void {
   const serializedUpdates: Partial<SerializedRequest> = {
     ...updates,
     timestamp: updates.timestamp?.toISOString(),
+    doneAt: updates.doneAt?.toISOString(),
   };
   send({ type: 'update-request', id, updates: serializedUpdates });
 }
