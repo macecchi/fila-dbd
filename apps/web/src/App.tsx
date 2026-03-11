@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { ChatLog } from './components/ChatLog';
 import { ChannelHeader } from './components/ChannelHeader';
 import { DebugPanel } from './components/DebugPanel';
@@ -6,13 +6,14 @@ import { CharacterRequestList } from './components/CharacterRequestList';
 import { LandingPage } from './components/LandingPage';
 import { ManualEntry } from './components/ManualEntry';
 import { MissedRequestsDialog } from './components/MissedRequestsDialog';
+import { VODSelectionDialog } from './components/VODSelectionDialog';
 import { RequestsReviewDialog } from './components/RequestsReviewDialog';
 import { SourcesBadges } from './components/SourcesBadges';
 import { SourcesPanel } from './components/SourcesPanel';
 import { Stats } from './components/Stats';
 import { ToastContainer } from './components/ToastContainer';
 import { identifyCharacter } from './services';
-import { recoverMissedRequests } from './services/vod';
+import { recoverMissedRequests, scanVODForRequests, type VODInfo } from './services/vod';
 import { donateBotName } from './services/twitch';
 import { useSettings, useAuth, ChannelProvider, useChannel, useToasts, useLastChannel } from './store';
 import { navigate, handleLinkClick } from './utils/helpers';
@@ -52,6 +53,14 @@ function ChannelApp() {
   const [recoveryStatus, setRecoveryStatus] = useState('');
   const [recoveredRequests, setRecoveredRequests] = useState<Request[]>([]);
   const hasTriedRecovery = useRef(false);
+
+  // VOD recovery (past VODs) state
+  const [vodSelectOpen, setVodSelectOpen] = useState(false);
+  const [vodRecoveryOpen, setVodRecoveryOpen] = useState(false);
+  const [vodRecoveryLoading, setVodRecoveryLoading] = useState(false);
+  const [vodRecoveryStatus, setVodRecoveryStatus] = useState('');
+  const [vodRecoveredRequests, setVodRecoveredRequests] = useState<Request[]>([]);
+  const vodRecoveryAbort = useRef<AbortController | null>(null);
 
   // Trigger recovery when IRC connects
   const recoveryResultRef = useRef<{ vodId: string; lastOffset: number } | null>(null);
@@ -172,6 +181,82 @@ function ChannelApp() {
     saveRecoveryCheckpoint();
     setRecoveryOpen(false);
   }, [saveRecoveryCheckpoint]);
+
+  const handleVodSelect = useCallback(async (vods: VODInfo[]) => {
+    setVodSelectOpen(false);
+    setVodRecoveredRequests([]);
+    setVodRecoveryLoading(true);
+    setVodRecoveryOpen(true);
+
+    const sourcesState = useSources.getState();
+    const config = {
+      botName: donateBotName,
+      minDonation: sourcesState.minDonation,
+      sourcesEnabled: sourcesState.enabled,
+      chatCommand: sourcesState.chatCommand
+    };
+
+    const controller = new AbortController();
+    vodRecoveryAbort.current = controller;
+
+    try {
+      for (const vod of vods) {
+        if (controller.signal.aborted) break;
+        setVodRecoveryStatus(`Analisando VOD "${vod.title || vod.id}"...`);
+        await scanVODForRequests(vod.id, vod.createdAt, config, {
+          onProgress: (s) => setVodRecoveryStatus(`VOD "${vod.title || vod.id}": ${s}`),
+          onRequest: (req) => setVodRecoveredRequests(prev => [...prev, req])
+        }, controller.signal);
+      }
+    } catch (err) {
+      if (!controller.signal.aborted) console.error('VOD scan failed:', err);
+    } finally {
+      setVodRecoveryLoading(false);
+      vodRecoveryAbort.current = null;
+    }
+  }, [useSources]);
+
+  const vodDisabledIds = useMemo(
+    () => new Set(requests.map(r => r.id)),
+    [requests]
+  );
+
+  const handleVodRecoveryConfirm = useCallback((selected: Request[]) => {
+    if (selected.length === 0) { setVodRecoveryOpen(false); return; }
+
+    const currentRequests = useRequests.getState().requests;
+    const { sortMode: currentSortMode, priority: currentPriority } = useSources.getState();
+    const existingIds = new Set(currentRequests.map(r => r.id));
+    const deduped = selected.filter(r => !existingIds.has(r.id));
+
+    if (deduped.length === 0) { setVodRecoveryOpen(false); return; }
+
+    const merged = [...currentRequests, ...deduped];
+    if (currentSortMode === 'fifo') {
+      merged.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    } else {
+      merged.sort((a, b) => {
+        if (a.done && !b.done) return 1;
+        if (!a.done && b.done) return -1;
+        const aPri = currentPriority.indexOf(a.source);
+        const bPri = currentPriority.indexOf(b.source);
+        if (aPri !== bPri) return aPri - bPri;
+        return a.timestamp.getTime() - b.timestamp.getTime();
+      });
+    }
+
+    setAll(merged);
+    setVodRecoveryOpen(false);
+    show(
+      `${deduped.length} pedido${deduped.length !== 1 ? 's' : ''} recuperado${deduped.length !== 1 ? 's' : ''} de VODs`,
+      'Pedidos recuperados'
+    );
+  }, [useRequests, useSources, setAll, show]);
+
+  const handleVodRecoveryClose = useCallback(() => {
+    vodRecoveryAbort.current?.abort();
+    setVodRecoveryOpen(false);
+  }, []);
 
   // Auto-identify requests that need it (only owner should call extract API)
   useEffect(() => {
@@ -303,7 +388,7 @@ function ChannelApp() {
           </div>
         </main>
 
-        {!readOnly && <SourcesPanel />}
+        {!readOnly && <SourcesPanel onRecover={() => setVodSelectOpen(true)} />}
         {(import.meta.env.DEV || isDebugMode()) && <DebugPanel />}
 
         <footer className="footer">
@@ -332,6 +417,21 @@ function ChannelApp() {
         loadingStatus={recoveryStatus}
         onConfirm={handleRecoveryConfirm}
         onClose={handleRecoveryClose}
+      />
+      <VODSelectionDialog
+        isOpen={vodSelectOpen}
+        channel={channel}
+        onConfirm={handleVodSelect}
+        onClose={() => setVodSelectOpen(false)}
+      />
+      <MissedRequestsDialog
+        isOpen={vodRecoveryOpen}
+        requests={vodRecoveredRequests}
+        isLoading={vodRecoveryLoading}
+        loadingStatus={vodRecoveryStatus}
+        onConfirm={handleVodRecoveryConfirm}
+        onClose={handleVodRecoveryClose}
+        disabledIds={vodDisabledIds}
       />
       <ToastContainer />
     </>
