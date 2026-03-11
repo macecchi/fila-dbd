@@ -154,28 +154,23 @@ function ChannelApp() {
       !existingIds.has(r.id) && !existingSigs.has(`${r.donor.toLowerCase()}:${r.message.toLowerCase()}`)
     );
 
-    if (deduped.length === 0) {
-      setRecoveryOpen(false);
-      return;
+    if (deduped.length > 0) {
+      const merged = [...currentRequests, ...deduped];
+      if (currentSortMode === 'fifo') {
+        merged.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+      } else {
+        merged.sort((a, b) => {
+          if (a.done && !b.done) return 1;
+          if (!a.done && b.done) return -1;
+          const aPri = currentPriority.indexOf(a.source);
+          const bPri = currentPriority.indexOf(b.source);
+          if (aPri !== bPri) return aPri - bPri;
+          return a.timestamp.getTime() - b.timestamp.getTime();
+        });
+      }
+      setAll(merged);
     }
 
-    const merged = [...currentRequests, ...deduped];
-    if (currentSortMode === 'fifo') {
-      // Sort all by timestamp for chronological order
-      merged.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-    } else {
-      // Sort by done status, then priority, then timestamp
-      merged.sort((a, b) => {
-        if (a.done && !b.done) return 1;
-        if (!a.done && b.done) return -1;
-        const aPri = currentPriority.indexOf(a.source);
-        const bPri = currentPriority.indexOf(b.source);
-        if (aPri !== bPri) return aPri - bPri;
-        return a.timestamp.getTime() - b.timestamp.getTime();
-      });
-    }
-
-    setAll(merged);
     setRecoveryOpen(false);
     const skipped = selected.length - deduped.length;
     const parts = [`${deduped.length} adicionado${deduped.length !== 1 ? 's' : ''}`];
@@ -238,28 +233,29 @@ function ChannelApp() {
     );
     const undoneCount = currentRequests.filter(r => selectedIds.has(r.id) && r.done).length;
 
-    if (newRequests.length === 0 && undoneCount === 0) { setVodRecoveryOpen(false); return; }
-
-    const merged = [...updated, ...newRequests];
-    if (currentSortMode === 'fifo') {
-      merged.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-    } else {
-      merged.sort((a, b) => {
-        if (a.done && !b.done) return 1;
-        if (!a.done && b.done) return -1;
-        const aPri = currentPriority.indexOf(a.source);
-        const bPri = currentPriority.indexOf(b.source);
-        if (aPri !== bPri) return aPri - bPri;
-        return a.timestamp.getTime() - b.timestamp.getTime();
-      });
+    if (newRequests.length > 0 || undoneCount > 0) {
+      const merged = [...updated, ...newRequests];
+      if (currentSortMode === 'fifo') {
+        merged.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+      } else {
+        merged.sort((a, b) => {
+          if (a.done && !b.done) return 1;
+          if (!a.done && b.done) return -1;
+          const aPri = currentPriority.indexOf(a.source);
+          const bPri = currentPriority.indexOf(b.source);
+          if (aPri !== bPri) return aPri - bPri;
+          return a.timestamp.getTime() - b.timestamp.getTime();
+        });
+      }
+      setAll(merged);
     }
 
-    setAll(merged);
     setVodRecoveryOpen(false);
-    const parts = [];
-    if (newRequests.length > 0) parts.push(`${newRequests.length} recuperado${newRequests.length !== 1 ? 's' : ''}`);
+    const skipped = selected.filter(r => existingIds.has(r.id) && !currentRequests.find(c => c.id === r.id && c.done)).length;
+    const parts = [`${newRequests.length} adicionado${newRequests.length !== 1 ? 's' : ''}`];
     if (undoneCount > 0) parts.push(`${undoneCount} reativado${undoneCount !== 1 ? 's' : ''}`);
-    show(parts.join(', '), 'Pedidos recuperados');
+    if (skipped > 0) parts.push(`${skipped} já estava${skipped !== 1 ? 'm' : ''} na fila`);
+    show(parts.join('\n'), 'Pedidos recuperados');
   }, [useRequests, useSources, setAll, show]);
 
   const handleVodRecoveryClose = useCallback(() => {
