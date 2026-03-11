@@ -245,6 +245,7 @@ describe('channel stores', () => {
 
     it('does not add duplicate requests', () => {
       const stores = createRoomStores('testchannel');
+      stores.useChannelInfo.getState().setIsOwner(true);
 
       const request = createTestRequest({ id: 100 });
       stores.useRequests.getState().add(request);

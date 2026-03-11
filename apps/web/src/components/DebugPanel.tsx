@@ -7,11 +7,12 @@ import { useChannel, useChat, useToasts, useAuth } from '../store';
 import { donateBotName, simulateDisconnect } from '../services/twitch';
 
 export function DebugPanel() {
-  const { useRequests, useSources } = useChannel();
+  const { useRequests, useSources, canManageChannel } = useChannel();
   const { requests, update, setAll: setRequests, add: addRequest } = useRequests();
   const { clear: clearChat, add: addChat } = useChat();
   const { isAuthenticated } = useAuth();
   const { enabled: sourcesEnabled, chatTiers, chatCommand, minDonation } = useSources();
+  const readOnly = !canManageChannel;
   const { show: showToast } = useToasts();
 
   const testMessages = ['Trapper', 'Nurse', 'Huntress', 'Wraith', 'Hillbilly'];
@@ -191,79 +192,87 @@ export function DebugPanel() {
             onChange={e => setInput(e.target.value)}
             placeholder="Digite uma mensagem para testar extração de personagem"
           />
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-            <input type="checkbox" checked={addToQueue} onChange={e => setAddToQueue(e.target.checked)} />
-            Adicionar à fila
-          </label>
+          {!readOnly && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+              <input type="checkbox" checked={addToQueue} onChange={e => setAddToQueue(e.target.checked)} />
+              Adicionar à fila
+            </label>
+          )}
           <button className="btn btn-ghost" type="submit">Testar</button>
         </form>
         {result.show && (
           <div className="debug-result show" dangerouslySetInnerHTML={{ __html: result.text }} />
         )}
-        <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Simular pedido</div>
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <button className="btn btn-ghost" onClick={() => simulateIRC('donation-above')}>
-              Donate ≥ min
+        {!readOnly && (
+          <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Simular pedido</div>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button className="btn btn-ghost" onClick={() => simulateIRC('donation-above')}>
+                Donate ≥ min
+              </button>
+              <button className="btn btn-ghost" onClick={() => simulateIRC('donation-below')}>
+                Donate &lt; min
+              </button>
+              <button className="btn btn-ghost" onClick={() => simulateIRC('resub')}>
+                Resub
+              </button>
+              <button className="btn btn-ghost" onClick={() => simulateIRC('chat-sub')}>
+                Chat (sub)
+              </button>
+              <button className="btn btn-ghost" onClick={() => simulateIRC('chat-nosub')}>
+                Chat (no sub)
+              </button>
+            </div>
+            {simResult.show && (
+              <div className="debug-result show" style={{ marginTop: '0.5rem' }} dangerouslySetInnerHTML={{ __html: simResult.text }} />
+            )}
+          </div>
+        )}
+        {!readOnly && (
+          <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button className="btn btn-ghost" onClick={handleReidentifyAll}>
+              Re-identificar todos
             </button>
-            <button className="btn btn-ghost" onClick={() => simulateIRC('donation-below')}>
-              Donate &lt; min
+            <button className="btn btn-ghost" onClick={handleClearAll}>
+              Limpar tudo
             </button>
-            <button className="btn btn-ghost" onClick={() => simulateIRC('resub')}>
-              Resub
+            <button className="btn btn-ghost" onClick={() => useSources.getState().setRecoveryCheckpoint('', 0)}>
+              Reset recovery
             </button>
-            <button className="btn btn-ghost" onClick={() => simulateIRC('chat-sub')}>
-              Chat (sub)
+            <button className="btn btn-ghost" onClick={handleLoadMock}>
+              Carregar mock
             </button>
-            <button className="btn btn-ghost" onClick={() => simulateIRC('chat-nosub')}>
-              Chat (no sub)
+            <button className="btn btn-ghost" onClick={() => simulateDisconnect()}>
+              Simular desconexão
+            </button>
+            <button className="btn btn-ghost" onClick={() => setTimeout(() => simulateDisconnect(true), 3000)}>
+              Simular desconexão permanente (3s)
             </button>
           </div>
-          {simResult.show && (
-            <div className="debug-result show" style={{ marginTop: '0.5rem' }} dangerouslySetInnerHTML={{ __html: simResult.text }} />
-          )}
-        </div>
-        <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button className="btn btn-ghost" onClick={handleReidentifyAll}>
-            Re-identificar todos
-          </button>
-          <button className="btn btn-ghost" onClick={handleClearAll}>
-            Limpar tudo
-          </button>
-          <button className="btn btn-ghost" onClick={() => useSources.getState().setRecoveryCheckpoint('', 0)}>
-            Reset recovery
-          </button>
-          <button className="btn btn-ghost" onClick={handleLoadMock}>
-            Carregar mock
-          </button>
-          <button className="btn btn-ghost" onClick={() => simulateDisconnect()}>
-            Simular desconexão
-          </button>
-          <button className="btn btn-ghost" onClick={() => setTimeout(() => simulateDisconnect(true), 3000)}>
-            Simular desconexão permanente (3s)
-          </button>
-        </div>
-        <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Replay VOD Chat</div>
-          <div className="debug-row">
-            <input
-              type="text"
-              value={vodId}
-              onChange={e => setVodId(e.target.value)}
-              placeholder="VOD ID (ex: 2345678901)"
-            />
-            <select value={speed} onChange={e => setSpeed(Number(e.target.value))} style={{ width: '100px' }}>
-              <option value={0}>Instant</option>
-              <option value={100}>10x</option>
-              <option value={200}>5x</option>
-              <option value={1000}>1x</option>
-            </select>
-            <button className="btn btn-ghost" type="button" onClick={handleVODReplay}>
-              {isReplaying ? 'Stop' : 'Replay'}
-            </button>
+        )}
+        {!readOnly && (
+          <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Replay VOD Chat</div>
+            <div className="debug-row">
+              <input
+                type="text"
+                value={vodId}
+                onChange={e => setVodId(e.target.value)}
+                placeholder="VOD ID (ex: 2345678901)"
+              />
+              <select value={speed} onChange={e => setSpeed(Number(e.target.value))} style={{ width: '100px' }}>
+                <option value={0}>Instant</option>
+                <option value={100}>10x</option>
+                <option value={200}>5x</option>
+                <option value={1000}>1x</option>
+              </select>
+              <button className="btn btn-ghost" type="button" onClick={handleVODReplay}>
+                {isReplaying ? 'Stop' : 'Replay'}
+              </button>
+            </div>
+            {vodStatus && <div className="debug-result show">{vodStatus}</div>}
           </div>
-          {vodStatus && <div className="debug-result show">{vodStatus}</div>}
-        </div>
+        )}
       </div>
     </section>
   );
