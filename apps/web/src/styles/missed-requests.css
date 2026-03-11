@@ -222,6 +222,12 @@
   font-family: 'JetBrains Mono', monospace;
 }
 
+.vod-disclaimer {
+  margin-top: 0.25rem;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
 .vod-load-more {
   width: 100%;
   justify-content: center;

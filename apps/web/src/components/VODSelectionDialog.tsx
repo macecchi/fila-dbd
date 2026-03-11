@@ -114,6 +114,7 @@ export function VODSelectionDialog({ isOpen, channel, onConfirm, onClose }: Prop
           <>
             <div className="missed-requests-subtitle">
               Selecione as VODs para buscar pedidos
+              <div className="vod-disclaimer">Resubs não podem ser recuperados de VODs.</div>
             </div>
             <div className="missed-requests-list">
               {vods.map(vod => (
