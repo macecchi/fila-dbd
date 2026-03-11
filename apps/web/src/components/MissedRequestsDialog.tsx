@@ -10,26 +10,29 @@ interface Props {
   loadingStatus: string;
   onConfirm: (selected: Request[]) => void;
   onClose: () => void;
+  disabledIds?: Set<number>;
 }
 
-export function MissedRequestsDialog({ isOpen, requests, isLoading, loadingStatus, onConfirm, onClose }: Props) {
+export function MissedRequestsDialog({ isOpen, requests, isLoading, loadingStatus, onConfirm, onClose, disabledIds }: Props) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const seenIds = useRef<Set<number>>(new Set());
 
   // Auto-select NEW requests, preserve user unchecks
   useEffect(() => {
-    const newIds = requests.filter(r => !seenIds.current.has(r.id)).map(r => r.id);
+    const newIds = requests.filter(r => !seenIds.current.has(r.id) && !disabledIds?.has(r.id)).map(r => r.id);
     if (!newIds.length) return;
     for (const id of newIds) seenIds.current.add(id);
     setSelected(prev => { const next = new Set(prev); for (const id of newIds) next.add(id); return next; });
-  }, [requests]);
+  }, [requests, disabledIds]);
 
   // Reset tracking on dialog close/reopen
   useEffect(() => { if (!isOpen) { seenIds.current.clear(); setSelected(new Set()); } }, [isOpen]);
 
+  const selectableRequests = requests.filter(r => !disabledIds?.has(r.id));
+
   const toggleAll = (selectAll: boolean) => {
     if (selectAll) {
-      setSelected(new Set(requests.map(r => r.id)));
+      setSelected(new Set(selectableRequests.map(r => r.id)));
     } else {
       setSelected(new Set());
     }
@@ -51,7 +54,7 @@ export function MissedRequestsDialog({ isOpen, requests, isLoading, loadingStatu
 
   if (!isOpen) return null;
 
-  const allSelected = selected.size === requests.length && requests.length > 0;
+  const allSelected = selected.size === selectableRequests.length && selectableRequests.length > 0;
   const noneSelected = selected.size === 0;
   const selectedCount = selected.size;
 
@@ -118,12 +121,15 @@ export function MissedRequestsDialog({ isOpen, requests, isLoading, loadingStatu
                   req.source === 'chat' ? `TIER ${req.subTier || 1}` :
                     req.source === 'resub' ? 'RESUB' : '';
 
+                const isDisabled = disabledIds?.has(req.id);
+
                 return (
-                  <label key={req.id} className={`missed-request-item${selected.has(req.id) ? ' checked' : ''}`}>
+                  <label key={req.id} className={`missed-request-item${selected.has(req.id) ? ' checked' : ''}${isDisabled ? ' disabled' : ''}`}>
                     <input
                       type="checkbox"
                       checked={selected.has(req.id)}
                       onChange={() => toggle(req.id)}
+                      disabled={isDisabled}
                     />
                     <CharacterAvatar portrait={portrait} type={req.type} size="sm" />
                     <div className="missed-request-info">
@@ -148,6 +154,11 @@ export function MissedRequestsDialog({ isOpen, requests, isLoading, loadingStatu
                         {req.timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
+                    {isDisabled && (
+                      <span className="missed-request-duplicate" title="Já na fila">
+                        Já na fila
+                      </span>
+                    )}
                   </label>
                 );
               })}

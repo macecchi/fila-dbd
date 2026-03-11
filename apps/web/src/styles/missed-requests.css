@@ -193,6 +193,19 @@
   font-size: var(--text-sm);
 }
 
+/* Disabled/duplicate rows */
+.missed-request-item.disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
+}
+
+.missed-request-duplicate {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 /* Mobile */
 @media (max-width: 480px) {
   .missed-requests-dialog {
