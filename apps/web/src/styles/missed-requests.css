@@ -56,6 +56,16 @@
   color: var(--accent);
 }
 
+.dialog-help-text {
+  margin: 0;
+  padding: 0.75rem 1.25rem;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  line-height: 1.5;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
 .missed-requests-subtitle {
   padding: 0.75rem 1.25rem;
   font-size: var(--text-sm);

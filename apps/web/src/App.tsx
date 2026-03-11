@@ -41,6 +41,12 @@ function ChannelApp() {
   const [manualOpen, setManualOpen] = useState(false);
   const [showDone, setShowDone] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+
+  useEffect(() => {
+    const open = () => setReviewOpen(true);
+    window.addEventListener('dbd:open-review', open);
+    return () => window.removeEventListener('dbd:open-review', open);
+  }, []);
   const [shownToasts] = useState(() => new Set<number>());
   const isFirstLoad = useRef(true);
   const readOnly = !canManageChannel;
@@ -388,7 +394,7 @@ function ChannelApp() {
           </div>
         </main>
 
-        {!readOnly && <SourcesPanel onRecover={() => setVodSelectOpen(true)} />}
+        {!readOnly && <SourcesPanel onRecover={() => setVodSelectOpen(true)} onReview={() => setReviewOpen(true)} />}
         {(import.meta.env.DEV || isDebugMode()) && <DebugPanel />}
 
         <footer className="footer">

@@ -112,10 +112,7 @@ export function VODSelectionDialog({ isOpen, channel, onConfirm, onClose }: Prop
           </div>
         ) : (
           <>
-            <div className="missed-requests-subtitle">
-              Selecione as VODs para buscar pedidos
-              <div className="vod-disclaimer">Resubs não podem ser recuperados de VODs.</div>
-            </div>
+            <p className="dialog-help-text">Recupere pedidos de streams anteriores. Selecione as VODs que deseja escanear — o chat será analisado para encontrar pedidos de donates e comandos de chat. Resubs não podem ser recuperados de VODs.</p>
             <div className="missed-requests-list">
               {vods.map(vod => (
                 <label key={vod.id} className={`missed-request-item${selected.has(vod.id) ? ' checked' : ''}`}>

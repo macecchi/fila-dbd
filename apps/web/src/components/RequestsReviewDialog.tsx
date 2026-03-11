@@ -124,6 +124,8 @@ export function RequestsReviewDialog({ isOpen, requests, onApply, onClose }: Pro
           </button>
         </div>
 
+        <p className="dialog-help-text">Visualize e altere o status dos pedidos. Marque um pedido como feito ou adicione de volta à fila. Revise as alterações na aba "Alterações" e aplique quando estiver pronto.</p>
+
         <div className="review-tabs">
           <button
             className={`review-tab${tab === 'current' ? ' active' : ''}`}

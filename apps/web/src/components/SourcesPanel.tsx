@@ -33,9 +33,10 @@ const SOURCE_ICONS: Record<SourceType, React.ReactNode> = {
 
 interface SourcesPanelProps {
   onRecover?: () => void;
+  onReview?: () => void;
 }
 
-export function SourcesPanel({ onRecover }: SourcesPanelProps) {
+export function SourcesPanel({ onRecover, onReview }: SourcesPanelProps) {
   const { useSources, canManageChannel } = useChannel();
   const {
     enabled, chatCommand, chatTiers, priority, sortMode, minDonation,
@@ -208,15 +209,26 @@ export function SourcesPanel({ onRecover }: SourcesPanelProps) {
           </div>
         </div>
 
-        {onRecover && !readOnly && (
+        {!readOnly && (onRecover || onReview) && (
           <div className="recover-section">
-            <button className="btn btn-ghost recover-btn" onClick={onRecover}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12,6 12,12 16,14" />
-              </svg>
-              Recuperar pedidos de VODs anteriores
-            </button>
+            {onReview && (
+              <button className="btn btn-ghost recover-btn" onClick={onReview}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <path d="M3 9h18M9 3v18" />
+                </svg>
+                Revisar pedidos
+              </button>
+            )}
+            {onRecover && (
+              <button className="btn btn-ghost recover-btn" onClick={onRecover}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12,6 12,12 16,14" />
+                </svg>
+                Recuperar pedidos de VODs anteriores
+              </button>
+            )}
           </div>
         )}
       </div>

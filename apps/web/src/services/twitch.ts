@@ -291,6 +291,7 @@ declare global {
       donate: (donor: string, amount: number, message: string) => void;
       resub: (user: string, message: string) => void;
       raw: (ircLine: string) => void;
+      review: () => void;
     };
   }
 }
@@ -328,5 +329,6 @@ window.dbdDebug = {
     if (!checkWriteMode()) return;
     if (ircLine.includes('USERNOTICE')) handleUserNotice(ircLine);
     else if (ircLine.includes('PRIVMSG')) handleMessage(ircLine);
-  }
+  },
+  review: () => window.dispatchEvent(new CustomEvent('dbd:open-review')),
 };
