@@ -274,15 +274,13 @@ export default class PartyServer implements Party.Server {
     const secret = this.room.env.INTERNAL_API_SECRET as string | undefined;
     if (!apiUrl || !secret) return;
 
-    const useFullSync = this.needsFullSync || this.dirtyRequestIds.size === 0;
-    const mode = useFullSync ? 'full' : 'partial';
+    const syncingIds = new Set(this.dirtyRequestIds);
+    const wasFullSync = this.needsFullSync || syncingIds.size === 0;
+    const mode = wasFullSync ? 'full' : 'partial';
     const allWithPositions = this.requests.map((r, i) => ({ ...r, _position: i }));
-    const requestsToSync = useFullSync
+    const requestsToSync = wasFullSync
       ? allWithPositions
-      : allWithPositions.filter(r => this.dirtyRequestIds.has(r.id));
-
-    this.dirtyRequestIds.clear();
-    this.needsFullSync = false;
+      : allWithPositions.filter(r => syncingIds.has(r.id));
 
     try {
       const res = await fetch(`${apiUrl}/internal/rooms/${this.room.id}/requests`, {
@@ -293,11 +291,13 @@ export default class PartyServer implements Party.Server {
         },
         body: JSON.stringify({ requests: requestsToSync, mode }),
       });
-      if (!res.ok) {
+      if (res.ok) {
+        for (const id of syncingIds) this.dirtyRequestIds.delete(id);
+        if (wasFullSync) this.needsFullSync = false;
+        console.log(`${this.tag} D1 synced ${requestsToSync.length} requests (${mode})`);
+      } else {
         console.error(`${this.tag} D1 sync requests failed: ${res.status}`);
         this.needsFullSync = true;
-      } else {
-        console.log(`${this.tag} D1 synced ${requestsToSync.length} requests (${mode})`);
       }
     } catch (e) {
       console.error(`${this.tag} D1 sync requests error:`, e);

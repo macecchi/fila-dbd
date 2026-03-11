@@ -168,15 +168,25 @@ export function createRequestsStore(
               });
               break;
             }
-            case 'update-request':
+            case 'update-request': {
+              const { timestamp, doneAt, ...rest } = msg.updates;
               set((s) => ({
-                requests: s.requests.map((r) =>
-                  r.id === msg.id
-                    ? { ...r, ...msg.updates, timestamp: msg.updates.timestamp ? new Date(msg.updates.timestamp) : r.timestamp, doneAt: msg.updates.doneAt ? new Date(msg.updates.doneAt) : r.doneAt }
-                    : r
-                ),
+                requests: s.requests.map((r) => {
+                  if (r.id !== msg.id) return r;
+                  return {
+                    ...r,
+                    ...rest,
+                    timestamp: 'timestamp' in msg.updates
+                      ? (timestamp ? new Date(timestamp) : r.timestamp)
+                      : r.timestamp,
+                    doneAt: 'doneAt' in msg.updates
+                      ? (doneAt ? new Date(doneAt) : undefined)
+                      : r.doneAt,
+                  };
+                }),
               }));
               break;
+            }
             case 'ownership-granted': {
               // After reconnect, merge any local changes made during the disconnect.
               // Only the lock-holder can mutate requests, so pre-sync local state is

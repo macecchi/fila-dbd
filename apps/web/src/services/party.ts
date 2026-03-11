@@ -70,12 +70,15 @@ export function broadcastAdd(request: Request): void {
 }
 
 export function broadcastUpdate(id: number, updates: Partial<Request>): void {
-  const serializedUpdates: Partial<SerializedRequest> = {
-    ...updates,
-    timestamp: updates.timestamp?.toISOString(),
-    doneAt: updates.doneAt?.toISOString(),
-  };
-  send({ type: 'update-request', id, updates: serializedUpdates });
+  const { timestamp, doneAt, ...rest } = updates;
+  const serializedUpdates: Record<string, unknown> = { ...rest };
+  if ('timestamp' in updates) {
+    serializedUpdates.timestamp = timestamp?.toISOString() ?? null;
+  }
+  if ('doneAt' in updates) {
+    serializedUpdates.doneAt = doneAt?.toISOString() ?? null;
+  }
+  send({ type: 'update-request', id, updates: serializedUpdates as Partial<SerializedRequest> });
 }
 
 export function broadcastToggleDone(id: number, doneAt?: string): void {
