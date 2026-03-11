@@ -271,15 +271,16 @@ internal.use("*", async (c, next) => {
   await next();
 });
 
-// PUT /internal/rooms/:roomId/requests — bulk upsert all requests
+// PUT /internal/rooms/:roomId/requests — upsert requests (full or partial mode)
 internal.put("/rooms/:roomId/requests", async (c) => {
   const roomId = c.req.param("roomId");
-  const body = await c.req.json<{ requests: Array<Record<string, unknown>> }>();
+  const body = await c.req.json<{ requests: Array<Record<string, unknown>>; mode?: string }>();
 
   if (!Array.isArray(body.requests)) {
     return c.json({ error: "invalid_input" }, 400);
   }
 
+  const isPartial = body.mode === 'partial';
   const statements: D1PreparedStatement[] = [];
 
   // Ensure room exists
@@ -289,34 +290,33 @@ internal.put("/rooms/:roomId/requests", async (c) => {
     ).bind(roomId, roomId)
   );
 
-  // Soft-delete requests no longer in the queue
-  const incomingIds = body.requests.map((r: Record<string, unknown>) => r.id);
-  if (incomingIds.length > 0) {
-    statements.push(
-      c.env.DB.prepare(
-        `UPDATE requests SET deleted_at = datetime('now') WHERE room_id = ? AND deleted_at IS NULL AND id NOT IN (${incomingIds.map(() => '?').join(',')})`
-      ).bind(roomId, ...incomingIds)
-    );
-  } else {
-    statements.push(
-      c.env.DB.prepare(
-        "UPDATE requests SET deleted_at = datetime('now') WHERE room_id = ? AND deleted_at IS NULL"
-      ).bind(roomId)
-    );
+  // Full mode: soft-delete/restore to keep D1 in sync with DO
+  if (!isPartial) {
+    const incomingIds = body.requests.map((r: Record<string, unknown>) => r.id);
+    if (incomingIds.length > 0) {
+      statements.push(
+        c.env.DB.prepare(
+          `UPDATE requests SET deleted_at = datetime('now') WHERE room_id = ? AND deleted_at IS NULL AND id NOT IN (${incomingIds.map(() => '?').join(',')})`
+        ).bind(roomId, ...incomingIds)
+      );
+      statements.push(
+        c.env.DB.prepare(
+          `UPDATE requests SET deleted_at = NULL WHERE room_id = ? AND deleted_at IS NOT NULL AND id IN (${incomingIds.map(() => '?').join(',')})`
+        ).bind(roomId, ...incomingIds)
+      );
+    } else {
+      statements.push(
+        c.env.DB.prepare(
+          "UPDATE requests SET deleted_at = datetime('now') WHERE room_id = ? AND deleted_at IS NULL"
+        ).bind(roomId)
+      );
+    }
   }
 
-  // Restore any previously soft-deleted requests that are back in the queue
-  if (incomingIds.length > 0) {
-    statements.push(
-      c.env.DB.prepare(
-        `UPDATE requests SET deleted_at = NULL WHERE room_id = ? AND deleted_at IS NOT NULL AND id IN (${incomingIds.map(() => '?').join(',')})`
-      ).bind(roomId, ...incomingIds)
-    );
-  }
-
-  // Upsert all current requests
+  // Upsert requests (use _position if provided, else array index)
   for (let i = 0; i < body.requests.length; i++) {
     const r = body.requests[i];
+    const position = typeof r._position === 'number' ? r._position : i;
     statements.push(
       c.env.DB.prepare(
         `INSERT INTO requests (id, room_id, position, timestamp, donor, amount, amount_val, message, character, type, done, done_at, source, sub_tier, needs_identification)
@@ -331,7 +331,7 @@ internal.put("/rooms/:roomId/requests", async (c) => {
       ).bind(
         r.id,
         roomId,
-        i,
+        position,
         r.timestamp,
         r.donor,
         r.amount ?? "",
@@ -349,7 +349,7 @@ internal.put("/rooms/:roomId/requests", async (c) => {
   }
 
   await c.env.DB.batch(statements);
-  return c.json({ ok: true, count: body.requests.length });
+  return c.json({ ok: true, count: body.requests.length, mode: isPartial ? 'partial' : 'full' });
 });
 
 // PUT /internal/rooms/:roomId/sources — upsert room sources settings
@@ -430,6 +430,9 @@ interface RoomRow {
 }
 
 app.get("/rooms/active", async (c) => {
+  const cached = await c.env.CACHE.get("rooms_active", "json");
+  if (cached) return c.json(cached);
+
   const { results } = await c.env.DB.prepare(
     `SELECT r.id, r.channel_login, r.avatar_url, r.banner_url, r.status,
             COUNT(req.id) AS request_count,
@@ -540,7 +543,17 @@ app.get("/rooms/active", async (c) => {
     return (b.pending_count ?? 0) - (a.pending_count ?? 0);
   });
 
-  return c.json({ rooms: active.slice(0, 10) });
+  const response = { rooms: active.slice(0, 10) };
+
+  try {
+    c.executionCtx.waitUntil(
+      c.env.CACHE.put("rooms_active", JSON.stringify(response), { expirationTtl: 60 })
+    );
+  } catch {
+    await c.env.CACHE.put("rooms_active", JSON.stringify(response), { expirationTtl: 60 });
+  }
+
+  return c.json(response);
 });
 
 app.get("/rooms/:roomId", async (c) => {

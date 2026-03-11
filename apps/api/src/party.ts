@@ -22,6 +22,9 @@ export default class PartyServer implements Party.Server {
   connections: Map<string, ConnectionInfo> = new Map();
   activeOwnerConnId: string | null = null;
   private syncRequestsTimer: ReturnType<typeof setTimeout> | null = null;
+  private dirtyRequestIds = new Set<number>();
+  private needsFullSync = false;
+  private lastSyncedStatus: string | null = null;
 
   constructor(public room: Party.Room) { }
 
@@ -140,6 +143,7 @@ export default class PartyServer implements Party.Server {
       const grantMsg: PartyMessage = { type: 'ownership-granted' };
       sender.send(JSON.stringify(grantMsg));
       this.broadcastChannel();
+      this.needsFullSync = true;
       this.syncRequestsToD1();
       this.syncSourcesToD1();
       console.log(`${this.tag} Granted ownership to ${login}`);
@@ -167,6 +171,7 @@ export default class PartyServer implements Party.Server {
       case 'add-request': {
         if (!this.requests.some(r => r.id === msg.request.id)) {
           this.requests.push(msg.request);
+          this.dirtyRequestIds.add(msg.request.id);
           await this.persist();
           this.broadcast(message, sender.id);
           console.log(`${this.tag} ${user}: add-request #${msg.request.id} "${msg.request.character}" (${msg.request.source})`);
@@ -179,6 +184,7 @@ export default class PartyServer implements Party.Server {
         const idx = this.requests.findIndex(r => r.id === msg.id);
         if (idx !== -1) {
           this.requests[idx] = { ...this.requests[idx], ...msg.updates };
+          this.dirtyRequestIds.add(msg.id);
           await this.persist();
           this.broadcast(message, sender.id);
           console.log(`${this.tag} ${user}: update-request #${msg.id}`, Object.keys(msg.updates));
@@ -189,7 +195,10 @@ export default class PartyServer implements Party.Server {
         const idx = this.requests.findIndex(r => r.id === msg.id);
         if (idx !== -1) {
           this.requests[idx].done = !this.requests[idx].done;
-          this.requests[idx].doneAt = this.requests[idx].done ? new Date().toISOString() : undefined;
+          this.requests[idx].doneAt = this.requests[idx].done
+            ? (msg.doneAt ?? new Date().toISOString())
+            : undefined;
+          this.dirtyRequestIds.add(msg.id);
           await this.persist();
           this.broadcast(message, sender.id);
           console.log(`${this.tag} ${user}: toggle-done #${msg.id} → ${this.requests[idx].done}`);
@@ -202,7 +211,8 @@ export default class PartyServer implements Party.Server {
         if (fromIdx !== -1 && toIdx !== -1) {
           const [moved] = this.requests.splice(fromIdx, 1);
           this.requests.splice(toIdx, 0, moved);
-          await this.persist();
+          this.needsFullSync = true;
+          await this.persist(true);
           this.broadcast(message, sender.id);
           console.log(`${this.tag} ${user}: reorder #${msg.fromId} → position of #${msg.toId}`);
         }
@@ -212,6 +222,7 @@ export default class PartyServer implements Party.Server {
         const idx = this.requests.findIndex(r => r.id === msg.id);
         if (idx !== -1) {
           this.requests.splice(idx, 1);
+          this.needsFullSync = true;
           await this.persist();
           this.broadcast(message, sender.id);
           console.log(`${this.tag} ${user}: delete-request #${msg.id}`);
@@ -220,6 +231,7 @@ export default class PartyServer implements Party.Server {
       }
       case 'set-all': {
         this.requests = msg.requests;
+        this.needsFullSync = true;
         await this.persist();
         this.broadcast(message, sender.id);
         console.log(`${this.tag} ${user}: set-all (${msg.requests.length} requests)`);
@@ -245,21 +257,32 @@ export default class PartyServer implements Party.Server {
     }
   }
 
-  private async persist() {
+  private async persist(reorderOnly?: boolean) {
     await this.room.storage.put('requests', this.requests);
-    this.scheduleSyncRequests();
+    this.scheduleSyncRequests(reorderOnly);
     console.log(`${this.tag} Persisted ${this.requests.length} requests`);
   }
 
-  private scheduleSyncRequests() {
+  private scheduleSyncRequests(reorderOnly?: boolean) {
     if (this.syncRequestsTimer) clearTimeout(this.syncRequestsTimer);
-    this.syncRequestsTimer = setTimeout(() => this.syncRequestsToD1(), 2000);
+    const delay = reorderOnly ? 60_000 : 10_000;
+    this.syncRequestsTimer = setTimeout(() => this.syncRequestsToD1(), delay);
   }
 
   private async syncRequestsToD1() {
     const apiUrl = this.room.env.API_URL as string | undefined;
     const secret = this.room.env.INTERNAL_API_SECRET as string | undefined;
     if (!apiUrl || !secret) return;
+
+    const useFullSync = this.needsFullSync || this.dirtyRequestIds.size === 0;
+    const mode = useFullSync ? 'full' : 'partial';
+    const allWithPositions = this.requests.map((r, i) => ({ ...r, _position: i }));
+    const requestsToSync = useFullSync
+      ? allWithPositions
+      : allWithPositions.filter(r => this.dirtyRequestIds.has(r.id));
+
+    this.dirtyRequestIds.clear();
+    this.needsFullSync = false;
 
     try {
       const res = await fetch(`${apiUrl}/internal/rooms/${this.room.id}/requests`, {
@@ -268,15 +291,17 @@ export default class PartyServer implements Party.Server {
           'Authorization': `Bearer internal:${secret}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ requests: this.requests }),
+        body: JSON.stringify({ requests: requestsToSync, mode }),
       });
       if (!res.ok) {
         console.error(`${this.tag} D1 sync requests failed: ${res.status}`);
+        this.needsFullSync = true;
       } else {
-        console.log(`${this.tag} D1 synced ${this.requests.length} requests`);
+        console.log(`${this.tag} D1 synced ${requestsToSync.length} requests (${mode})`);
       }
     } catch (e) {
       console.error(`${this.tag} D1 sync requests error:`, e);
+      this.needsFullSync = true;
     }
   }
 
@@ -327,11 +352,12 @@ export default class PartyServer implements Party.Server {
 
   private flushAndSyncOffline() {
     this.broadcastChannel();
-    // Cancel pending debounced sync and flush immediately
+    // Cancel pending debounced sync and flush immediately as full sync
     if (this.syncRequestsTimer) {
       clearTimeout(this.syncRequestsTimer);
       this.syncRequestsTimer = null;
     }
+    this.needsFullSync = true;
     this.syncRequestsToD1();
   }
 
@@ -343,7 +369,10 @@ export default class PartyServer implements Party.Server {
       count++;
     }
     console.log(`${this.tag} Broadcast channel state to ${count} client(s): status=${this.channel.status}, owner=${this.channel.owner?.login ?? 'null'}`);
-    this.syncStatusToD1();
+    if (this.channel.status !== this.lastSyncedStatus) {
+      this.lastSyncedStatus = this.channel.status;
+      this.syncStatusToD1();
+    }
   }
 
   private async syncStatusToD1() {

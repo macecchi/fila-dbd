@@ -36,6 +36,9 @@ export function createRequestsStore(
   // Saved before sync-full overwrites local state; merged when ownership is (re)claimed.
   // Contains real in-memory state from this session only (no localStorage).
   let preSyncRequests: Request[] | null = null;
+  // Track IDs from the last server sync-full so we can distinguish
+  // locally-created requests from server-deleted ones during merge.
+  let lastKnownServerIds = new Set<number>();
 
   return create<RequestsStore>()(
       (set, get) => ({
@@ -83,11 +86,13 @@ export function createRequestsStore(
 
         toggleDone: (id) => {
           const { partyConnected, isOwner } = getContext();
+          const doneAt = new Date();
           set((s) => ({
-            requests: s.requests.map((r) => (r.id === id ? { ...r, done: !r.done, doneAt: !r.done ? new Date() : undefined } : r)),
+            requests: s.requests.map((r) => (r.id === id ? { ...r, done: !r.done, doneAt: !r.done ? doneAt : undefined } : r)),
           }));
           if (partyConnected && isOwner) {
-            broadcastToggleDone(id);
+            const req = get().requests.find(r => r.id === id);
+            broadcastToggleDone(id, req?.doneAt?.toISOString());
           }
         },
 
@@ -167,7 +172,7 @@ export function createRequestsStore(
               set((s) => ({
                 requests: s.requests.map((r) =>
                   r.id === msg.id
-                    ? { ...r, ...msg.updates, timestamp: msg.updates.timestamp ? new Date(msg.updates.timestamp) : r.timestamp, doneAt: msg.updates.doneAt !== undefined ? (msg.updates.doneAt ? new Date(msg.updates.doneAt) : undefined) : r.doneAt }
+                    ? { ...r, ...msg.updates, timestamp: msg.updates.timestamp ? new Date(msg.updates.timestamp) : r.timestamp, doneAt: msg.updates.doneAt ? new Date(msg.updates.doneAt) : r.doneAt }
                     : r
                 ),
               }));
@@ -193,9 +198,10 @@ export function createRequestsStore(
                   return r;
                 });
 
-                // Re-add requests that were created locally during disconnect
+                // Re-add requests created locally during disconnect
+                // (not in current server state AND never seen in any previous server sync)
                 for (const r of preSyncRequests) {
-                  if (!currentIds.has(r.id)) {
+                  if (!currentIds.has(r.id) && !lastKnownServerIds.has(r.id)) {
                     merged.push(r);
                     hasChanges = true;
                   }
@@ -208,11 +214,18 @@ export function createRequestsStore(
 
                 preSyncRequests = null;
               }
+              // Update known server IDs after merge
+              lastKnownServerIds = new Set(get().requests.map(r => r.id));
               break;
             }
+            case 'ownership-denied':
+              preSyncRequests = null;
+              break;
             case 'toggle-done':
               set((s) => ({
-                requests: s.requests.map((r) => (r.id === msg.id ? { ...r, done: !r.done, doneAt: !r.done ? new Date() : undefined } : r)),
+                requests: s.requests.map((r) => (r.id === msg.id
+                  ? { ...r, done: !r.done, doneAt: !r.done ? (msg.doneAt ? new Date(msg.doneAt) : new Date()) : undefined }
+                  : r)),
               }));
               break;
             case 'reorder':

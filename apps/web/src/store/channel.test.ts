@@ -198,7 +198,7 @@ describe('channel stores', () => {
 
       stores.useRequests.getState().toggleDone(456);
 
-      expect(party.broadcastToggleDone).toHaveBeenCalledWith(456);
+      expect(party.broadcastToggleDone).toHaveBeenCalledWith(456, expect.any(String));
     });
 
     it('deleteRequest() broadcasts when connected and owner', () => {
