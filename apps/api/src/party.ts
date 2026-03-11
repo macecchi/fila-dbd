@@ -59,7 +59,31 @@ export default class PartyServer implements Party.Server {
     }
   }
 
-  async onRequest() {
+  async onRequest(req: Party.Request) {
+    if (req.method === 'POST') {
+      const secret = this.room.env.INTERNAL_API_SECRET as string | undefined;
+      const authHeader = req.headers.get('Authorization');
+      if (!secret || authHeader !== `Bearer internal:${secret}`) {
+        return Response.json({ error: 'unauthorized' }, { status: 401 });
+      }
+      const body = await req.json<{ action: string }>();
+      if (body.action === 'recover-from-d1') {
+        await this.room.storage.delete('requests');
+        const recovered = await this.recoverFromD1();
+        if (recovered) {
+          this.requests = recovered;
+          await this.room.storage.put('requests', recovered);
+        } else {
+          this.requests = [];
+        }
+        // Broadcast to connected clients
+        const msg: PartyMessage = { type: 'sync-full', requests: this.requests, sources: this.sources, channel: this.channel };
+        for (const conn of this.room.getConnections()) conn.send(JSON.stringify(msg));
+        console.log(`${this.tag} Forced D1 recovery: ${this.requests.length} requests`);
+        return Response.json({ ok: true, recovered: this.requests.length });
+      }
+      return Response.json({ error: 'unknown_action' }, { status: 400 });
+    }
     return Response.json({
       status: this.channel.status,
       connections: this.connections.size,

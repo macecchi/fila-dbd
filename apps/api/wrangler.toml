@@ -24,7 +24,7 @@ binding = "CACHE"
 id = "local"
 
 [env.production]
-vars = { FRONTEND_URL = "https://filadbd.pages.dev", PARTY_HOST = "dbd-tracker-party.meriw.partykit.dev" }
+vars = { FRONTEND_URL = "https://filadbd.pages.dev", PARTY_HOST = "dbd-tracker-party.macecchi.partykit.dev" }
 
 [[env.production.d1_databases]]
 binding = "DB"
@@ -33,20 +33,5 @@ database_id = "0b7fe20d-bc00-4399-b58d-2923aaab201c"
 migrations_dir = "migrations"
 
 [[env.production.kv_namespaces]]
-binding = "CACHE"
-id = "d969f51392e9471790da97ea9c053506"
-
-# Preview environment — shares production D1/KV, separate worker name
-[env.preview]
-name = "dbd-tracker-preview"
-vars = { FRONTEND_URL = "https://filadbd.pages.dev", PARTY_HOST = "dbd-tracker-party.meriw.partykit.dev" }
-
-[[env.preview.d1_databases]]
-binding = "DB"
-database_name = "fila-dbd"
-database_id = "0b7fe20d-bc00-4399-b58d-2923aaab201c"
-migrations_dir = "migrations"
-
-[[env.preview.kv_namespaces]]
 binding = "CACHE"
 id = "d969f51392e9471790da97ea9c053506"
