@@ -54,80 +54,31 @@ export function createRequestsStore(
 
         add: (req) => {
           if (!requireParty(getContext)) return;
-          const existingRequests = get().requests;
-          if (existingRequests.some(r => r.id === req.id)) return;
-          if (existingRequests.filter(r => !r.done).length >= MAX_PENDING_REQUESTS) {
-            console.warn(`[requests] Pending cap reached (${MAX_PENDING_REQUESTS}), rejecting request #${req.id}`);
-            useToasts.getState().show('Fila cheia! Marque pedidos como feitos para liberar espaço.', 'Limite atingido');
-            return;
-          }
-
-          set((s) => {
-            const { sortMode, priority } = getSourcesState();
-            if (sortMode === 'fifo') {
-              return { requests: [...s.requests, req] };
-            }
-            const requests = [...s.requests];
-            const reqPri = priority.indexOf(req.source);
-            let insertIdx = requests.length;
-            for (let i = 0; i < requests.length; i++) {
-              if (requests[i].done) continue;
-              const iPri = priority.indexOf(requests[i].source);
-              if (iPri > reqPri || (iPri === reqPri && requests[i].timestamp > req.timestamp)) {
-                insertIdx = i;
-                break;
-              }
-            }
-            requests.splice(insertIdx, 0, req);
-            return { requests };
-          });
-
           broadcastAdd(req);
         },
 
         update: (id, updates) => {
           if (!requireParty(getContext)) return;
-          set((s) => ({
-            requests: s.requests.map((r) => (r.id === id ? { ...r, ...updates } : r)),
-          }));
           broadcastUpdate(id, updates);
         },
 
         toggleDone: (id) => {
           if (!requireParty(getContext)) return;
-          const doneAt = new Date();
-          set((s) => ({
-            requests: s.requests.map((r) => (r.id === id ? { ...r, done: !r.done, doneAt: !r.done ? doneAt : undefined } : r)),
-          }));
-          const req = get().requests.find(r => r.id === id);
-          broadcastToggleDone(id, req?.doneAt?.toISOString());
+          broadcastToggleDone(id);
         },
 
         setAll: (requests) => {
           if (!requireParty(getContext)) return;
-          set({ requests });
           broadcastSetAll(requests);
         },
 
         reorder: (fromId, toId) => {
           if (!requireParty(getContext)) return;
-          set((s) => {
-            const requests = [...s.requests];
-            const fromIdx = requests.findIndex(r => r.id === fromId);
-            const toIdx = requests.findIndex(r => r.id === toId);
-            if (fromIdx === -1 || toIdx === -1) return s;
-            const [moved] = requests.splice(fromIdx, 1);
-            requests.splice(toIdx, 0, moved);
-            return { requests };
-          });
           broadcastReorder(fromId, toId);
         },
 
         deleteRequest: (id) => {
           if (!requireParty(getContext)) return;
-          set((s) => ({
-            requests: s.requests.filter((r) => r.id !== id),
-          }));
           broadcastDelete(id);
         },
 

@@ -283,7 +283,7 @@ export default class PartyServer implements Party.Server {
         this.requests.push(msg.request);
         this.dirtyRequestIds.add(msg.request.id);
         await this.persist();
-        this.broadcast(message, sender.id);
+        this.broadcast(message);
         console.log(`${this.tag} ${user}: add-request #${msg.request.id} "${msg.request.character}" (${msg.request.source})`);
         break;
       }
@@ -293,7 +293,7 @@ export default class PartyServer implements Party.Server {
           this.requests[idx] = { ...this.requests[idx], ...msg.updates };
           this.dirtyRequestIds.add(msg.id);
           await this.persist();
-          this.broadcast(message, sender.id);
+          this.broadcast(message);
           console.log(`${this.tag} ${user}: update-request #${msg.id}`, Object.keys(msg.updates));
         }
         break;
@@ -307,7 +307,7 @@ export default class PartyServer implements Party.Server {
             : undefined;
           this.dirtyRequestIds.add(msg.id);
           await this.persist();
-          this.broadcast(message, sender.id);
+          this.broadcast(message);
           console.log(`${this.tag} ${user}: toggle-done #${msg.id} → ${this.requests[idx].done}`);
         }
         break;
@@ -320,7 +320,7 @@ export default class PartyServer implements Party.Server {
           this.requests.splice(toIdx, 0, moved);
           this.needsFullSync = true;
           await this.persist(true);
-          this.broadcast(message, sender.id);
+          this.broadcast(message);
           console.log(`${this.tag} ${user}: reorder #${msg.fromId} → position of #${msg.toId}`);
         }
         break;
@@ -332,7 +332,7 @@ export default class PartyServer implements Party.Server {
           await this.room.storage.delete(`req:${msg.id}`);
           this.needsFullSync = true;
           await this.persist();
-          this.broadcast(message, sender.id);
+          this.broadcast(message);
           console.log(`${this.tag} ${user}: delete-request #${msg.id}`);
         }
         break;
@@ -344,7 +344,7 @@ export default class PartyServer implements Party.Server {
         this.needsFullSync = true;
         await this.persistAll();
         this.scheduleSyncRequests();
-        this.broadcast(message, sender.id);
+        this.broadcast(message);
         console.log(`${this.tag} ${user}: set-all (${msg.requests.length} requests)`);
         break;
       }
@@ -352,7 +352,7 @@ export default class PartyServer implements Party.Server {
         this.sources = msg.sources;
         await this.room.storage.put('sources', this.sources);
         this.syncSourcesToD1();
-        this.broadcast(message, sender.id);
+        this.broadcast(message);
         console.log(`${this.tag} ${user}: update-sources`, JSON.stringify(msg.sources.enabled));
         break;
       }
@@ -523,7 +523,7 @@ export default class PartyServer implements Party.Server {
     console.error(`${this.tag} Error sent to owner: [${code}] ${message}`);
   }
 
-  private broadcast(message: string, excludeId: string) {
+  private broadcast(message: string, excludeId?: string) {
     let count = 0;
     for (const conn of this.room.getConnections()) {
       if (conn.id !== excludeId) {

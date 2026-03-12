@@ -150,140 +150,75 @@ describe('channel stores', () => {
   });
 
   describe('RequestsStore operations', () => {
-    it('add() broadcasts when connected and owner', () => {
+    it('add() broadcasts without updating local state', () => {
       const stores = createRoomStores('testchannel');
       stores.useChannelInfo.getState().setPartyConnectionState('connected');
-      stores.useChannelInfo.getState().setHasLock(true);
 
       const request = createTestRequest();
       stores.useRequests.getState().add(request);
 
       expect(party.broadcastAdd).toHaveBeenCalledWith(request);
-      expect(stores.useRequests.getState().requests).toHaveLength(1);
+      expect(stores.useRequests.getState().requests).toHaveLength(0);
     });
 
-    it('update() broadcasts when connected and owner', () => {
+    it('update() broadcasts without updating local state', () => {
       const stores = createRoomStores('testchannel');
       stores.useChannelInfo.getState().setPartyConnectionState('connected');
-      stores.useChannelInfo.getState().setHasLock(true);
-
-      const request = createTestRequest({ id: 123 });
-      stores.useRequests.getState().add(request);
-      vi.clearAllMocks();
 
       stores.useRequests.getState().update(123, { done: true });
 
       expect(party.broadcastUpdate).toHaveBeenCalledWith(123, { done: true });
     });
 
-    it('toggleDone() broadcasts when connected and owner', () => {
+    it('toggleDone() broadcasts without updating local state', () => {
       const stores = createRoomStores('testchannel');
       stores.useChannelInfo.getState().setPartyConnectionState('connected');
-      stores.useChannelInfo.getState().setHasLock(true);
-
-      const request = createTestRequest({ id: 456 });
-      stores.useRequests.getState().add(request);
-      vi.clearAllMocks();
 
       stores.useRequests.getState().toggleDone(456);
 
-      expect(party.broadcastToggleDone).toHaveBeenCalledWith(456, expect.any(String));
+      expect(party.broadcastToggleDone).toHaveBeenCalledWith(456);
     });
 
-    it('deleteRequest() broadcasts when connected and owner', () => {
+    it('deleteRequest() broadcasts without updating local state', () => {
       const stores = createRoomStores('testchannel');
       stores.useChannelInfo.getState().setPartyConnectionState('connected');
-      stores.useChannelInfo.getState().setHasLock(true);
-
-      const request = createTestRequest({ id: 789 });
-      stores.useRequests.getState().add(request);
-      vi.clearAllMocks();
 
       stores.useRequests.getState().deleteRequest(789);
 
       expect(party.broadcastDelete).toHaveBeenCalledWith(789);
-      expect(stores.useRequests.getState().requests).toHaveLength(0);
     });
 
-    it('reorder() broadcasts when connected and owner', () => {
+    it('reorder() broadcasts without updating local state', () => {
       const stores = createRoomStores('testchannel');
       stores.useChannelInfo.getState().setPartyConnectionState('connected');
-      stores.useChannelInfo.getState().setHasLock(true);
-
-      const req1 = createTestRequest({ id: 1 });
-      const req2 = createTestRequest({ id: 2 });
-      stores.useRequests.getState().add(req1);
-      stores.useRequests.getState().add(req2);
-      vi.clearAllMocks();
 
       stores.useRequests.getState().reorder(2, 1);
 
       expect(party.broadcastReorder).toHaveBeenCalledWith(2, 1);
     });
 
-    it('setAll() broadcasts when connected and owner', () => {
+    it('setAll() broadcasts without updating local state', () => {
       const stores = createRoomStores('testchannel');
       stores.useChannelInfo.getState().setPartyConnectionState('connected');
-      stores.useChannelInfo.getState().setHasLock(true);
 
       const requests = [createTestRequest({ id: 1 }), createTestRequest({ id: 2 })];
       stores.useRequests.getState().setAll(requests);
 
       expect(party.broadcastSetAll).toHaveBeenCalledWith(requests);
+      expect(stores.useRequests.getState().requests).toHaveLength(0);
     });
 
-    it('rejects add when pending cap reached', () => {
+    it('does not broadcast when not connected', () => {
       const stores = createRoomStores('testchannel');
-      stores.useChannelInfo.getState().setPartyConnectionState('connected');
-      stores.useChannelInfo.getState().setHasLock(true);
+      stores.useChannelInfo.getState().setPartyConnectionState('disconnected');
 
-      // Add 99 pending requests
-      for (let i = 1; i <= 99; i++) {
-        stores.useRequests.getState().add(createTestRequest({ id: i }));
-      }
-      expect(stores.useRequests.getState().requests).toHaveLength(99);
-      vi.clearAllMocks();
+      stores.useRequests.getState().add(createTestRequest());
+      stores.useRequests.getState().toggleDone(1);
+      stores.useRequests.getState().deleteRequest(1);
 
-      // 100th should be rejected
-      stores.useRequests.getState().add(createTestRequest({ id: 100 }));
-
-      expect(stores.useRequests.getState().requests).toHaveLength(99);
       expect(party.broadcastAdd).not.toHaveBeenCalled();
-    });
-
-    it('allows add when total is at cap but some are done', () => {
-      const stores = createRoomStores('testchannel');
-      stores.useChannelInfo.getState().setPartyConnectionState('connected');
-      stores.useChannelInfo.getState().setHasLock(true);
-
-      // 95 pending + 4 done = 99 total
-      const requests: Request[] = [];
-      for (let i = 1; i <= 95; i++) {
-        requests.push(createTestRequest({ id: i, done: false }));
-      }
-      for (let i = 96; i <= 99; i++) {
-        requests.push(createTestRequest({ id: i, done: true }));
-      }
-      stores.useRequests.getState().setAll(requests);
-      vi.clearAllMocks();
-
-      // Should succeed — only 95 pending, under 99 cap
-      stores.useRequests.getState().add(createTestRequest({ id: 200 }));
-
-      expect(stores.useRequests.getState().requests).toHaveLength(100);
-      expect(stores.useRequests.getState().requests.filter(r => !r.done)).toHaveLength(96);
-      expect(party.broadcastAdd).toHaveBeenCalledTimes(1);
-    });
-
-    it('does not add duplicate requests', () => {
-      const stores = createRoomStores('testchannel');
-      stores.useChannelInfo.getState().setPartyConnectionState('connected');
-
-      const request = createTestRequest({ id: 100 });
-      stores.useRequests.getState().add(request);
-      stores.useRequests.getState().add(request);
-
-      expect(stores.useRequests.getState().requests).toHaveLength(1);
+      expect(party.broadcastToggleDone).not.toHaveBeenCalled();
+      expect(party.broadcastDelete).not.toHaveBeenCalled();
     });
   });
 

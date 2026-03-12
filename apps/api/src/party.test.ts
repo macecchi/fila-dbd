@@ -396,9 +396,9 @@ describe('PartyServer', () => {
         expect.objectContaining({ 'req:100': expect.objectContaining({ id: 100 }) })
       );
 
-      // Should broadcast to viewer but not owner
+      // Should broadcast to all including sender
       expect(viewerConn.messages).toHaveLength(1);
-      expect(ownerConn.messages).toHaveLength(0);
+      expect(ownerConn.messages).toHaveLength(1);
     });
 
     it('prevents duplicate requests', async () => {
@@ -890,7 +890,7 @@ describe('PartyServer', () => {
   });
 
   describe('broadcast', () => {
-    it('broadcasts to all connections except sender', async () => {
+    it('broadcasts to all connections including sender', async () => {
       vi.mocked(verifyJwt).mockResolvedValue({
         sub: '123',
         login: 'testchannel',
@@ -925,10 +925,8 @@ describe('PartyServer', () => {
       const request = createTestRequest({ id: 1 });
       await server.onMessage(JSON.stringify({ type: 'add-request', request }), owner as any);
 
-      // Owner should not receive broadcast
-      expect(owner.messages).toHaveLength(0);
-
-      // Viewers should receive broadcast
+      // All connections receive broadcast (no optimistic updates, server is source of truth)
+      expect(owner.messages).toHaveLength(1);
       expect(viewer1.messages).toHaveLength(1);
       expect(viewer2.messages).toHaveLength(1);
     });
