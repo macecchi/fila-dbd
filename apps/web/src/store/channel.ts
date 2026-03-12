@@ -84,23 +84,21 @@ export function createRequestsStore(
 
         update: (id, updates) => {
           const { partyConnected, isOwner } = getContext();
-          if (!isOwner) return;
           set((s) => ({
             requests: s.requests.map((r) => (r.id === id ? { ...r, ...updates } : r)),
           }));
-          if (partyConnected) {
+          if (partyConnected && isOwner) {
             broadcastUpdate(id, updates);
           }
         },
 
         toggleDone: (id) => {
           const { partyConnected, isOwner } = getContext();
-          if (!isOwner) return;
           const doneAt = new Date();
           set((s) => ({
             requests: s.requests.map((r) => (r.id === id ? { ...r, done: !r.done, doneAt: !r.done ? doneAt : undefined } : r)),
           }));
-          if (partyConnected) {
+          if (partyConnected && isOwner) {
             const req = get().requests.find(r => r.id === id);
             broadcastToggleDone(id, req?.doneAt?.toISOString());
           }
@@ -108,16 +106,14 @@ export function createRequestsStore(
 
         setAll: (requests) => {
           const { partyConnected, isOwner } = getContext();
-          if (!isOwner) return;
           set({ requests });
-          if (partyConnected) {
+          if (partyConnected && isOwner) {
             broadcastSetAll(requests);
           }
         },
 
         reorder: (fromId, toId) => {
           const { partyConnected, isOwner } = getContext();
-          if (!isOwner) return;
           set((s) => {
             const requests = [...s.requests];
             const fromIdx = requests.findIndex(r => r.id === fromId);
@@ -127,18 +123,17 @@ export function createRequestsStore(
             requests.splice(toIdx, 0, moved);
             return { requests };
           });
-          if (partyConnected) {
+          if (partyConnected && isOwner) {
             broadcastReorder(fromId, toId);
           }
         },
 
         deleteRequest: (id) => {
           const { partyConnected, isOwner } = getContext();
-          if (!isOwner) return;
           set((s) => ({
             requests: s.requests.filter((r) => r.id !== id),
           }));
-          if (partyConnected) {
+          if (partyConnected && isOwner) {
             broadcastDelete(id);
           }
         },
