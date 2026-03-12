@@ -13,10 +13,10 @@ interface RoomInfo {
 }
 
 export function ChannelHeader() {
-  const { channel, canManageChannel, useChannelInfo } = useChannel();
+  const { channel, canControlConnection, useChannelInfo } = useChannel();
   const { isAuthenticated, logout } = useAuth();
   const owner = useChannelInfo((s) => s.owner);
-  const isOwner = useChannelInfo((s) => s.isOwner);
+  const hasLock = useChannelInfo((s) => s.hasLock);
   const twitchStatus = useChannelInfo((s) => s.localIrcConnectionState);
   const { connection, queue } = useConnectionStatus();
 
@@ -52,7 +52,7 @@ export function ChannelHeader() {
     if (isConnected) {
       disconnect();
       releaseOwnership();
-    } else if (isOwner) {
+    } else if (hasLock) {
       connect(channel);
     } else {
       claimOwnership();
@@ -107,7 +107,7 @@ export function ChannelHeader() {
         </div>
       </div>
 
-      {canManageChannel && (
+      {canControlConnection && (
         <div className="channel-header-actions">
           <button
             className={`btn ${isConnected ? 'btn-ghost' : 'btn-primary'} ${!isConnected && !isConnecting ? 'btn-pulse' : ''}`.trim()}

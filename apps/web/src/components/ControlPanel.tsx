@@ -7,9 +7,9 @@ import { navigate } from '../utils/helpers';
 
 
 export function ControlPanel() {
-  const { channel, isOwnChannel, canManageChannel, useChannelInfo } = useChannel();
+  const { channel, isOwnChannel, canControlConnection, useChannelInfo } = useChannel();
   const twitchStatus = useChannelInfo((s) => s.localIrcConnectionState);
-  const isOwner = useChannelInfo((s) => s.isOwner);
+  const hasLock = useChannelInfo((s) => s.hasLock);
   const { user, isAuthenticated, login, logout } = useAuth();
   const { connection, queue } = useConnectionStatus();
   const owner = useChannelInfo((s) => s.owner);
@@ -33,7 +33,7 @@ export function ControlPanel() {
     } else if (inputChannel) {
       if (inputChannel !== channel) {
         navigate(`/${inputChannel}`);
-      } else if (isOwner) {
+      } else if (hasLock) {
         // Already have ownership, just connect IRC
         connect(channel);
       } else {
@@ -58,11 +58,11 @@ export function ControlPanel() {
   };
 
   // Determine which buttons to show:
-  // - canManageChannel: show connect/disconnect + logout
-  // - isOwnChannel but not canManageChannel (conflict): show only "Go" if different channel
+  // - canControlConnection: show connect/disconnect + logout
+  // - isOwnChannel but not canControlConnection (conflict): show only "Go" if different channel
   // - not isOwnChannel (viewer): show "Go" + "Minha fila"
   const renderButtons = () => {
-    if (canManageChannel) {
+    if (canControlConnection) {
       return (
         <>
           <button
@@ -116,7 +116,7 @@ export function ControlPanel() {
             value={channelInput}
             placeholder="canal"
             onChange={e => setChannelInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && (canManageChannel ? handleConnect() : handleGoToChannel())}
+            onKeyDown={e => e.key === 'Enter' && (canControlConnection ? handleConnect() : handleGoToChannel())}
           />
         </div>
       </div>

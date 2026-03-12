@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo } from 'react';
 import type { Request } from '../types';
 import { useContextMenu } from '../context/ContextMenuContext';
 import { getKillerPortrait } from '../data/characters';
@@ -16,14 +16,14 @@ interface Props {
   onDragOver?: (id: number) => void;
   onDragEnd?: () => void;
   readOnly?: boolean;
+  exiting?: boolean;
 }
 
 export const CharacterRequestCard = memo(function CharacterRequestCard({
   request, position, onToggleDone,
-  isDragging, isDragOver, onDragStart, onDragOver, onDragEnd, readOnly = false
+  isDragging, isDragOver, onDragStart, onDragOver, onDragEnd, readOnly = false, exiting = false
 }: Props) {
   const { show: showContextMenu } = useContextMenu();
-  const [exiting, setExiting] = useState(false);
   const r = request;
   const portrait = r.type === 'killer' && r.character ? getKillerPortrait(r.character) : null;
   const isIdentifying = r.needsIdentification || r.character === 'Identificando...';
@@ -35,8 +35,7 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
 
   const handleClick = () => {
     if (readOnly) return;
-    setExiting(true);
-    setTimeout(() => onToggleDone(r.id), 300);
+    onToggleDone(r.id);
   };
   const handleContext = (e: React.MouseEvent) => {
     e.preventDefault();

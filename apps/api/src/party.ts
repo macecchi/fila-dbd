@@ -159,6 +159,19 @@ export default class PartyServer implements Party.Server {
     this.connections.set(conn.id, { user });
     console.log(`${this.tag} Connected: ${conn.id} (${user?.login ?? 'anon'}) v${clientVersion} - ${this.connections.size} total`);
 
+    // Version check — outdated clients get an error and no sync
+    const expectedVersion = this.room.env.APP_VERSION as string | undefined;
+    if (expectedVersion && clientVersion !== expectedVersion) {
+      const errorMsg: PartyMessage = {
+        type: 'server-error',
+        code: 'version_mismatch',
+        message: 'Nova versão disponível. Recarregue a página.',
+      };
+      conn.send(JSON.stringify(errorMsg));
+      console.warn(`${this.tag} Version mismatch: client=${clientVersion}, server=${expectedVersion}`);
+      return;
+    }
+
     // Send current state - client will see channel.owner to know if someone else has ownership
     const syncMsg: PartyMessage = { type: 'sync-full', requests: this.requests, sources: this.sources, channel: this.channel };
     conn.send(JSON.stringify(syncMsg));
@@ -243,8 +256,27 @@ export default class PartyServer implements Party.Server {
       return;
     }
 
-    if (!isLockHolder) {
-      console.warn(`${this.tag} Rejected msg from non-owner ${sender.id}`);
+    // Lock-only: IRC status (controls channel live/online state)
+    if (msg.type === 'irc-status' && !isLockHolder) {
+      const errorMsg: PartyMessage = {
+        type: 'server-error',
+        code: 'not_lock_holder',
+        message: 'Você precisa estar conectado para gerenciar a fila.',
+      };
+      sender.send(JSON.stringify(errorMsg));
+      console.warn(`${this.tag} Rejected ${msg.type} from non-lock-holder ${connInfo?.user?.login ?? sender.id}`);
+      return;
+    }
+
+    // Everything else: room owner required
+    if (msg.type !== 'irc-status' && !isRoomOwner && !(this.isDev && connInfo?.user)) {
+      const errorMsg: PartyMessage = {
+        type: 'server-error',
+        code: 'not_room_owner',
+        message: 'Apenas o dono do canal pode gerenciar a fila.',
+      };
+      sender.send(JSON.stringify(errorMsg));
+      console.warn(`${this.tag} Rejected ${msg.type} from non-owner ${connInfo?.user?.login ?? sender.id}`);
       return;
     }
 
@@ -264,7 +296,7 @@ export default class PartyServer implements Party.Server {
         this.requests.push(msg.request);
         this.dirtyRequestIds.add(msg.request.id);
         await this.persist();
-        this.broadcast(message, sender.id);
+        this.broadcast(message);
         console.log(`${this.tag} ${user}: add-request #${msg.request.id} "${msg.request.character}" (${msg.request.source})`);
         break;
       }
@@ -274,7 +306,7 @@ export default class PartyServer implements Party.Server {
           this.requests[idx] = { ...this.requests[idx], ...msg.updates };
           this.dirtyRequestIds.add(msg.id);
           await this.persist();
-          this.broadcast(message, sender.id);
+          this.broadcast(message);
           console.log(`${this.tag} ${user}: update-request #${msg.id}`, Object.keys(msg.updates));
         }
         break;
@@ -282,14 +314,14 @@ export default class PartyServer implements Party.Server {
       case 'toggle-done': {
         const idx = this.requests.findIndex(r => r.id === msg.id);
         if (idx !== -1) {
-          this.requests[idx].done = !this.requests[idx].done;
-          this.requests[idx].doneAt = this.requests[idx].done
+          this.requests[idx].done = msg.done;
+          this.requests[idx].doneAt = msg.done
             ? (msg.doneAt ?? new Date().toISOString())
             : undefined;
           this.dirtyRequestIds.add(msg.id);
           await this.persist();
-          this.broadcast(message, sender.id);
-          console.log(`${this.tag} ${user}: toggle-done #${msg.id} → ${this.requests[idx].done}`);
+          this.broadcast(JSON.stringify({ type: 'toggle-done', id: msg.id, done: msg.done, doneAt: this.requests[idx].doneAt }));
+          console.log(`${this.tag} ${user}: toggle-done #${msg.id} → ${msg.done}`);
         }
         break;
       }
@@ -301,7 +333,7 @@ export default class PartyServer implements Party.Server {
           this.requests.splice(toIdx, 0, moved);
           this.needsFullSync = true;
           await this.persist(true);
-          this.broadcast(message, sender.id);
+          this.broadcast(message);
           console.log(`${this.tag} ${user}: reorder #${msg.fromId} → position of #${msg.toId}`);
         }
         break;
@@ -313,7 +345,7 @@ export default class PartyServer implements Party.Server {
           await this.room.storage.delete(`req:${msg.id}`);
           this.needsFullSync = true;
           await this.persist();
-          this.broadcast(message, sender.id);
+          this.broadcast(message);
           console.log(`${this.tag} ${user}: delete-request #${msg.id}`);
         }
         break;
@@ -325,7 +357,7 @@ export default class PartyServer implements Party.Server {
         this.needsFullSync = true;
         await this.persistAll();
         this.scheduleSyncRequests();
-        this.broadcast(message, sender.id);
+        this.broadcast(message);
         console.log(`${this.tag} ${user}: set-all (${msg.requests.length} requests)`);
         break;
       }
@@ -333,7 +365,7 @@ export default class PartyServer implements Party.Server {
         this.sources = msg.sources;
         await this.room.storage.put('sources', this.sources);
         this.syncSourcesToD1();
-        this.broadcast(message, sender.id);
+        this.broadcast(message);
         console.log(`${this.tag} ${user}: update-sources`, JSON.stringify(msg.sources.enabled));
         break;
       }
@@ -504,7 +536,7 @@ export default class PartyServer implements Party.Server {
     console.error(`${this.tag} Error sent to owner: [${code}] ${message}`);
   }
 
-  private broadcast(message: string, excludeId: string) {
+  private broadcast(message: string, excludeId?: string) {
     let count = 0;
     for (const conn of this.room.getConnections()) {
       if (conn.id !== excludeId) {

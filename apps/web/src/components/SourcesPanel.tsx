@@ -38,12 +38,12 @@ interface SourcesPanelProps {
 }
 
 export function SourcesPanel({ onRecover, onReview }: SourcesPanelProps) {
-  const { useSources, canManageChannel } = useChannel();
+  const { useSources, canControlConnection } = useChannel();
   const {
     enabled, chatCommand, chatTiers, priority, sortMode, minDonation,
     setEnabled, setChatCommand, setChatTiers, setPriority, setMinDonation
   } = useSources();
-  const readOnly = !canManageChannel;
+  const readOnly = !canControlConnection;
 
   const [isOpen, setIsOpen] = useState(true);
   const [draggedItem, setDraggedItem] = useState<SourceType | null>(null);

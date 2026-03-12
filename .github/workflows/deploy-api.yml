@@ -73,7 +73,8 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
       - name: Deploy PartyKit
-        run: bun run deploy:party
+        run: bunx partykit deploy --var APP_VERSION=${GITHUB_SHA::7}
+        working-directory: apps/api
         env:
           PARTYKIT_LOGIN: ${{ secrets.PARTYKIT_LOGIN }}
           PARTYKIT_TOKEN: ${{ secrets.PARTYKIT_TOKEN }}

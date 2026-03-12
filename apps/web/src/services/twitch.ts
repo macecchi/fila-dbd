@@ -37,7 +37,7 @@ export function disconnect() {
     intentionalClose = true;
     ws.close();
     ws = null;
-    activeStores?.useChannelInfo.getState().setIrcConnectionState('disconnected');
+    activeStores?.useChannelInfo.getState().setIrcConnectionState('disconnected', false);
   }
 }
 
@@ -297,9 +297,9 @@ declare global {
 }
 
 function checkWriteMode(): boolean {
-  const isOwner = activeStores?.useChannelInfo.getState().isOwner;
-  if (!isOwner) {
-    console.warn('dbdDebug: read-only mode, login to your channel to use');
+  const connected = activeStores?.useChannelInfo.getState().localPartyConnectionState === 'connected';
+  if (!connected) {
+    console.warn('dbdDebug: not connected to server');
     return false;
   }
   return true;

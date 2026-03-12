@@ -7,12 +7,12 @@ import { useChannel, useChat, useToasts, useAuth } from '../store';
 import { donateBotName, simulateDisconnect } from '../services/twitch';
 
 export function DebugPanel() {
-  const { useRequests, useSources, canManageChannel } = useChannel();
+  const { useRequests, useSources, canControlConnection } = useChannel();
   const { requests, update, setAll: setRequests, add: addRequest } = useRequests();
   const { clear: clearChat, add: addChat } = useChat();
   const { isAuthenticated } = useAuth();
   const { enabled: sourcesEnabled, chatTiers, chatCommand, minDonation } = useSources();
-  const readOnly = !canManageChannel;
+  const readOnly = !canControlConnection;
   const { show: showToast } = useToasts();
 
   const testMessages = ['Trapper', 'Nurse', 'Huntress', 'Wraith', 'Hillbilly'];

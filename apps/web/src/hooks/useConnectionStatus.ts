@@ -22,13 +22,13 @@ export function useConnectionStatus(): StatusInfo {
   const { isOwnChannel, useSources, useChannelInfo } = useChannel();
   const channelStatus = useChannelInfo((s) => s.status);
   const channelOwner = useChannelInfo((s) => s.owner);
-  const isOwner = useChannelInfo((s) => s.isOwner);
+  const hasLock = useChannelInfo((s) => s.hasLock);
   const localIrcConnectionState = useChannelInfo((s) => s.localIrcConnectionState);
   const localPartyConnectionState = useChannelInfo((s) => s.localPartyConnectionState);
   const enabledSources = useSources((s) => s.enabled);
 
   // Derive: someone else is managing (we're room owner but don't have the lock)
-  const someoneElseIsOwner = isOwnChannel && !isOwner && channelOwner !== null;
+  const someoneElseIsOwner = isOwnChannel && !hasLock && channelOwner !== null;
 
   // Connection (1st dot)
   let connection: { state: ConnectionState; text: string };

@@ -77,7 +77,7 @@ function useRequestToasts(requests: Request[]) {
 }
 
 function ChannelApp() {
-  const { channel, useRequests, useSources, useChannelInfo, canManageChannel } = useChannel();
+  const { channel, useRequests, useSources, useChannelInfo, canControlConnection } = useChannel();
   const requests = useRequests((s) => s.requests);
   const update = useRequests((s) => s.update);
   const setAll = useRequests((s) => s.setAll);
@@ -93,7 +93,7 @@ function ChannelApp() {
     window.addEventListener('dbd:open-review', open);
     return () => window.removeEventListener('dbd:open-review', open);
   }, []);
-  const readOnly = !canManageChannel;
+  const readOnly = !canControlConnection;
 
   // Missed requests recovery state
   const ircState = useChannelInfo((s) => s.localIrcConnectionState);
@@ -115,7 +115,7 @@ function ChannelApp() {
   // Trigger recovery when IRC connects
   const recoveryResultRef = useRef<{ vodId: string; lastOffset: number } | null>(null);
   useEffect(() => {
-    if (!partySynced || !canManageChannel || hasTriedRecovery.current) return;
+    if (!partySynced || !canControlConnection || hasTriedRecovery.current) return;
     hasTriedRecovery.current = true;
 
     const sourcesState = useSources.getState();
@@ -157,7 +157,7 @@ function ChannelApp() {
       });
 
     return () => controller.abort();
-  }, [ircState, partySynced, canManageChannel, channel]);
+  }, [ircState, partySynced, canControlConnection, channel]);
 
   // Reset recovery state when IRC disconnects
   useEffect(() => {

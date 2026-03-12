@@ -18,7 +18,7 @@ function sendPushNotification(title: string, body: string) {
 interface ChannelContextValue extends ChannelStores {
   channel: string;
   isOwnChannel: boolean;
-  canManageChannel: boolean;
+  canControlConnection: boolean;
 }
 
 const ChannelContext = createContext<ChannelContextValue | null>(null);
@@ -39,40 +39,40 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
   }, [stores]);
 
   // Subscribe to ownership state
-  const isOwner = stores.useChannelInfo((s) => s.isOwner);
+  const hasLock = stores.useChannelInfo((s) => s.hasLock);
   const owner = stores.useChannelInfo((s) => s.owner);
   const localIrcState = stores.useChannelInfo((s) => s.localIrcConnectionState);
   const partyConnected = stores.useChannelInfo((s) => s.localPartyConnectionState) === 'connected';
   const showToast = useToasts((s) => s.show);
 
   // Derive: someone else is managing (we're room owner but don't have the lock)
-  const someoneElseIsOwner = isOwnChannel && !isOwner && owner !== null;
+  const someoneElseIsOwner = isOwnChannel && !hasLock && owner !== null;
 
   // Auto-claim ownership once on initial connect if no one owns the channel
   const hasTriedAutoClaim = useRef(false);
   useEffect(() => {
     if (isOwnChannel && partyConnected && !hasTriedAutoClaim.current) {
       hasTriedAutoClaim.current = true;
-      if (!owner && !isOwner) {
+      if (!owner && !hasLock) {
         claimOwnership();
       }
     }
-  }, [isOwnChannel, partyConnected, owner, isOwner]);
+  }, [isOwnChannel, partyConnected, owner, hasLock]);
 
   // Auto-connect to IRC once when ownership is first granted
   const hasAutoConnectedIrc = useRef(false);
   useEffect(() => {
-    if (isOwner && !hasAutoConnectedIrc.current) {
+    if (hasLock && !hasAutoConnectedIrc.current) {
       hasAutoConnectedIrc.current = true;
       if (localIrcState === 'disconnected') {
         connectIrc(channel);
       }
     }
     // Reset when ownership is lost so next grant auto-connects again
-    if (!isOwner) {
+    if (!hasLock) {
       hasAutoConnectedIrc.current = false;
     }
-  }, [isOwner, localIrcState, channel]);
+  }, [hasLock, localIrcState, channel]);
 
   // Cleanup IRC when we lose ownership
   useEffect(() => {
@@ -242,6 +242,10 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
         (msg) => {
           if (msg.type === 'server-error') {
             console.error(`[server-error] ${msg.code}: ${msg.message}`);
+            if (msg.code === 'version_mismatch') {
+              window.location.reload();
+              return;
+            }
             const { show } = useToasts.getState();
             show(msg.message, 'Erro no servidor', '#ef4444', 0);
             return;
@@ -254,8 +258,8 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
           console.log('Connected to PartyKit');
           setPartyConnectionState('connected');
           // Re-send IRC status in case IRC connected before PartySocket
-          const { localIrcConnectionState, isOwner } = stores.useChannelInfo.getState();
-          if (isOwner && localIrcConnectionState === 'connected') {
+          const { localIrcConnectionState, hasLock } = stores.useChannelInfo.getState();
+          if (hasLock && localIrcConnectionState === 'connected') {
             broadcastIrcStatus(true);
           }
         },
@@ -279,12 +283,12 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
     };
   }, [channel, isOwnChannel, stores, getAccessToken]);
 
-  // canManageChannel: we're on our own channel and either have ownership or can claim it
-  const canManageChannel = isOwnChannel && !someoneElseIsOwner;
+  // canControlConnection: own channel + no other tab holds the lock
+  const canControlConnection = isOwnChannel && !someoneElseIsOwner;
 
   const value = useMemo(
-    () => ({ channel, isOwnChannel, canManageChannel, ...stores }),
-    [channel, isOwnChannel, canManageChannel, stores]
+    () => ({ channel, isOwnChannel, canControlConnection, ...stores }),
+    [channel, isOwnChannel, canControlConnection, stores]
   );
 
   return (

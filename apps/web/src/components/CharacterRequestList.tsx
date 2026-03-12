@@ -1,28 +1,43 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { identifyCharacter } from '../services';
 import { CharacterRequestCard } from './CharacterRequestCard';
 import { ContextMenu } from './ContextMenu';
 import { ContextMenuProvider } from '../context/ContextMenuContext';
-import { useChannel, useToasts } from '../store';
+import { useChannel } from '../store';
 
 export function CharacterRequestList() {
-  const { useRequests, useChannelInfo, isOwnChannel, canManageChannel } = useChannel();
+  const { useRequests, useChannelInfo, isOwnChannel, canControlConnection } = useChannel();
   const { requests, toggleDone, update, reorder } = useRequests();
   const channelStatus = useChannelInfo((s) => s.status);
-  const { showUndo } = useToasts();
   const [draggedId, setDraggedId] = useState<number | null>(null);
   const [dragOverId, setDragOverId] = useState<number | null>(null);
-  const readOnly = !canManageChannel;
-  const filtered = requests.filter(r => !r.done);
+  const readOnly = !canControlConnection;
+
+  // Track done items exiting so they stay in the DOM for the animation
+  const [exitingIds, setExitingIds] = useState<Set<number>>(new Set());
+  const prevDoneIds = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    const currentDone = new Set(requests.filter(r => r.done).map(r => r.id));
+    const newlyDone = [...currentDone].filter(id => !prevDoneIds.current.has(id));
+    prevDoneIds.current = currentDone;
+    if (newlyDone.length === 0) return;
+    setExitingIds(prev => new Set([...prev, ...newlyDone]));
+    const timer = setTimeout(() => {
+      setExitingIds(prev => {
+        const next = new Set(prev);
+        newlyDone.forEach(id => next.delete(id));
+        return next;
+      });
+    }, 800); // matches deleteSlide duration
+    return () => clearTimeout(timer);
+  }, [requests]);
+
+  const filtered = requests.filter(r => !r.done || exitingIds.has(r.id));
 
   const handleToggleDone = useCallback((id: number) => {
     if (readOnly) return;
-    const request = requests.find(r => r.id === id);
-    if (request && !request.done) {
-      showUndo('Marcado como feito', () => toggleDone(id));
-    }
     toggleDone(id);
-  }, [requests, toggleDone, showUndo, readOnly]);
+  }, [toggleDone, readOnly]);
 
   const rerunExtraction = useCallback(async (id: number) => {
     const request = requests.find(r => r.id === id);
@@ -125,6 +140,7 @@ export function CharacterRequestList() {
                 onDragOver={handleDragOver}
                 onDragEnd={handleDragEnd}
                 readOnly={readOnly}
+                exiting={exitingIds.has(r.id)}
               />
             );
           });
