@@ -242,6 +242,10 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
         (msg) => {
           if (msg.type === 'server-error') {
             console.error(`[server-error] ${msg.code}: ${msg.message}`);
+            if (msg.code === 'version_mismatch') {
+              window.location.reload();
+              return;
+            }
             const { show } = useToasts.getState();
             show(msg.message, 'Erro no servidor', '#ef4444', 0);
             return;

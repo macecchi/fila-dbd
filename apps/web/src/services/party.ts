@@ -81,8 +81,8 @@ export function broadcastUpdate(id: number, updates: Partial<Request>): void {
   send({ type: 'update-request', id, updates: serializedUpdates as Partial<SerializedRequest> });
 }
 
-export function broadcastToggleDone(id: number, doneAt?: string): void {
-  send({ type: 'toggle-done', id, doneAt });
+export function broadcastToggleDone(id: number, done: boolean): void {
+  send({ type: 'toggle-done', id, done });
 }
 
 export function broadcastReorder(fromId: number, toId: number): void {

@@ -159,6 +159,19 @@ export default class PartyServer implements Party.Server {
     this.connections.set(conn.id, { user });
     console.log(`${this.tag} Connected: ${conn.id} (${user?.login ?? 'anon'}) v${clientVersion} - ${this.connections.size} total`);
 
+    // Version check — outdated clients get an error and no sync
+    const expectedVersion = this.room.env.APP_VERSION as string | undefined;
+    if (expectedVersion && clientVersion !== expectedVersion) {
+      const errorMsg: PartyMessage = {
+        type: 'server-error',
+        code: 'version_mismatch',
+        message: 'Nova versão disponível. Recarregue a página.',
+      };
+      conn.send(JSON.stringify(errorMsg));
+      console.warn(`${this.tag} Version mismatch: client=${clientVersion}, server=${expectedVersion}`);
+      return;
+    }
+
     // Send current state - client will see channel.owner to know if someone else has ownership
     const syncMsg: PartyMessage = { type: 'sync-full', requests: this.requests, sources: this.sources, channel: this.channel };
     conn.send(JSON.stringify(syncMsg));
@@ -301,14 +314,14 @@ export default class PartyServer implements Party.Server {
       case 'toggle-done': {
         const idx = this.requests.findIndex(r => r.id === msg.id);
         if (idx !== -1) {
-          this.requests[idx].done = !this.requests[idx].done;
-          this.requests[idx].doneAt = this.requests[idx].done
+          this.requests[idx].done = msg.done;
+          this.requests[idx].doneAt = msg.done
             ? (msg.doneAt ?? new Date().toISOString())
             : undefined;
           this.dirtyRequestIds.add(msg.id);
           await this.persist();
-          this.broadcast(message);
-          console.log(`${this.tag} ${user}: toggle-done #${msg.id} → ${this.requests[idx].done}`);
+          this.broadcast(JSON.stringify({ type: 'toggle-done', id: msg.id, done: msg.done, doneAt: this.requests[idx].doneAt }));
+          console.log(`${this.tag} ${user}: toggle-done #${msg.id} → ${msg.done}`);
         }
         break;
       }

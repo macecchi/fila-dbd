@@ -57,7 +57,9 @@ export function createRequestsStore(
 
         toggleDone: (id) => {
           if (!requireParty(getContext)) return;
-          broadcastToggleDone(id);
+          const req = get().requests.find(r => r.id === id);
+          if (!req) return;
+          broadcastToggleDone(id, !req.done);
         },
 
         setAll: (requests) => {
@@ -130,7 +132,7 @@ export function createRequestsStore(
             case 'toggle-done':
               set((s) => ({
                 requests: s.requests.map((r) => (r.id === msg.id
-                  ? { ...r, done: !r.done, doneAt: !r.done ? (msg.doneAt ? new Date(msg.doneAt) : new Date()) : undefined }
+                  ? { ...r, done: msg.done, doneAt: msg.done ? (msg.doneAt ? new Date(msg.doneAt) : new Date()) : undefined }
                   : r)),
               }));
               break;

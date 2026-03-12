@@ -170,13 +170,21 @@ describe('channel stores', () => {
       expect(party.broadcastUpdate).toHaveBeenCalledWith(123, { done: true });
     });
 
-    it('toggleDone() broadcasts without updating local state', () => {
+    it('toggleDone() broadcasts with target done state', () => {
       const stores = createRoomStores('testchannel');
       stores.useChannelInfo.getState().setPartyConnectionState('connected');
 
+      // Seed a request via handlePartyMessage
+      stores.useRequests.getState().handlePartyMessage({
+        type: 'sync-full',
+        requests: [{ id: 456, donor: 'Test', message: '', character: 'Meg', type: 'survivor', amount: '0', amountVal: 0, source: 'manual', done: false, timestamp: new Date().toISOString() }],
+        sources: {} as any,
+        channel: {} as any,
+      });
+
       stores.useRequests.getState().toggleDone(456);
 
-      expect(party.broadcastToggleDone).toHaveBeenCalledWith(456);
+      expect(party.broadcastToggleDone).toHaveBeenCalledWith(456, true);
     });
 
     it('deleteRequest() broadcasts without updating local state', () => {

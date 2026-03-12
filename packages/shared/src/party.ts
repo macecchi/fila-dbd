@@ -41,7 +41,7 @@ export type PartyMessage =
   | { type: 'sync-full'; requests: SerializedRequest[]; sources: SourcesSettings; channel: ChannelState }
   | { type: 'add-request'; request: SerializedRequest }
   | { type: 'update-request'; id: number; updates: Partial<SerializedRequest> }
-  | { type: 'toggle-done'; id: number; doneAt?: string }
+  | { type: 'toggle-done'; id: number; done: boolean; doneAt?: string }
   | { type: 'reorder'; fromId: number; toId: number }
   | { type: 'delete-request'; id: number }
   | { type: 'set-all'; requests: SerializedRequest[] }

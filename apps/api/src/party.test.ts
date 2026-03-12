@@ -70,12 +70,13 @@ class MockConnection {
   }
 }
 
-function createMockContext(token: string | null = null) {
-  const url = token
-    ? `https://party.example.com/room?token=${token}`
-    : 'https://party.example.com/room';
+function createMockContext(token: string | null = null, version?: string) {
+  const params = new URLSearchParams();
+  if (token) params.set('token', token);
+  if (version) params.set('v', version);
+  const qs = params.toString();
   return {
-    request: { url },
+    request: { url: `https://party.example.com/room${qs ? `?${qs}` : ''}` },
   };
 }
 
@@ -209,6 +210,46 @@ describe('PartyServer', () => {
       await server.onConnect(conn as any, ctx as any);
 
       expect(server.connections.get('conn1')?.user).toBeNull();
+    });
+
+    it('sends version_mismatch error when APP_VERSION is set and client differs', async () => {
+      const vRoom = createMockRoom();
+      vRoom.env = { JWT_SECRET: 'test-secret', APP_VERSION: '1.2.0' } as any;
+      const vServer = new PartyServer(vRoom as any);
+
+      const conn = new MockConnection('conn1');
+      const ctx = createMockContext(null, '1.1.0');
+
+      await vServer.onConnect(conn as any, ctx as any);
+
+      const msgs = conn.getAllMessages();
+      expect(msgs).toHaveLength(1);
+      expect(msgs[0].type).toBe('server-error');
+      expect((msgs[0] as any).code).toBe('version_mismatch');
+    });
+
+    it('sends sync-full when APP_VERSION matches', async () => {
+      const vRoom = createMockRoom();
+      vRoom.env = { JWT_SECRET: 'test-secret', APP_VERSION: '1.2.0' } as any;
+      const vServer = new PartyServer(vRoom as any);
+
+      const conn = new MockConnection('conn1');
+      const ctx = createMockContext(null, '1.2.0');
+
+      await vServer.onConnect(conn as any, ctx as any);
+
+      const msgs = conn.getAllMessages();
+      expect(msgs[0].type).toBe('sync-full');
+    });
+
+    it('skips version check when APP_VERSION is not set', async () => {
+      const conn = new MockConnection('conn1');
+      const ctx = createMockContext();
+
+      await server.onConnect(conn as any, ctx as any);
+
+      const msgs = conn.getAllMessages();
+      expect(msgs[0].type).toBe('sync-full');
     });
   });
 
@@ -421,13 +462,19 @@ describe('PartyServer', () => {
       expect(mockRoom.storage.put).toHaveBeenCalled();
     });
 
-    it('handles toggle-done', async () => {
+    it('handles toggle-done with target state', async () => {
       server.requests = [createTestRequest({ id: 100, done: false })];
-      const msg = JSON.stringify({ type: 'toggle-done', id: 100 });
 
-      await server.onMessage(msg, ownerConn as any);
-
+      await server.onMessage(JSON.stringify({ type: 'toggle-done', id: 100, done: true }), ownerConn as any);
       expect(server.requests[0].done).toBe(true);
+      expect(server.requests[0].doneAt).toBeDefined();
+
+      await server.onMessage(JSON.stringify({ type: 'toggle-done', id: 100, done: true }), ownerConn as any);
+      expect(server.requests[0].done).toBe(true); // idempotent
+
+      await server.onMessage(JSON.stringify({ type: 'toggle-done', id: 100, done: false }), ownerConn as any);
+      expect(server.requests[0].done).toBe(false);
+      expect(server.requests[0].doneAt).toBeUndefined();
     });
 
     it('handles delete-request', async () => {
