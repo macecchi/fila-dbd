@@ -438,6 +438,7 @@ describe('PartyServer', () => {
 
       expect(server.requests).toHaveLength(1);
       expect(server.requests[0].id).toBe(200);
+      expect(mockRoom.storage.delete).toHaveBeenCalledWith('req:100');
     });
 
     it('handles reorder', async () => {

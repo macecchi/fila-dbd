@@ -45,7 +45,10 @@ export default class PartyServer implements Party.Server {
       await this.room.storage.delete('requests');
       this.requests = pending;
       console.log(`${this.tag} Migrated ${pending.length} requests to per-key storage`);
-    } else if (!legacy) {
+    } else if (legacy) {
+      // Empty legacy array — clean up stale key
+      await this.room.storage.delete('requests');
+    } else {
       // Load from per-key storage
       const entries = await this.room.storage.list<SerializedRequest>({ prefix: 'req:' });
       const order = await this.room.storage.get<number[]>('order');
@@ -350,7 +353,7 @@ export default class PartyServer implements Party.Server {
   private async persist(reorderOnly?: boolean) {
     try {
       if (reorderOnly) {
-        await this.room.storage.put('order', this.requests.map(r => r.id));
+        await this.room.storage.put('order', this.requests.filter(r => !r.done).map(r => r.id));
       } else {
         const pending = this.requests.filter(r => !r.done);
         const entries: Record<string, SerializedRequest> = {};
