@@ -304,6 +304,7 @@ export default class PartyServer implements Party.Server {
         const idx = this.requests.findIndex(r => r.id === msg.id);
         if (idx !== -1) {
           this.requests.splice(idx, 1);
+          await this.room.storage.delete(`req:${msg.id}`);
           this.needsFullSync = true;
           await this.persist();
           this.broadcast(message, sender.id);
@@ -312,9 +313,12 @@ export default class PartyServer implements Party.Server {
         break;
       }
       case 'set-all': {
+        const oldKeys = this.requests.map(r => `req:${r.id}`);
+        if (oldKeys.length > 0) await this.room.storage.delete(oldKeys);
         this.requests = msg.requests;
         this.needsFullSync = true;
-        await this.persist();
+        await this.persistAll();
+        this.scheduleSyncRequests();
         this.broadcast(message, sender.id);
         console.log(`${this.tag} ${user}: set-all (${msg.requests.length} requests)`);
         break;
@@ -339,20 +343,22 @@ export default class PartyServer implements Party.Server {
     }
   }
 
-  private static readonly STORAGE_LIMIT = 131_072; // 128 KiB per-value limit
-  private static readonly STORAGE_WARN = 100_000;  // warn at ~76%
-
   private async persist(reorderOnly?: boolean) {
     try {
-      const pending = this.requests.filter(r => !r.done);
-      const raw = JSON.stringify(pending);
-      if (raw.length > PartyServer.STORAGE_LIMIT) {
-        console.error(`${this.tag} STORAGE OVERFLOW: ${pending.length} pending requests (${raw.length} bytes) exceeds 128 KiB limit`);
-        this.sendError('storage_overflow', 'Armazenamento local cheio. Dados podem ser perdidos ao reiniciar. Marque pedidos como feitos.');
-      } else if (raw.length > PartyServer.STORAGE_WARN) {
-        console.error(`${this.tag} STORAGE WARNING: ${pending.length} pending requests (${raw.length} bytes) approaching 128 KiB limit (${Math.round(raw.length / PartyServer.STORAGE_LIMIT * 100)}%)`);
+      if (reorderOnly) {
+        await this.room.storage.put('order', this.requests.map(r => r.id));
+      } else {
+        const pending = this.requests.filter(r => !r.done);
+        const entries: Record<string, SerializedRequest> = {};
+        for (const id of this.dirtyRequestIds) {
+          const req = pending.find(r => r.id === id);
+          if (req) entries[`req:${req.id}`] = req;
+        }
+        if (Object.keys(entries).length > 0) {
+          await this.room.storage.put(entries);
+        }
+        await this.room.storage.put('order', pending.map(r => r.id));
       }
-      await this.room.storage.put('requests', pending);
       this.scheduleSyncRequests(reorderOnly);
     } catch (e) {
       console.error(`${this.tag} PERSIST FAILED (${this.requests.length} requests):`, e);
