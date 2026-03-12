@@ -66,7 +66,7 @@ export default class PartyServer implements Party.Server {
     const order = await this.room.storage.get<number[]>('order');
 
     if (entries.size > 0) {
-      this.requests = this.orderRequests(entries, order);
+      this.requests = this.orderRequests(entries, order ?? null);
       console.log(`${this.tag} Loaded ${this.requests.length} requests from per-key storage`);
     } else {
       const recovered = await this.recoverFromD1();
@@ -78,14 +78,14 @@ export default class PartyServer implements Party.Server {
     }
   }
 
-  private orderRequests(entries: Map<string, SerializedRequest>, order: number[] | null): SerializedRequest[] {
+  private orderRequests(entries: Map<string, SerializedRequest>, orderedIds: number[] | null): SerializedRequest[] {
     const byId = new Map<number, SerializedRequest>();
     for (const [, req] of entries) byId.set(req.id, req);
-    if (!order) return [...byId.values()];
+    if (!orderedIds) return [...byId.values()];
 
-    const orderSet = new Set(order);
-    const ordered = order.flatMap(id => byId.has(id) ? [byId.get(id)!] : []);
-    const orphans = [...byId.values()].filter(r => !orderSet.has(r.id));
+    const idSet = new Set(orderedIds);
+    const ordered = orderedIds.flatMap(id => byId.has(id) ? [byId.get(id)!] : []);
+    const orphans = [...byId.values()].filter(r => !idSet.has(r.id));
     return [...ordered, ...orphans];
   }
 
