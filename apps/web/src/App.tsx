@@ -55,7 +55,7 @@ function useAutoIdentify(requests: Request[], update: (id: number, updates: Part
   }, [requests, update, readOnly]);
 }
 
-function useRequestToasts(requests: Request[], update: (id: number, updates: Partial<Request>) => void) {
+function useRequestToasts(requests: Request[], update: (id: number, updates: Partial<Request>) => void, hideNonRequests: boolean) {
   const { show, showUndo } = useToasts();
   const shownToasts = useRef(new Set<number>());
   const isFirstLoad = useRef(true);
@@ -64,7 +64,7 @@ function useRequestToasts(requests: Request[], update: (id: number, updates: Par
     for (const req of ready) {
       shownToasts.current.add(req.id);
       if (isFirstLoad.current) continue;
-      if (req.type === 'none') {
+      if (hideNonRequests && req.type === 'none') {
         const msg = req.message.length > 50 ? req.message.slice(0, 50) + '…' : req.message;
         showUndo(
           `Ignorado: ${req.donor} — "${msg}"`,
@@ -81,7 +81,7 @@ function useRequestToasts(requests: Request[], update: (id: number, updates: Par
       show(message, title);
     }
     if (ready.length > 0) isFirstLoad.current = false;
-  }, [requests, show, showUndo, update]);
+  }, [requests, show, showUndo, update, hideNonRequests]);
 }
 
 function ChannelApp() {
@@ -271,10 +271,12 @@ function ChannelApp() {
     setVodRecoveryOpen(false);
   }, []);
 
-  useAutoIdentify(requests, update, readOnly);
-  useRequestToasts(requests, update);
+  const hideNonRequests = useSources((s) => s.hideNonRequests);
 
-  const pendingCount = requests.filter(d => !d.done && d.type !== 'none').length;
+  useAutoIdentify(requests, update, readOnly);
+  useRequestToasts(requests, update, hideNonRequests);
+
+  const pendingCount = requests.filter(d => !d.done && (!hideNonRequests || d.type !== 'none')).length;
 
   return (
     <>

@@ -180,10 +180,16 @@
 }
 
 /* Priority Section */
-.priority-section {
+.settings-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-xl);
   margin-top: var(--space-lg);
   padding-top: var(--space-lg);
   border-top: 1px solid var(--border);
+}
+
+.priority-section {
 }
 
 .priority-header {
@@ -268,6 +274,10 @@
 
 /* Mobile */
 @media (max-width: 480px) {
+  .settings-row {
+    grid-template-columns: 1fr;
+  }
+
   .sources-panel {
     border-radius: 0;
     border-left: none;

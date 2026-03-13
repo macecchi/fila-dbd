@@ -10,6 +10,7 @@ const SOURCES_DEFAULTS: SourcesSettings = {
   priority: ['donation', 'chat', 'resub', 'manual'],
   sortMode: 'fifo',
   minDonation: 5,
+  hideNonRequests: true,
 };
 
 interface ConnectionInfo {

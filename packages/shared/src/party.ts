@@ -9,6 +9,7 @@ export interface SourcesSettings {
   priority: ('donation' | 'resub' | 'chat' | 'manual')[];
   sortMode: 'priority' | 'fifo';
   minDonation: number;
+  hideNonRequests?: boolean;
   recoveryVodId?: string;
   recoveryVodOffset?: number;
 }

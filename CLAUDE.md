@@ -3,6 +3,15 @@
 See @README.md for project overview.
 Keep project docs updated when making changes.
 
+## Release Impact Check
+
+Before and after each feature or refactoring, evaluate how changes impact existing users on release:
+- Will existing data (DO storage, D1, localStorage) work with the new code without migration?
+- Are new fields optional/defaulted so old data doesn't break? (e.g. `hideNonRequests ?? true`)
+- Is there risk of data loss if old clients/servers interact with new data shapes?
+- Do users need to take any action (clear cache, re-auth, re-deploy)?
+- Will the PartyKit server and Cloudflare Worker stay compatible during rolling deploys?
+
 ## Structure
 
 ```

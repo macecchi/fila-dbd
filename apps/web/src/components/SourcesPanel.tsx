@@ -40,8 +40,8 @@ interface SourcesPanelProps {
 export function SourcesPanel({ onRecover, onReview }: SourcesPanelProps) {
   const { useSources, canControlConnection } = useChannel();
   const {
-    enabled, chatCommand, chatTiers, priority, sortMode, minDonation,
-    setEnabled, setChatCommand, setChatTiers, setPriority, setMinDonation
+    enabled, chatCommand, chatTiers, priority, sortMode, minDonation, hideNonRequests,
+    setEnabled, setChatCommand, setChatTiers, setPriority, setMinDonation, setHideNonRequests
   } = useSources();
   const readOnly = !canControlConnection;
 
@@ -182,31 +182,49 @@ export function SourcesPanel({ onRecover, onReview }: SourcesPanelProps) {
           {(['donation', 'chat', 'resub'] as SourceType[]).map(renderSourceSection)}
         </div>
 
-        <div className={`priority-section${sortMode === 'fifo' ? ' disabled' : ''}`}>
-          <div className="priority-header">Ordenação dos pedidos</div>
-          <p className="priority-desc">
-            Ordenação atual: {sortMode === 'fifo'
-              ? 'novos pedidos entram no final da fila (ordem de chegada)'
-              : 'novos pedidos entram ordenados de acordo com a prioridade'}.
-          </p>
-          <p className="priority-desc">
-            Prioridade
-          </p>
-          <div className="priority-pills">
-            {filteredPriority.map((source: SourceType, idx: number) => (
-              <div
-                key={source}
-                className={`priority-pill ${source} ${draggedItem === source ? 'dragging' : ''}`}
-                draggable={!readOnly}
-                onDragStart={() => handleDragStart(source)}
-                onDragOver={e => handleDragOver(e, source)}
-                onDragEnd={handleDragEnd}
-              >
-                <span className="priority-pill-num">{idx + 1}</span>
-                <span className="priority-pill-icon">{SOURCE_ICONS[source]}</span>
-                <span className="priority-pill-label">{SOURCE_LABELS[source]}</span>
-              </div>
-            ))}
+        <div className="settings-row">
+          <div className={`priority-section${sortMode === 'fifo' ? ' disabled' : ''}`}>
+            <div className="priority-header">Ordenação dos pedidos</div>
+            <p className="priority-desc">
+              Ordenação atual: {sortMode === 'fifo'
+                ? 'novos pedidos entram no final da fila (ordem de chegada)'
+                : 'novos pedidos entram ordenados de acordo com a prioridade'}.
+            </p>
+            <p className="priority-desc">
+              Prioridade
+            </p>
+            <div className="priority-pills">
+              {filteredPriority.map((source: SourceType, idx: number) => (
+                <div
+                  key={source}
+                  className={`priority-pill ${source} ${draggedItem === source ? 'dragging' : ''}`}
+                  draggable={!readOnly}
+                  onDragStart={() => handleDragStart(source)}
+                  onDragOver={e => handleDragOver(e, source)}
+                  onDragEnd={handleDragEnd}
+                >
+                  <span className="priority-pill-num">{idx + 1}</span>
+                  <span className="priority-pill-icon">{SOURCE_ICONS[source]}</span>
+                  <span className="priority-pill-label">{SOURCE_LABELS[source]}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="priority-section">
+            <div className="priority-header">Ocultar mensagens sem pedidos de personagem</div>
+            <p className="priority-desc">
+              Mensagens atendendo os critérios e sem pedir um personagem não aparecerão na lista. Você pode ver essas mensagens e adicionar à fila na tela de Revisar pedidos.
+            </p>
+            <label className="source-toggle">
+              <input
+                type="checkbox"
+                checked={hideNonRequests}
+                onChange={() => !readOnly && setHideNonRequests(!hideNonRequests)}
+                disabled={readOnly}
+              />
+              <span className="toggle-slider" />
+            </label>
           </div>
         </div>
 

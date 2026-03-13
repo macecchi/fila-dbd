@@ -6,8 +6,9 @@ import { ContextMenuProvider } from '../context/ContextMenuContext';
 import { useChannel } from '../store';
 
 export function CharacterRequestList() {
-  const { useRequests, useChannelInfo, isOwnChannel, canControlConnection } = useChannel();
+  const { useRequests, useSources, useChannelInfo, isOwnChannel, canControlConnection } = useChannel();
   const { requests, toggleDone, update, reorder } = useRequests();
+  const hideNonRequests = useSources((s) => s.hideNonRequests);
   const channelStatus = useChannelInfo((s) => s.status);
   const [draggedId, setDraggedId] = useState<number | null>(null);
   const [dragOverId, setDragOverId] = useState<number | null>(null);
@@ -50,7 +51,9 @@ export function CharacterRequestList() {
     return () => clearTimeout(timer);
   }, [requests]);
 
-  const filtered = requests.filter(r => (!r.done && r.type !== 'none') || exitingIds.has(r.id) || skippingIds.has(r.id));
+  const filtered = requests.filter(r =>
+    (!r.done && (!hideNonRequests || r.type !== 'none')) || exitingIds.has(r.id) || skippingIds.has(r.id)
+  );
 
   const handleToggleDone = useCallback((id: number) => {
     if (readOnly) return;
