@@ -105,7 +105,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 1.5rem;
-  animation: landingFadeUp 0.5s ease both;
+  animation: landingFadeUp 0.5s var(--ease-out) both;
 }
 
 .landing-feature-icon {
@@ -142,7 +142,7 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  animation: landingFadeUp 0.5s ease both;
+  animation: landingFadeUp 0.5s var(--ease-out) both;
 }
 
 .landing-step-num {

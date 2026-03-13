@@ -28,7 +28,7 @@ textarea {
   border-radius: var(--radius-md);
   color: var(--text);
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
 }
 
 input:focus,
@@ -71,7 +71,7 @@ textarea {
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background var(--duration-fast), color var(--duration-fast), filter var(--duration-fast), opacity var(--duration-fast), transform var(--duration-fast);
 }
 
 .btn-ghost {
@@ -114,6 +114,10 @@ textarea {
   filter: brightness(1.1);
 }
 
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
 .btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -151,7 +155,7 @@ textarea {
   border-radius: var(--radius-md);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background var(--duration-normal), color var(--duration-normal), border-color var(--duration-normal);
 }
 
 .btn-icon:hover {
@@ -165,7 +169,7 @@ textarea {
 }
 
 .btn-icon svg {
-  transition: transform 0.3s ease;
+  transition: transform var(--duration-slow) var(--ease-in-out);
 }
 
 /* Toggle Switch */
@@ -188,7 +192,7 @@ textarea {
   background: var(--border);
   border-radius: 9px;
   position: relative;
-  transition: background 0.2s;
+  transition: background var(--duration-normal) var(--ease-in-out);
 }
 
 .toggle-slider::after {
@@ -200,7 +204,7 @@ textarea {
   height: 14px;
   background: var(--text-muted);
   border-radius: 50%;
-  transition: all 0.2s;
+  transition: left var(--duration-normal) var(--ease-in-out), background var(--duration-normal) var(--ease-in-out);
 }
 
 .source-toggle input:checked + .toggle-slider {

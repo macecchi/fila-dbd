@@ -178,6 +178,7 @@ export function SourcesPanel({ onRecover, onReview }: SourcesPanelProps) {
       </div>
 
       <div className="sources-panel-body">
+        <div className="sources-panel-body-inner">
         <div className="source-sections">
           {(['donation', 'chat', 'resub'] as SourceType[]).map(renderSourceSection)}
         </div>
@@ -250,6 +251,7 @@ export function SourcesPanel({ onRecover, onReview }: SourcesPanelProps) {
             )}
           </div>
         )}
+        </div>
       </div>
     </section>
   );

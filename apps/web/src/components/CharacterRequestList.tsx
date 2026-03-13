@@ -17,8 +17,10 @@ export function CharacterRequestList() {
   // Track done/skipped items exiting so they stay in the DOM for the animation
   const [exitingIds, setExitingIds] = useState<Set<number>>(new Set());
   const [skippingIds, setSkippingIds] = useState<Set<number>>(new Set());
+  const [enteringIds, setEnteringIds] = useState<Set<number>>(new Set());
   const prevDoneIds = useRef<Set<number>>(new Set());
   const prevNoneIds = useRef<Set<number>>(new Set());
+  const prevRequestIds = useRef<Set<number>>(new Set());
   useEffect(() => {
     const currentDone = new Set(requests.filter(r => r.done).map(r => r.id));
     const newlyDone = [...currentDone].filter(id => !prevDoneIds.current.has(id));
@@ -31,7 +33,7 @@ export function CharacterRequestList() {
         newlyDone.forEach(id => next.delete(id));
         return next;
       });
-    }, 800); // matches deleteSlide duration
+    }, 500);
     return () => clearTimeout(timer);
   }, [requests]);
 
@@ -47,7 +49,23 @@ export function CharacterRequestList() {
         newlyNone.forEach(id => next.delete(id));
         return next;
       });
-    }, 600); // matches skipSlide duration
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [requests]);
+
+  useEffect(() => {
+    const currentIds = new Set(requests.map(r => r.id));
+    const newIds = [...currentIds].filter(id => !prevRequestIds.current.has(id));
+    prevRequestIds.current = currentIds;
+    if (newIds.length === 0) return;
+    setEnteringIds(prev => new Set([...prev, ...newIds]));
+    const timer = setTimeout(() => {
+      setEnteringIds(prev => {
+        const next = new Set(prev);
+        newIds.forEach(id => next.delete(id));
+        return next;
+      });
+    }, 200);
     return () => clearTimeout(timer);
   }, [requests]);
 
@@ -167,6 +185,7 @@ export function CharacterRequestList() {
                 readOnly={readOnly}
                 exiting={exitingIds.has(r.id)}
                 skipping={skippingIds.has(r.id)}
+                entering={enteringIds.has(r.id)}
               />
             );
           });

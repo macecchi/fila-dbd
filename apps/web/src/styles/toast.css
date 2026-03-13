@@ -20,7 +20,7 @@
   border-radius: 8px;
   padding: 0.75rem 1rem;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  animation: toastIn 0.2s ease-out;
+  animation: toastIn var(--duration-normal) var(--ease-out);
   display: flex;
   align-items: center;
   gap: 1rem;
@@ -30,7 +30,7 @@
 }
 
 .toast.fade-out {
-  animation: toastOut 0.2s ease-in forwards;
+  animation: toastOut var(--duration-normal) var(--ease-in) forwards;
 }
 
 @keyframes toastIn {

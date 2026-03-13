@@ -3,7 +3,7 @@
 .request-card {
   padding: var(--space-lg) var(--space-xl);
   border-bottom: 1px solid var(--border);
-  transition: background 0.15s, padding 0.2s ease, opacity 0.2s ease;
+  transition: background var(--duration-fast), opacity var(--duration-normal);
   position: relative;
   cursor: grab;
 }
@@ -28,37 +28,41 @@
 }
 
 .request-card.deleting {
-  animation: deleteSlide 0.8s ease forwards;
+  animation: deleteSlide 0.5s var(--ease-in) forwards;
+  pointer-events: none;
 }
 
 @keyframes deleteSlide {
-  to {
-    opacity: 0;
-    transform: translateX(-100%);
-    max-height: 0;
-    padding-top: 0;
-    padding-bottom: 0;
-    margin-top: 0;
-    margin-bottom: 0;
-  }
+  to { opacity: 0; transform: translateX(-100%); }
 }
 
 .request-card.skipping {
-  animation: skipSlide 0.6s ease forwards;
+  animation: skipSlide 0.4s var(--ease-in) forwards;
+  pointer-events: none;
 }
 
 @keyframes skipSlide {
-  to {
-    opacity: 0;
-    max-height: 0;
-    padding: 0;
-    margin: 0;
-    transform: translateX(30px);
-  }
+  to { opacity: 0; transform: translateX(30px); }
 }
 
-.request-card:hover {
-  background: var(--bg-card);
+@keyframes requestEnter {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.request-card.entering {
+  animation: requestEnter var(--duration-normal) var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .request-card:hover {
+    background: var(--bg-card);
+  }
+
+  .request-card:hover .request-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .request-card.dragging {
@@ -92,11 +96,6 @@
   background: linear-gradient(to right, transparent, var(--bg-card) 3rem);
 }
 
-.request-card:hover .request-actions {
-  opacity: 1;
-  pointer-events: auto;
-}
-
 .request-card.collapsed .request-action-btn {
   padding: var(--btn-padding-sm);
 }
@@ -116,7 +115,7 @@
   font-size: var(--text-base);
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.1s, transform 0.1s;
+  transition: background 0.1s, transform 0.1s var(--ease-spring);
   background: rgba(255, 255, 255, 0.1);
   color: var(--text);
 }

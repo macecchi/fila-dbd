@@ -17,7 +17,7 @@
 .modal-overlay.open {
   opacity: 1;
   visibility: visible;
-  animation: fadeIn 0.2s ease;
+  animation: fadeIn var(--duration-normal) var(--ease-out);
 }
 
 @keyframes fadeIn {
@@ -37,13 +37,14 @@
   width: 90%;
   max-width: 400px;
   transform: scale(0.95) translateY(10px);
-  transition: transform 0.2s ease;
+  transition: transform var(--duration-normal) var(--ease-in);
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
   overflow: visible;
 }
 
 .modal-overlay.open .modal {
   transform: scale(1) translateY(0);
+  transition: transform var(--duration-normal) var(--ease-out);
 }
 
 .modal-header {
@@ -77,7 +78,7 @@
   color: var(--text-muted);
   cursor: pointer;
   border-radius: 6px;
-  transition: all 0.15s;
+  transition: background var(--duration-fast), color var(--duration-fast);
 }
 
 .modal-close:hover {

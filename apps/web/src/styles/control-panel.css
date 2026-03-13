@@ -26,7 +26,7 @@
   padding: 2px;
   background: var(--border);
   flex-shrink: 0;
-  transition: background 0.3s, box-shadow 0.3s;
+  transition: background var(--duration-slow) var(--ease-in-out), box-shadow var(--duration-slow) var(--ease-in-out);
 }
 
 .channel-header-avatar-ring.ring-connected {
