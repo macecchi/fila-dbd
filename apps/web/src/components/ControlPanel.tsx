@@ -3,6 +3,7 @@ import { useSettings, useAuth, useChannel } from '../store';
 import { connect, disconnect } from '../services/twitch';
 import { claimOwnership, releaseOwnership } from '../services/party';
 import { useConnectionStatus } from '../hooks/useConnectionStatus';
+import { useTranslation } from '../i18n';
 import { navigate } from '../utils/helpers';
 
 
@@ -13,6 +14,7 @@ export function ControlPanel() {
   const { user, isAuthenticated, login, logout } = useAuth();
   const { connection, queue } = useConnectionStatus();
   const owner = useChannelInfo((s) => s.owner);
+  const { t } = useTranslation();
 
   const [channelInput, setChannelInput] = useState(channel);
 
@@ -70,10 +72,10 @@ export function ControlPanel() {
             onClick={handleConnect}
             disabled={isIrcConnecting || !inputChannel}
           >
-            {isIrcConnecting ? 'Conectando...' : isIrcConnected ? 'Desconectar' : 'Conectar'}
+            {isIrcConnecting ? t('control.connecting') : isIrcConnected ? t('control.disconnect') : t('control.connect')}
           </button>
           <div className="channel auth-info">
-            <button className="btn btn-ghost" onClick={logout}>Sair</button>
+            <button className="btn btn-ghost" onClick={logout}>{t('control.logout')}</button>
           </div>
         </>
       );
@@ -83,7 +85,7 @@ export function ControlPanel() {
       // Owner conflict - only show "Go" button if they typed a different channel
       return inputChannel !== channel ? (
         <button className="btn btn-primary" onClick={handleGoToChannel}>
-          Ir
+          {t('control.go')}
         </button>
       ) : null;
     }
@@ -93,11 +95,11 @@ export function ControlPanel() {
       <>
         {inputChannel !== channel && (
           <button className="btn btn-primary" onClick={handleGoToChannel}>
-            Ir
+            {t('control.go')}
           </button>
         )}
         <button className="btn" onClick={handleMyQueue}>
-          {isAuthenticated ? 'Minha fila' : 'Criar minha fila'}
+          {isAuthenticated ? t('control.myQueue') : t('control.createQueue')}
         </button>
       </>
     );
@@ -106,7 +108,7 @@ export function ControlPanel() {
   return (
     <section className="controls">
       <div className="field grow channel">
-        <label>Canal Twitch</label>
+        <label>{t('control.twitchChannel')}</label>
         <div className="channel-input">
           {owner && (
             <img src={owner.avatar} alt={owner.displayName} className="avatar" />
@@ -114,7 +116,7 @@ export function ControlPanel() {
           <input
             type="text"
             value={channelInput}
-            placeholder="canal"
+            placeholder={t('control.channelPlaceholder')}
             onChange={e => setChannelInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && (canControlConnection ? handleConnect() : handleGoToChannel())}
           />

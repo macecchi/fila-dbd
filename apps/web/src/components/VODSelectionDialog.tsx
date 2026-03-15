@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchRecentVods, type VODInfo } from '../services/vod';
+import { useTranslation, getLocale } from '../i18n';
 
 interface Props {
   isOpen: boolean;
@@ -15,10 +16,11 @@ function formatDuration(seconds: number): string {
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+  return new Date(iso).toLocaleDateString(getLocale(), { day: '2-digit', month: '2-digit', year: '2-digit' });
 }
 
 export function VODSelectionDialog({ isOpen, channel, onConfirm, onClose }: Props) {
+  const { t } = useTranslation();
   const [vods, setVods] = useState<VODInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -41,7 +43,7 @@ export function VODSelectionDialog({ isOpen, channel, onConfirm, onClose }: Prop
       setCursor(result.endCursor);
       setLoaded(true);
     } catch {
-      setError('Erro ao buscar VODs');
+      setError(t('vod.error'));
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -86,7 +88,7 @@ export function VODSelectionDialog({ isOpen, channel, onConfirm, onClose }: Prop
               <polygon points="23 7 16 12 23 17 23 7" />
               <rect x="1" y="5" width="15" height="14" rx="2" />
             </svg>
-            Selecionar VODs
+            {t('vod.title')}
           </div>
           <button className="modal-close" onClick={handleClose}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -98,21 +100,21 @@ export function VODSelectionDialog({ isOpen, channel, onConfirm, onClose }: Prop
         {loading ? (
           <div className="recovery-loading">
             <div className="recovery-spinner" />
-            <span>Buscando VODs de {channel}...</span>
+            <span>{t('vod.loading', { channel })}</span>
           </div>
         ) : error ? (
           <div className="dialog-empty">
             <span>{error}</span>
-            <button className="btn btn-ghost" onClick={() => loadVods()}>Tentar novamente</button>
+            <button className="btn btn-ghost" onClick={() => loadVods()}>{t('vod.retry')}</button>
           </div>
         ) : vods.length === 0 ? (
           <div className="dialog-empty">
-            <span>Nenhuma VOD encontrada para {channel}.</span>
-            <button className="btn btn-ghost" onClick={handleClose}>Fechar</button>
+            <span>{t('vod.empty', { channel })}</span>
+            <button className="btn btn-ghost" onClick={handleClose}>{t('import.close')}</button>
           </div>
         ) : (
           <>
-            <p className="dialog-help-text">Recupere pedidos de streams anteriores. Selecione as VODs que deseja escanear — o chat será analisado para encontrar pedidos de donates e comandos de chat. Resubs não podem ser recuperados de VODs.</p>
+            <p className="dialog-help-text">{t('vod.helpText')}</p>
             <div className="recovery-list">
               {vods.map(vod => (
                 <label key={vod.id} className={`vod-item${selected.has(vod.id) ? ' checked' : ''}`}>
@@ -122,7 +124,7 @@ export function VODSelectionDialog({ isOpen, channel, onConfirm, onClose }: Prop
                     onChange={() => toggle(vod.id)}
                   />
                   <div className="vod-item-info">
-                    <div className="vod-item-title">{vod.title || `VOD ${vod.id}`}</div>
+                    <div className="vod-item-title">{vod.title || t('vod.fallbackTitle', { id: vod.id })}</div>
                     <div className="vod-item-meta">
                       {formatDate(vod.createdAt)} · {formatDuration(vod.lengthSeconds)}
                     </div>
@@ -136,21 +138,21 @@ export function VODSelectionDialog({ isOpen, channel, onConfirm, onClose }: Prop
                   disabled={loadingMore}
                 >
                   {loadingMore ? (
-                    <><span className="recovery-spinner-inline" /> Carregando...</>
+                    <><span className="recovery-spinner-inline" /> {t('vod.loadingMore')}</>
                   ) : (
-                    'Carregar mais'
+                    t('vod.loadMore')
                   )}
                 </button>
               )}
             </div>
             <div className="modal-footer">
-              <button className="btn btn-ghost" onClick={handleClose}>Cancelar</button>
+              <button className="btn btn-ghost" onClick={handleClose}>{t('vod.cancel')}</button>
               <button
                 className="btn btn-primary"
                 onClick={handleConfirm}
                 disabled={selected.size === 0}
               >
-                Buscar pedidos {selected.size > 0 ? `(${selected.size} VOD${selected.size > 1 ? 's' : ''})` : ''}
+                {selected.size > 0 ? t('vod.searchCount', { count: selected.size }) : t('vod.search')}
               </button>
             </div>
           </>

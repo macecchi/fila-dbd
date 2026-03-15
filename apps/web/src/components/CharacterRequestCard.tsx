@@ -3,7 +3,8 @@ import type { Request } from '../types';
 import { useContextMenu } from '../context/ContextMenuContext';
 import { getKillerPortrait } from '../data/characters';
 import { CharacterAvatar } from './CharacterAvatar';
-
+import { useTranslation } from '../i18n';
+import { getLocale } from '../i18n';
 import { formatRelativeTime } from '../utils/helpers';
 
 interface Props {
@@ -26,12 +27,13 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
   isDragging, isDragOver, onDragStart, onDragOver, onDragEnd, readOnly = false, exiting = false, skipping = false, entering = false
 }: Props) {
   const { show: showContextMenu } = useContextMenu();
+  const { t } = useTranslation();
   const r = request;
   const portrait = r.type === 'killer' && r.character ? getKillerPortrait(r.character) : null;
-  const isIdentifying = r.needsIdentification || r.character === 'Identificando...';
+  const isIdentifying = r.needsIdentification || r.character === 'Identificando...' || r.character === 'Identifying...';
   const isValidating = r.validating;
-  const charDisplay = isIdentifying ? 'Identificando...' :
-    (!r.character || r.type === 'unknown') ? 'Não identificado' :
+  const charDisplay = isIdentifying ? t('card.identifying') :
+    (!r.character || r.type === 'unknown') ? t('card.unidentified') :
       r.character;
   const isCollapsed = r.done;
 
@@ -125,7 +127,7 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
             <span className={`char-name${isIdentifying ? ' identifying' : ''}${!r.character && r.type !== 'unknown' ? ' type-only' : ''}`}>
               {charDisplay}
             </span>
-            {isValidating && <span className="validating-dot" title="Validando com IA..." />}
+            {isValidating && <span className="validating-dot" title={t('card.validatingAI')} />}
           </div>
           <div className="request-card-body">
             <span className="donor-name">{r.donor}</span>
@@ -138,7 +140,7 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
               {badgeText}
             </span>
           )}
-          <span className="time" title={r.timestamp.toLocaleString('pt-BR')}>{formatRelativeTime(r.timestamp)}</span>
+          <span className="time" title={r.timestamp.toLocaleString(getLocale())}>{formatRelativeTime(r.timestamp)}</span>
         </div>
       </div>
       {!readOnly && (
@@ -146,7 +148,7 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
           <button
             className={`request-action-btn ${r.done ? 'undo' : 'done'}`}
             onClick={handleClick}
-            title={r.done ? 'Marcar como não feito' : 'Marcar como feito'}
+            title={r.done ? t('card.markUndone') : t('card.markDone')}
           >
             {r.done ? (
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

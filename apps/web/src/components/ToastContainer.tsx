@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useToasts } from '../store';
+import { useTranslation } from '../i18n';
 import type { Toast } from '../types';
 
 interface ToastItemProps {
@@ -8,6 +9,7 @@ interface ToastItemProps {
 }
 
 function ToastItem({ toast, onRemove }: ToastItemProps) {
+  const { t } = useTranslation();
   const [fading, setFading] = useState(false);
 
   useEffect(() => {
@@ -34,10 +36,10 @@ function ToastItem({ toast, onRemove }: ToastItemProps) {
       {toast.title && <span className="toast-title" style={toast.color ? { color: `var(--${toast.color})` } : undefined}>{toast.title}</span>}
       <span>{toast.message}</span>
       {toast.type === 'undo' && (
-        <button className="undo-btn" onClick={handleUndo}>Desfazer</button>
+        <button className="undo-btn" onClick={handleUndo}>{t('toast.undo')}</button>
       )}
       {toast.duration === 0 && (
-        <button className="toast-close" onClick={() => onRemove(toast.id)} aria-label="Fechar">×</button>
+        <button className="toast-close" onClick={() => onRemove(toast.id)} aria-label={t('toast.close')}>×</button>
       )}
     </div>
   );

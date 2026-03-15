@@ -18,6 +18,7 @@ import { donateBotName } from './services/twitch';
 import { useSettings, useAuth, ChannelProvider, useChannel, useToasts, useLastChannel } from './store';
 import { navigate, handleLinkClick } from './utils/helpers';
 import { sortRequests, mergeRequests } from './utils/requests';
+import { useTranslation, t } from './i18n';
 import type { Request } from './types';
 import type { SourcesStoreApi } from './store/channel';
 
@@ -67,17 +68,17 @@ function useRequestToasts(requests: Request[], update: (id: number, updates: Par
       if (hideNonRequests && req.type === 'none') {
         const msg = req.message.length > 50 ? req.message.slice(0, 50) + '…' : req.message;
         showUndo(
-          `Ignorado: ${req.donor} — "${msg}"`,
+          t('toast.ignored', { donor: req.donor, message: msg }),
           () => update(req.id, { type: 'unknown', character: '' })
         );
         continue;
       }
-      const title = req.source === 'manual' ? 'Novo pedido' :
-        req.source === 'donation' ? 'Novo pedido por donate' :
-          req.source === 'resub' ? 'Novo pedido por resub' : 'Novo pedido pelo chat';
+      const title = req.source === 'manual' ? t('toast.newRequest') :
+        req.source === 'donation' ? t('toast.newRequestDonation') :
+          req.source === 'resub' ? t('toast.newRequestResub') : t('toast.newRequestChat');
       const message = req.character
-        ? `${req.donor} pediu ${req.character}${req.amount ? ` (${req.amount})` : ''}`
-        : `Novo pedido de ${req.donor}${req.amount ? ` (${req.amount})` : ''}`;
+        ? (req.amount ? t('toast.requestedCharAmount', { donor: req.donor, character: req.character, amount: req.amount }) : t('toast.requestedChar', { donor: req.donor, character: req.character }))
+        : (req.amount ? t('toast.newRequestFromAmount', { donor: req.donor, amount: req.amount }) : t('toast.newRequestFrom', { donor: req.donor }));
       show(message, title);
     }
     if (ready.length > 0) isFirstLoad.current = false;
@@ -85,6 +86,7 @@ function useRequestToasts(requests: Request[], update: (id: number, updates: Par
 }
 
 function ChannelApp() {
+  const { t } = useTranslation();
   const { channel, useRequests, useSources, useChannelInfo, canControlConnection } = useChannel();
   const requests = useRequests((s) => s.requests);
   const update = useRequests((s) => s.update);
@@ -200,9 +202,9 @@ function ChannelApp() {
     }
 
     setRecoveryOpen(false);
-    const parts = [`${added} adicionado${added !== 1 ? 's' : ''}`];
-    if (skipped > 0) parts.push(`${skipped} já estava${skipped !== 1 ? 'm' : ''} na fila`);
-    show(parts.join('\n'), 'Pedidos recuperados');
+    const parts = [t('toast.added', { count: added })];
+    if (skipped > 0) parts.push(t('toast.alreadyInQueue', { count: skipped }));
+    show(parts.join('\n'), t('toast.recoveredRequests'));
   }, [useRequests, useSources, setAll, show, saveRecoveryCheckpoint]);
 
   const handleRecoveryClose = useCallback(() => {
@@ -224,7 +226,7 @@ function ChannelApp() {
     try {
       for (const vod of vods) {
         if (controller.signal.aborted) break;
-        setVodRecoveryStatus(`Analisando VOD "${vod.title || vod.id}"...`);
+        setVodRecoveryStatus(t('vod.analyzingVod', { title: vod.title || vod.id }));
         await scanVODForRequests(vod.id, vod.createdAt, config, {
           onProgress: (s) => setVodRecoveryStatus(s),
           onRequest: (req) => setVodRecoveredRequests(prev => [...prev, req])
@@ -260,10 +262,10 @@ function ChannelApp() {
 
     setVodRecoveryOpen(false);
     const skipped = selected.filter(r => existingIds.has(r.id) && !currentRequests.find(c => c.id === r.id && c.done)).length;
-    const parts = [`${newRequests.length} adicionado${newRequests.length !== 1 ? 's' : ''}`];
-    if (undoneCount > 0) parts.push(`${undoneCount} reativado${undoneCount !== 1 ? 's' : ''}`);
-    if (skipped > 0) parts.push(`${skipped} já estava${skipped !== 1 ? 'm' : ''} na fila`);
-    show(parts.join(' | '), 'Pedidos recuperados');
+    const parts = [t('toast.added', { count: newRequests.length })];
+    if (undoneCount > 0) parts.push(t('toast.reactivated', { count: undoneCount }));
+    if (skipped > 0) parts.push(t('toast.alreadyInQueue', { count: skipped }));
+    show(parts.join(' | '), t('toast.recoveredRequests'));
   }, [useRequests, useSources, setAll, show]);
 
   const handleVodRecoveryClose = useCallback(() => {
@@ -286,7 +288,7 @@ function ChannelApp() {
             <div className="brand-icon">
               <img src={`${import.meta.env.BASE_URL}images/Dead-by-Daylight-Emblem.webp`} alt="DBD" />
             </div>
-            <h1>Fila DBD<span>Fila de pedidos</span></h1>
+            <h1>{t('app.title')}<span>{t('app.subtitle')}</span></h1>
           </a>
           <Stats />
         </header>
@@ -298,14 +300,14 @@ function ChannelApp() {
             <div className="panel-header">
               <div className="panel-title">
                 <img src={`${import.meta.env.BASE_URL}images/IconPlayers.webp`} />
-                Fila
+                {t('queue.title')}
                 <SourcesBadges />
               </div>
               <div className={readOnly ? 'viewer-mode' : undefined} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <button
                   className="btn btn-ghost btn-small"
                   onClick={() => !readOnly && setSortMode(sortMode === 'fifo' ? 'priority' : 'fifo')}
-                  title={`${sortMode === 'fifo' ? 'Novos pedidos entram no final' : 'Novos pedidos entram por prioridade de fonte'}. Clique para alternar.`}
+                  title={sortMode === 'fifo' ? t('queue.sortFifoTooltip') : t('queue.sortPriorityTooltip')}
                   disabled={readOnly}
                 >
                   {sortMode === 'fifo' ? (
@@ -317,21 +319,21 @@ function ChannelApp() {
                       <path d="M3 6h18M3 12h12M3 18h6" />
                     </svg>
                   )}
-                  Ordem: {sortMode === 'fifo' ? 'chegada' : 'prioridade'}
+                  {t('queue.sortLabel', { mode: sortMode === 'fifo' ? t('queue.sortFifo') : t('queue.sortPriority') })}
                 </button>
-                <button className="btn btn-ghost btn-small btn-small-icon" onClick={() => setManualOpen(true)} title="Adicionar novo pedido" disabled={readOnly}>
+                <button className="btn btn-ghost btn-small btn-small-icon" onClick={() => setManualOpen(true)} title={t('queue.addRequest')} disabled={readOnly}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M12 5v14M5 12h14" />
                   </svg>
                 </button>
-                <button className="btn btn-ghost btn-small btn-small-icon" onClick={() => setReviewOpen(true)} title="Revisar pedidos" disabled={readOnly || requests.length === 0}>
+                <button className="btn btn-ghost btn-small btn-small-icon" onClick={() => setReviewOpen(true)} title={t('queue.reviewRequests')} disabled={readOnly || requests.length === 0}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <rect x="3" y="3" width="18" height="18" rx="2" />
                     <path d="M3 9h18M9 3v18" />
                   </svg>
                 </button>
                 {chatHidden && (
-                  <button className="btn btn-ghost btn-small btn-small-icon" onClick={() => setChatHidden(false)} title="Mostrar chat">
+                  <button className="btn btn-ghost btn-small btn-small-icon" onClick={() => setChatHidden(false)} title={t('queue.showChat')}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
                     </svg>
@@ -351,9 +353,9 @@ function ChannelApp() {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
                 </svg>
-                Chat ao Vivo
+                {t('queue.liveChat')}
               </div>
-              <button className="btn btn-ghost btn-small btn-small-icon" onClick={() => setChatHidden(true)} title="Esconder chat">
+              <button className="btn btn-ghost btn-small btn-small-icon" onClick={() => setChatHidden(true)} title={t('queue.hideChat')}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
                 </svg>
@@ -369,9 +371,9 @@ function ChannelApp() {
         {(import.meta.env.DEV || isDebugMode()) && <DebugPanel />}
 
         <footer className="footer">
-          <div>Fila DBD</div>
+          <div>{t('app.title')}</div>
           <span style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <span>Versão: {__APP_VERSION__}</span>
+            <span>{t('app.version', { version: __APP_VERSION__ })}</span>
             <span className="footer-separator">•</span>
             <a href="https://github.com/macecchi/dbd-utils" target="_blank">GitHub</a>
             <span className="footer-separator">•</span>
@@ -410,9 +412,9 @@ function ChannelApp() {
         onConfirm={handleVodRecoveryConfirm}
         onClose={handleVodRecoveryClose}
         onBack={() => { handleVodRecoveryClose(); setVodSelectOpen(true); }}
-        emptyText="Nenhum pedido encontrado nas VODs selecionadas."
-        loadingText="Analisando VODs..."
-        doneText="Encontramos"
+        emptyText={t('import.emptyVod')}
+        loadingText={t('import.analyzingVods')}
+        doneText={t('import.found')}
       />
       <ToastContainer />
     </>

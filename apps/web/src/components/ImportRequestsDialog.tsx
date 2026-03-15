@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Request } from '../types';
 import { RequestsTable, type RequestsTableColumn } from './RequestsTable';
+import { useTranslation } from '../i18n';
 
 interface Props {
   isOpen: boolean;
@@ -16,6 +17,7 @@ interface Props {
 }
 
 export function ImportRequestsDialog({ isOpen, requests, isLoading, loadingStatus, onConfirm, onClose, onBack, emptyText, loadingText, doneText }: Props) {
+  const { t } = useTranslation();
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const seenIds = useRef<Set<number>>(new Set());
 
@@ -94,7 +96,7 @@ export function ImportRequestsDialog({ isOpen, requests, isLoading, loadingStatu
               <circle cx="12" cy="12" r="10" />
               <polyline points="12,6 12,12 16,14" />
             </svg>
-            Recuperar pedidos
+            {t('import.title')}
           </div>
           <button className="modal-close" onClick={onClose}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -105,8 +107,8 @@ export function ImportRequestsDialog({ isOpen, requests, isLoading, loadingStatu
 
         {!isLoading && requests.length === 0 ? (
           <div className="dialog-empty">
-            <span>{emptyText || 'Nenhum pedido perdido encontrado na stream atual.'}</span>
-            <button className="btn btn-ghost" onClick={onClose}>Fechar</button>
+            <span>{emptyText || t('import.emptyDefault')}</span>
+            <button className="btn btn-ghost" onClick={onClose}>{t('import.close')}</button>
           </div>
         ) : (
           <>
@@ -114,10 +116,10 @@ export function ImportRequestsDialog({ isOpen, requests, isLoading, loadingStatu
               {isLoading ? (
                 <>
                   <span className="recovery-spinner-inline" />
-                  {loadingStatus || loadingText || 'Analisando stream...'}
+                  {loadingStatus || loadingText || t('import.analyzing')}
                 </>
               ) : (
-                <>{doneText || 'Encontramos'} <strong>{requests.length}</strong> pedido{requests.length > 1 ? 's' : ''}</>
+                <>{doneText || t('import.found')} <strong>{requests.length}</strong> {t('import.request', { count: requests.length })}</>
               )}
             </div>
             <div className="recovery-actions">
@@ -126,10 +128,10 @@ export function ImportRequestsDialog({ isOpen, requests, isLoading, loadingStatu
                 onClick={() => toggleAll(!allSelected)}
                 disabled={requests.length === 0}
               >
-                {allSelected ? 'Desmarcar todos' : 'Marcar todos'}
+                {allSelected ? t('import.deselectAll') : t('import.selectAll')}
               </button>
               <span className="recovery-count">
-                {selectedCount} de {requests.length} selecionado{selectedCount !== 1 ? 's' : ''}
+                {t('import.selectedCount', { selected: selectedCount, total: requests.length, count: selectedCount })}
               </span>
             </div>
             <div className="req-table-wrap">
@@ -142,7 +144,7 @@ export function ImportRequestsDialog({ isOpen, requests, isLoading, loadingStatu
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={onBack ?? onClose}>
-                {onBack ? 'Voltar' : 'Ignorar'}
+                {onBack ? t('import.back') : t('import.ignore')}
               </button>
               <button
                 className="btn btn-primary"
@@ -151,7 +153,7 @@ export function ImportRequestsDialog({ isOpen, requests, isLoading, loadingStatu
               >
                 {isLoading
                   ? <span className="recovery-spinner-inline" />
-                  : <>Adicionar {selectedCount > 0 ? selectedCount : ''} pedido{selectedCount !== 1 ? 's' : ''}</>
+                  : t('import.addRequests', { count: selectedCount || '' })
                 }
               </button>
             </div>

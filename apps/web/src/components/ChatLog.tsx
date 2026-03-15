@@ -1,8 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { useChat } from '../store';
+import { useTranslation } from '../i18n';
 
 export function ChatLog() {
   const messages = useChat((s) => s.messages);
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -13,7 +15,7 @@ export function ChatLog() {
   }, [messages]);
 
   if (messages.length === 0) {
-    return <div className="empty">Mensagens do chat aparecerão aqui...</div>;
+    return <div className="empty">{t('chat.empty')}</div>;
   }
 
   return (

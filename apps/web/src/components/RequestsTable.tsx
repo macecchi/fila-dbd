@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useImperativeHandle, forwardRef, type ReactNode, type MouseEvent } from 'react';
 import { CharacterAvatar } from './CharacterAvatar';
 import { getKillerPortrait } from '../data/characters';
+import { useTranslation } from '../i18n';
+import { getLocale } from '../i18n';
 import type { Request } from '../types';
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -53,11 +55,13 @@ export const RequestsTable = forwardRef<RequestsTableHandle, Props>(function Req
   showTimestamp = true,
   onRowClick,
   rowClassName,
-  emptyText = 'Nenhum pedido.',
+  emptyText,
   pageSize,
   initialPage = 'first',
   onPageChange,
 }, ref) {
+  const { t } = useTranslation();
+  const resolvedEmptyText = emptyText ?? t('table.empty');
   const totalPages = pageSize ? Math.max(1, Math.ceil(requests.length / pageSize)) : 1;
   const [page, setPageRaw] = useState(initialPage === 'last' ? totalPages - 1 : 0);
 
@@ -79,10 +83,10 @@ export const RequestsTable = forwardRef<RequestsTableHandle, Props>(function Req
   }, [totalPages, page]);
 
   if (requests.length === 0) {
-    if (!emptyText) return null;
+    if (!resolvedEmptyText) return null;
     return (
       <div className="dialog-empty">
-        <span>{emptyText}</span>
+        <span>{resolvedEmptyText}</span>
       </div>
     );
   }
@@ -101,11 +105,11 @@ export const RequestsTable = forwardRef<RequestsTableHandle, Props>(function Req
               <th key={col.key} className={col.className}>{col.header}</th>
             ))}
             {showId && <th className="req-col-id">ID</th>}
-            <th className="req-col-char">Personagem</th>
-            <th className="req-col-donor">Doador</th>
-            <th className="req-col-source">Fonte</th>
-            {showMessage && <th className="req-col-msg">Mensagem</th>}
-            {showTimestamp && <th className="req-col-dates">Horário</th>}
+            <th className="req-col-char">{t('table.character')}</th>
+            <th className="req-col-donor">{t('table.donor')}</th>
+            <th className="req-col-source">{t('table.source')}</th>
+            {showMessage && <th className="req-col-msg">{t('table.message')}</th>}
+            {showTimestamp && <th className="req-col-dates">{t('table.time')}</th>}
             {trailColumns?.map(col => (
               <th key={col.key} className={col.className}>{col.header}</th>
             ))}
@@ -131,7 +135,7 @@ export const RequestsTable = forwardRef<RequestsTableHandle, Props>(function Req
                     <CharacterAvatar portrait={portrait} type={r.type} size="sm" />
                     <span className="req-char-name" title={r.character || undefined}>
                       {r.type === 'none'
-                        ? <span className="text-muted">Ignorado</span>
+                        ? <span className="text-muted">{t('table.skipped')}</span>
                         : r.character || <span className="text-muted">—</span>}
                     </span>
                   </div>
@@ -149,7 +153,7 @@ export const RequestsTable = forwardRef<RequestsTableHandle, Props>(function Req
                 )}
                 {showTimestamp && (
                   <td className="req-col-dates mono">
-                    {r.timestamp.toLocaleString('pt-BR', TIME_FMT)}
+                    {r.timestamp.toLocaleString(getLocale(), TIME_FMT)}
                   </td>
                 )}
                 {trailColumns?.map(col => (

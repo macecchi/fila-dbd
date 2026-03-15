@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { useChannel, useSettings, SOURCES_DEFAULTS } from '../store';
 import type { SourceType as AllSourceTypes } from '../store/channel';
 import { donateBotName } from '../services/twitch';
+import { useTranslation } from '../i18n';
 
 type SourceType = Exclude<AllSourceTypes, 'manual'>;
 
-const SOURCE_LABELS: Record<SourceType, string> = {
-  donation: 'Donates',
-  resub: 'Resubs',
-  chat: 'Chat'
+const SOURCE_LABEL_KEYS: Record<SourceType, 'sources.donation' | 'sources.resub' | 'sources.chat'> = {
+  donation: 'sources.donation',
+  resub: 'sources.resub',
+  chat: 'sources.chat',
 };
 
 
@@ -38,6 +39,7 @@ interface SourcesPanelProps {
 }
 
 export function SourcesPanel({ onRecover, onReview }: SourcesPanelProps) {
+  const { t } = useTranslation();
   const { useSources, canControlConnection } = useChannel();
   const {
     enabled, chatCommand, chatTiers, priority, sortMode, minDonation, hideNonRequests,
@@ -88,7 +90,7 @@ export function SourcesPanel({ onRecover, onReview }: SourcesPanelProps) {
         <div className="source-section-header">
           <div className="source-section-title">
             <span className="source-section-icon">{SOURCE_ICONS[source]}</span>
-            <span>{SOURCE_LABELS[source]}</span>
+            <span>{t(SOURCE_LABEL_KEYS[source])}</span>
           </div>
           <label className="source-toggle">
             <input
@@ -103,9 +105,9 @@ export function SourcesPanel({ onRecover, onReview }: SourcesPanelProps) {
 
         {source === 'donation' && (
           <div className="source-section-body">
-            <span className="source-section-desc">Pedidos feitos via <strong>{donateBotName}</strong> a partir do valor mínimo definido</span>
+            <span className="source-section-desc" dangerouslySetInnerHTML={{ __html: t('sources.donationDesc', { botName: donateBotName }) }} />
             <div className="source-field">
-              <label htmlFor="donation-min">Mínimo</label>
+              <label htmlFor="donation-min">{t('sources.minimum')}</label>
               <div className="input-with-prefix">
                 <span>R$</span>
                 <input
@@ -125,15 +127,15 @@ export function SourcesPanel({ onRecover, onReview }: SourcesPanelProps) {
 
         {source === 'resub' && (
           <div className="source-section-body">
-            <span className="source-section-desc">Mensagens de reinscrição</span>
+            <span className="source-section-desc">{t('sources.resubDesc')}</span>
           </div>
         )}
 
         {source === 'chat' && (
           <div className="source-section-body">
-            <span className="source-section-desc">Comando de chat para pedidos. Somente inscritos com tier maior ou igual ao definido podem usar. Exemplo: <pre>!fila huntress</pre></span>
+            <span className="source-section-desc" dangerouslySetInnerHTML={{ __html: t('sources.chatDesc', { example: '!fila huntress' }) }} />
             <div className="source-field">
-              <label htmlFor="chat-command">Comando</label>
+              <label htmlFor="chat-command">{t('sources.command')}</label>
               <input
                 id="chat-command"
                 name="chat-command"
@@ -145,11 +147,11 @@ export function SourcesPanel({ onRecover, onReview }: SourcesPanelProps) {
               />
             </div>
             <div className="source-field">
-              <label htmlFor="chat-tier">Tier mínimo</label>
+              <label htmlFor="chat-tier">{t('sources.minTier')}</label>
               <select id="chat-tier" name="chat-tier" value={getMinTier()} onChange={e => !readOnly && setMinTier(Number(e.target.value))} disabled={readOnly}>
-                <option value={1}>Tier 1</option>
-                <option value={2}>Tier 2</option>
-                <option value={3}>Tier 3</option>
+                <option value={1}>{t('sources.tier1')}</option>
+                <option value={2}>{t('sources.tier2')}</option>
+                <option value={3}>{t('sources.tier3')}</option>
               </select>
             </div>
           </div>
@@ -168,7 +170,7 @@ export function SourcesPanel({ onRecover, onReview }: SourcesPanelProps) {
             <rect x="3" y="14" width="7" height="7" rx="1" />
             <rect x="14" y="14" width="7" height="7" rx="1" />
           </svg>
-          Fontes de Pedidos
+          {t('sources.title')}
         </span>
         <span className="sources-panel-toggle">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
@@ -185,14 +187,12 @@ export function SourcesPanel({ onRecover, onReview }: SourcesPanelProps) {
 
         <div className="settings-row">
           <div className={`priority-section${sortMode === 'fifo' ? ' disabled' : ''}`}>
-            <div className="priority-header">Ordenação dos pedidos</div>
+            <div className="priority-header">{t('sources.sortOrder')}</div>
             <p className="priority-desc">
-              Ordenação atual: {sortMode === 'fifo'
-                ? 'novos pedidos entram no final da fila (ordem de chegada)'
-                : 'novos pedidos entram ordenados de acordo com a prioridade'}.
+              {sortMode === 'fifo' ? t('sources.sortFifoDesc') : t('sources.sortPriorityDesc')}
             </p>
             <p className="priority-desc">
-              Prioridade
+              {t('sources.priority')}
             </p>
             <div className="priority-pills">
               {filteredPriority.map((source: SourceType, idx: number) => (
@@ -206,16 +206,16 @@ export function SourcesPanel({ onRecover, onReview }: SourcesPanelProps) {
                 >
                   <span className="priority-pill-num">{idx + 1}</span>
                   <span className="priority-pill-icon">{SOURCE_ICONS[source]}</span>
-                  <span className="priority-pill-label">{SOURCE_LABELS[source]}</span>
+                  <span className="priority-pill-label">{t(SOURCE_LABEL_KEYS[source])}</span>
                 </div>
               ))}
             </div>
           </div>
 
           <div className="priority-section">
-            <div className="priority-header">Ocultar mensagens sem pedidos de personagem</div>
+            <div className="priority-header">{t('sources.hideNonRequests')}</div>
             <p className="priority-desc">
-              Mensagens atendendo os critérios e sem pedir um personagem não aparecerão na lista. Você pode ver essas mensagens e adicionar à fila na tela de Revisar pedidos.
+              {t('sources.hideNonRequestsDesc')}
             </p>
             <label className="source-toggle">
               <input
@@ -237,7 +237,7 @@ export function SourcesPanel({ onRecover, onReview }: SourcesPanelProps) {
                   <rect x="3" y="3" width="18" height="18" rx="2" />
                   <path d="M3 9h18M9 3v18" />
                 </svg>
-                Revisar pedidos
+                {t('sources.reviewRequests')}
               </button>
             )}
             {onRecover && (
@@ -246,7 +246,7 @@ export function SourcesPanel({ onRecover, onReview }: SourcesPanelProps) {
                   <circle cx="12" cy="12" r="10" />
                   <polyline points="12,6 12,12 16,14" />
                 </svg>
-                Recuperar pedidos de VODs anteriores
+                {t('sources.recoverVod')}
               </button>
             )}
           </div>

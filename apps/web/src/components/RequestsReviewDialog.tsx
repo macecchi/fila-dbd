@@ -3,6 +3,7 @@ import type { Request } from '../types';
 import { deserializeRequests } from '../types';
 import { fetchRequestsHistory } from '../services/api';
 import { RequestsTable, type RequestsTableColumn, type RequestsTableHandle } from './RequestsTable';
+import { useTranslation, getLocale } from '../i18n';
 
 interface Props {
   isOpen: boolean;
@@ -17,6 +18,7 @@ type Tab = 'current' | 'changes';
 const DATETIME_FMT: Intl.DateTimeFormatOptions = { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' };
 
 export function RequestsReviewDialog({ isOpen, requests: storeRequests, channel, onApply, onClose }: Props) {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>('current');
   const [edits, setEdits] = useState<Map<number, Partial<Request>>>(new Map);
   const [d1Requests, setD1Requests] = useState<Request[] | null>(null);
@@ -196,7 +198,7 @@ export function RequestsReviewDialog({ isOpen, requests: storeRequests, channel,
   const trailColumns: RequestsTableColumn[] = [
     {
       key: 'done',
-      header: 'Feito',
+      header: t('review.done'),
       className: 'req-col-done',
       render: (r, i) => {
         const orig = requests.find(o => o.id === r.id)!;
@@ -210,17 +212,17 @@ export function RequestsReviewDialog({ isOpen, requests: storeRequests, channel,
           if (isRestored) {
             return (
               <span className="review-done-diff">
-                <span className="review-diff-old">Ignorado</span>
+                <span className="review-diff-old">{t('review.skipped')}</span>
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-                <span className="review-diff-new">Não</span>
+                <span className="review-diff-new">{t('review.no')}</span>
               </span>
             );
           }
           return (
             <span className="review-done-diff">
-              <span className={doneBefore ? 'review-diff-old done' : 'review-diff-old'}>{doneBefore ? 'Sim' : 'Não'}</span>
+              <span className={doneBefore ? 'review-diff-old done' : 'review-diff-old'}>{doneBefore ? t('review.yes') : t('review.no')}</span>
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-              <span className={doneNow ? 'review-diff-new done' : 'review-diff-new'}>{doneNow ? 'Sim' : 'Não'}</span>
+              <span className={doneNow ? 'review-diff-new done' : 'review-diff-new'}>{doneNow ? t('review.yes') : t('review.no')}</span>
             </span>
           );
         }
@@ -230,7 +232,7 @@ export function RequestsReviewDialog({ isOpen, requests: storeRequests, channel,
             <button
               className={`review-done-btn${isRestored ? ' changed' : ''}`}
               onClick={e => { e.stopPropagation(); toggleDone(r.id); }}
-              title={isDismissed ? 'Restaurar na fila' : 'Desfazer restauração'}
+              title={isDismissed ? t('review.restoreToQueue') : t('review.undoRestore')}
             >
               {isDismissed ? (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -250,7 +252,7 @@ export function RequestsReviewDialog({ isOpen, requests: storeRequests, channel,
           <button
             className={`review-done-btn${doneNow ? ' checked' : ''}${changed ? ' changed' : ''}`}
             onClick={e => handleRowClick(i, e)}
-            title={doneNow ? 'Marcar como não feito' : 'Marcar como feito'}
+            title={doneNow ? t('review.markUndone') : t('review.markDone')}
           >
             {doneNow ? (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -267,15 +269,15 @@ export function RequestsReviewDialog({ isOpen, requests: storeRequests, channel,
     },
     {
       key: 'dates',
-      header: 'Recebido / Feito',
+      header: t('review.datesHeader'),
       className: 'req-col-dates',
       render: (r) => (
         <div className="review-dates-wrap">
           <span className="review-date-icon"></span>
-          <span>{r.timestamp.toLocaleString('pt-BR', DATETIME_FMT)}</span>
+          <span>{r.timestamp.toLocaleString(getLocale(), DATETIME_FMT)}</span>
           {r.doneAt && (<>
             <span className="review-date-icon review-done-time">✓</span>
-            <span className="review-done-time">{r.doneAt.toLocaleString('pt-BR', DATETIME_FMT)}</span>
+            <span className="review-done-time">{r.doneAt.toLocaleString(getLocale(), DATETIME_FMT)}</span>
           </>)}
         </div>
       ),
@@ -291,7 +293,7 @@ export function RequestsReviewDialog({ isOpen, requests: storeRequests, channel,
               <rect x="3" y="3" width="18" height="18" rx="2" />
               <path d="M3 9h18M9 3v18" />
             </svg>
-            Revisar pedidos
+            {t('review.title')}
           </div>
           <button className="modal-close" onClick={handleClose}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -300,7 +302,7 @@ export function RequestsReviewDialog({ isOpen, requests: storeRequests, channel,
           </button>
         </div>
 
-        <p className="dialog-help-text">Visualize e altere o status dos pedidos. Marque um pedido como feito ou adicione de volta à fila. Segure Shift para selecionar vários de uma vez. Revise as alterações na aba "Alterações" e aplique quando estiver pronto.</p>
+        <p className="dialog-help-text">{t('review.helpText')}</p>
 
         {loading ? (
           <div className="req-table-wrap" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3rem' }}>
@@ -312,13 +314,13 @@ export function RequestsReviewDialog({ isOpen, requests: storeRequests, channel,
               className={`review-tab${tab === 'current' ? ' active' : ''}`}
               onClick={() => setTab('current')}
             >
-              Todos ({requests.length})
+              {t('review.tabAll', { count: requests.length })}
             </button>
             <button
               className={`review-tab${tab === 'changes' ? ' active' : ''}`}
               onClick={() => setTab('changes')}
             >
-              Alterações {changedIds.size > 0 && <span className="review-tab-badge">{changedIds.size}</span>}
+              {t('review.tabChanges')} {changedIds.size > 0 && <span className="review-tab-badge">{changedIds.size}</span>}
             </button>
           </div>
 
@@ -331,7 +333,7 @@ export function RequestsReviewDialog({ isOpen, requests: storeRequests, channel,
               showId
               showTimestamp={false}
               rowClassName={(r) => changedIds.has(r.id) ? 'review-row-changed' : undefined}
-              emptyText={changesTab ? 'Nenhuma alteração ainda. Mude o status na aba "Todos".' : 'Nenhum pedido na fila.'}
+              emptyText={changesTab ? t('review.emptyChanges') : t('review.emptyQueue')}
               pageSize={50}
               initialPage="last"
               onPageChange={handlePageChange}
@@ -352,21 +354,21 @@ export function RequestsReviewDialog({ isOpen, requests: storeRequests, channel,
             </div>
           )}
           <div style={{ flex: 1 }} />
-          <button className="btn btn-ghost" onClick={handleClose}>Cancelar</button>
+          <button className="btn btn-ghost" onClick={handleClose}>{t('review.cancel')}</button>
           <button
             className="btn btn-ghost"
             onClick={markAllDone}
             disabled={undoneCount === 0}
-            title="Marcar todos como feitos"
+            title={t('review.markAllDone')}
           >
-            Marcar todos como feitos{undoneCount > 0 ? ` (${undoneCount})` : ''}
+            {undoneCount > 0 ? t('review.markAllDoneCount', { count: undoneCount }) : t('review.markAllDone')}
           </button>
           <button
             className="btn btn-primary"
             onClick={handleApply}
             disabled={changedIds.size === 0}
           >
-            Aplicar {changedIds.size > 0 ? `${changedIds.size} alteraç${changedIds.size === 1 ? 'ão' : 'ões'}` : ''}
+            {changedIds.size > 0 ? t('review.applyChanges', { count: changedIds.size }) : ''}
           </button>
         </div>
       </div>

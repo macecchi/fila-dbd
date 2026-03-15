@@ -1,4 +1,5 @@
 import { useSettings, useChannel } from '../store';
+import { t } from '../i18n';
 
 /**
  * Connection states:
@@ -34,33 +35,33 @@ export function useConnectionStatus(): StatusInfo {
   let connection: { state: ConnectionState; text: string };
   // Handle errors first
   if (localIrcConnectionState === 'error') {
-    connection = { state: 'error', text: 'Erro Twitch' };
+    connection = { state: 'error', text: t('status.twitchError') };
   } else if (localPartyConnectionState === 'error') {
-    connection = { state: 'error', text: 'Erro servidor' };
+    connection = { state: 'error', text: t('status.serverError') };
   } else if (localPartyConnectionState === 'connecting') {
-    connection = { state: 'connecting', text: 'Conectando...' };
+    connection = { state: 'connecting', text: t('status.connecting') };
   } else if (isOwnChannel) {
     // Owner's view
     if (someoneElseIsOwner) {
       // Another tab is managing the channel
-      connection = { state: 'partial', text: 'Conectado em outra janela' };
+      connection = { state: 'partial', text: t('status.connectedOtherWindow') };
     } else if (localIrcConnectionState === 'connecting') {
-      connection = { state: 'connecting', text: 'Conectando' };
+      connection = { state: 'connecting', text: t('status.connectingShort') };
     } else if (localIrcConnectionState === 'connected' && channelStatus === 'online') {
-      connection = { state: 'partial', text: 'Aguardando iniciar' };
+      connection = { state: 'partial', text: t('status.waitingToStart') };
     } else if (localIrcConnectionState === 'connected' && channelStatus === 'live') {
-      connection = { state: 'connected', text: 'Conectado' };
+      connection = { state: 'connected', text: t('status.connected') };
     } else {
-      connection = { state: 'disconnected', text: 'Desconectado' };
+      connection = { state: 'disconnected', text: t('status.disconnected') };
     }
   } else {
     // Viewer: state is only based on server's channel status
     if (channelStatus === 'live') {
-      connection = { state: 'connected', text: 'Conectado' };
+      connection = { state: 'connected', text: t('status.connected') };
     } else if (channelStatus === 'online') {
-      connection = { state: 'partial', text: `Aguardando ${channelOwner?.displayName || 'streamer'}` };
+      connection = { state: 'partial', text: t('status.waitingStreamer', { name: channelOwner?.displayName || 'streamer' }) };
     } else {
-      connection = { state: 'disconnected', text: 'Streamer offline' };
+      connection = { state: 'disconnected', text: t('status.streamerOffline') };
     }
   }
 
@@ -68,8 +69,8 @@ export function useConnectionStatus(): StatusInfo {
   const { manual, ...autoSources } = enabledSources;
   const takingRequests = channelStatus === 'live' && Object.values(autoSources).some(Boolean);
   const queue: { state: QueueState; text: string } = takingRequests
-    ? { state: 'connected', text: 'Fila aberta' }
-    : { state: 'disconnected', text: 'Fila fechada' };
+    ? { state: 'connected', text: t('status.queueOpen') }
+    : { state: 'disconnected', text: t('status.queueClosed') };
 
   return { connection, queue };
 }

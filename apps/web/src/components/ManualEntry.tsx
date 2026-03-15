@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { CHARACTERS } from '../data/characters';
 import { useChannel } from '../store';
 import { CharacterAvatar } from './CharacterAvatar';
+import { useTranslation } from '../i18n';
 import type { Request } from '../types';
 
 interface CharacterOption {
@@ -36,6 +37,7 @@ export function ManualEntry({ isOpen, onClose }: Props) {
   const { useRequests, useChannelInfo } = useChannel();
   const addRequest = useRequests((s) => s.add);
   const owner = useChannelInfo((s) => s.owner);
+  const { t } = useTranslation();
   const [input, setInput] = useState('');
   const [autocompleteItems, setAutocompleteItems] = useState<CharacterOption[]>([]);
   const [autocompleteIndex, setAutocompleteIndex] = useState(-1);
@@ -117,7 +119,7 @@ export function ManualEntry({ isOpen, onClose }: Props) {
     <div className="manual-entry-overlay" onClick={onClose}>
       <div className="manual-entry-popup" onClick={e => e.stopPropagation()}>
         <div className="manual-entry-header">
-          <span>Adicionar Pedido Manual</span>
+          <span>{t('manual.title')}</span>
           <button className="manual-entry-close" onClick={onClose}>×</button>
         </div>
         <div className="manual-entry-body">
@@ -125,7 +127,7 @@ export function ManualEntry({ isOpen, onClose }: Props) {
             ref={inputRef}
             type="text"
             value={input}
-            placeholder="Digite o nome do personagem..."
+            placeholder={t('manual.placeholder')}
             autoComplete="off"
             onChange={e => handleInputChange(e.target.value)}
             onKeyDown={handleKeyDown}

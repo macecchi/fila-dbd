@@ -1,4 +1,5 @@
 import { useChannel } from '../store';
+import { useTranslation } from '../i18n';
 
 export function SourcesBadges() {
     const { useSources, useChannelInfo } = useChannel();
@@ -8,16 +9,18 @@ export function SourcesBadges() {
     const chatCommand = useSources((s) => s.chatCommand);
     const chatTiers = useSources((s) => s.chatTiers);
 
+    const { t } = useTranslation();
+
     const badges = (() => {
-        if (channelStatus !== 'live') return ['Fila fechada'];
+        if (channelStatus !== 'live') return [t('badges.queueClosed')];
         const parts: string[] = [];
-        if (sourcesEnabled.donation) parts.push(`Donates (R$${minDonation}+)`);
+        if (sourcesEnabled.donation) parts.push(t('badges.donates', { amount: String(minDonation) }));
         if (sourcesEnabled.chat) {
             const minTier = chatTiers.length ? Math.min(...chatTiers) : 1;
             parts.push(`${chatCommand} (tier ${minTier}+)`);
         }
-        if (sourcesEnabled.resub) parts.push('Resubs');
-        return parts.length ? parts : ['Fila fechada'];
+        if (sourcesEnabled.resub) parts.push(t('badges.resubs'));
+        return parts.length ? parts : [t('badges.queueClosed')];
     })();
 
     return (

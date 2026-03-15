@@ -1,6 +1,14 @@
-const rtf = new Intl.RelativeTimeFormat('pt-BR', { numeric: 'auto' });
+import { getLocale } from '../i18n';
+
+const rtfCache: Record<string, Intl.RelativeTimeFormat> = {};
+function getRtf(): Intl.RelativeTimeFormat {
+  const locale = getLocale();
+  if (!rtfCache[locale]) rtfCache[locale] = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+  return rtfCache[locale];
+}
 
 export function formatRelativeTime(date: Date): string {
+  const rtf = getRtf();
   const diff = (date.getTime() - Date.now()) / 1000;
   if (Math.abs(diff) < 60) return rtf.format(Math.round(diff), 'second');
   if (Math.abs(diff) < 3600) return rtf.format(Math.round(diff / 60), 'minute');

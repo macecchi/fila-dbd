@@ -3,6 +3,7 @@ import { useChannel, useAuth } from '../store';
 import { connect, disconnect } from '../services/twitch';
 import { claimOwnership, releaseOwnership } from '../services/party';
 import { useConnectionStatus } from '../hooks/useConnectionStatus';
+import { useTranslation } from '../i18n';
 import { formatRelativeTime } from '../utils/helpers';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
@@ -15,6 +16,7 @@ interface RoomInfo {
 export function ChannelHeader() {
   const { channel, canControlConnection, useChannelInfo } = useChannel();
   const { isAuthenticated, logout } = useAuth();
+  const { t, locale, setLocale } = useTranslation();
   const owner = useChannelInfo((s) => s.owner);
   const hasLock = useChannelInfo((s) => s.hasLock);
   const twitchStatus = useChannelInfo((s) => s.localIrcConnectionState);
@@ -97,15 +99,23 @@ export function ChannelHeader() {
           </div>
           <span className="channel-header-sub">
             {lastActive && connection.state === 'disconnected'
-              ? `Último uso ${formatRelativeTime(lastActive)}`
+              ? t('header.lastUsed', { time: formatRelativeTime(lastActive) })
               : <a href={shareUrl} className="channel-header-share" onClick={handleCopyLink}>
                 {new URL(shareUrl).href.replace(/https?:\/\//, '')}
-                <span className="channel-header-share-hint">{copied ? 'Copiado!' : 'Clique para copiar'}</span>
+                <span className="channel-header-share-hint">{copied ? t('header.copied') : t('header.clickToCopy')}</span>
               </a>
             }
           </span>
         </div>
       </div>
+
+      <button
+        className="btn btn-ghost btn-small lang-toggle"
+        onClick={() => setLocale(locale === 'pt-BR' ? 'en' : 'pt-BR')}
+        title={locale === 'pt-BR' ? 'Switch to English' : 'Mudar para Português'}
+      >
+        {t('lang.toggle')}
+      </button>
 
       {canControlConnection && (
         <div className="channel-header-actions">
@@ -114,11 +124,11 @@ export function ChannelHeader() {
             onClick={handleToggle}
             disabled={isConnecting}
           >
-            {isConnecting ? 'Conectando...' : isConnected ? 'Fechar fila' : 'Abrir fila'}
+            {isConnecting ? t('status.connecting') : isConnected ? t('header.closeQueue') : t('header.openQueue')}
           </button>
           {isAuthenticated && (
             <a className="channel-header-logout" href="#" onClick={(e) => { e.preventDefault(); logout(); }}>
-              Desconectar Twitch
+              {t('header.disconnectTwitch')}
             </a>
           )}
         </div>

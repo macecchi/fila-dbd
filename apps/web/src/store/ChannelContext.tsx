@@ -5,6 +5,7 @@ import { setActiveStores, connect as connectIrc, disconnect as disconnectIrc } f
 import { connectParty, disconnectParty, broadcastIrcStatus, claimOwnership } from '../services/party';
 import { useAuth } from './auth';
 import { useToasts } from './toasts';
+import { t } from '../i18n';
 
 function sendPushNotification(title: string, body: string) {
   if (!('Notification' in window)) return;
@@ -87,8 +88,8 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
   useEffect(() => {
     if (someoneElseIsOwner && !prevSomeoneElseIsOwner.current) {
       showToast(
-        'Outra aba já está gerenciando este canal. Esta aba está em modo somente leitura.',
-        'Canal já aberto',
+        t('toast.channelAlreadyOpenDesc'),
+        t('toast.channelAlreadyOpen'),
         '#f59e0b',
         10000
       );
@@ -109,8 +110,8 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
       } else if (state === 'denied') {
         if (notifToastId.current === null) {
           notifToastId.current = add({
-            message: 'Ative as notificações do navegador para ser alertado se a conexão cair.',
-            title: 'Notificações bloqueadas',
+            message: t('toast.notificationsBlockedDesc'),
+            title: t('toast.notificationsBlocked'),
             color: '#f59e0b',
             duration: 0,
             type: 'default',
@@ -164,33 +165,33 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
 
     // IRC: connected → connecting (auto-reconnecting)
     if (wasIrcConnected && localIrcState === 'connecting') {
-      showToast('Conexão com o chat caiu. Reconectando...', 'Twitch IRC', '#f59e0b');
+      showToast(t('toast.ircReconnecting'), t('toast.twitchIrc'), '#f59e0b');
     }
 
     // IRC: connected/connecting → error (retries exhausted)
     if (wasIrcConnected && localIrcState === 'error') {
-      showToast('Conexão com o chat perdida. Reconecte manualmente.', 'Twitch IRC', '#ef4444', 0);
+      showToast(t('toast.ircLost'), t('toast.twitchIrc'), '#ef4444', 0);
       sendPushNotification(
-        'Fila DBD - Conexão perdida',
-        'Conexão com o chat da Twitch caiu. Reconecte para continuar recebendo pedidos.',
+        t('push.connectionLost'),
+        t('push.ircLost'),
       );
     }
 
     // IRC: reconnected successfully (not initial connect)
     if (prevIrcState.current === 'connecting' && localIrcState === 'connected' && ircEverConnected.current) {
-      showToast('Reconectado ao chat.', 'Twitch IRC', '#22c55e');
+      showToast(t('toast.ircReconnected'), t('toast.twitchIrc'), '#22c55e');
     }
     if (localIrcState === 'connected') ircEverConnected.current = true;
 
     // PartyKit: disconnected — toast immediately, push after delay
     if (prevPartyState.current && !partyConnected) {
-      showToast('Conexão com o servidor caiu. Reconectando...', 'Servidor', '#f59e0b');
+      showToast(t('toast.serverReconnecting'), t('toast.server'), '#f59e0b');
       if (!partyPushTimer.current) {
         partyPushTimer.current = setTimeout(() => {
           partyPushTimer.current = null;
           sendPushNotification(
-            'Fila DBD - Conexão perdida',
-            'Conexão com o servidor caiu. Tentando reconectar...',
+            t('push.connectionLost'),
+            t('push.serverLost'),
           );
         }, PARTY_PUSH_DELAY);
       }
@@ -203,7 +204,7 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
         partyPushTimer.current = null;
       }
       if (partyEverConnected.current) {
-        showToast('Reconectado ao servidor.', 'Servidor', '#22c55e');
+        showToast(t('toast.serverReconnected'), t('toast.server'), '#22c55e');
       }
     }
     if (partyConnected) partyEverConnected.current = true;
@@ -246,17 +247,17 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
               disconnectParty();
               const { add } = useToasts.getState();
               add({
-                message: 'Novos pedidos não serão recebidos. Clique aqui para atualizar.',
-                title: 'Nova versão disponível',
+                message: t('toast.newVersionUpdate'),
+                title: t('toast.newVersionAvailable'),
                 duration: 0,
                 type: 'default',
                 onClick: () => location.reload(),
               });
-              sendPushNotification('Nova versão disponível', 'Atualize a página para continuar recebendo pedidos.');
+              sendPushNotification(t('push.newVersionTitle'), t('push.newVersion'));
               return;
             }
             const { show } = useToasts.getState();
-            show(msg.message, 'Erro no servidor', '#ef4444', 0);
+            show(msg.message, t('toast.serverError'), '#ef4444', 0);
             return;
           }
           handleRequestsMessage(msg);

@@ -5,6 +5,7 @@ import type { Request } from '../types';
 import { loadMockData } from '../data/mock-requests';
 import { useChannel, useChat, useToasts, useAuth } from '../store';
 import { donateBotName, simulateDisconnect } from '../services/twitch';
+import { useTranslation } from '../i18n';
 
 export function DebugPanel() {
   const { useRequests, useSources, canControlConnection } = useChannel();
@@ -14,6 +15,7 @@ export function DebugPanel() {
   const { enabled: sourcesEnabled, chatTiers, chatCommand, minDonation } = useSources();
   const readOnly = !canControlConnection;
   const { show: showToast } = useToasts();
+  const { t } = useTranslation();
 
   const testMessages = ['Trapper', 'Nurse', 'Huntress', 'Wraith', 'Hillbilly'];
   const randomMsg = () => testMessages[Math.floor(Math.random() * testMessages.length)];
@@ -88,7 +90,7 @@ export function DebugPanel() {
       setInput('');
     }
 
-    setResult({ text: 'Identificando...', show: true });
+    setResult({ text: t('card.identifying'), show: true });
 
     const formatResult = (res: { character: string; type: string }, isLocal: boolean, llmSuffix = '') => {
       const prefix = isLocal ? '[local]' : '[IA]';
@@ -99,7 +101,7 @@ export function DebugPanel() {
 
     const res = await testExtraction(
       message,
-      (msg) => showToast(msg, 'Erro LLM', 'red'),
+      (msg) => showToast(msg, t('debug.errorLlm'), 'red'),
       (llmRes) => {
         const isDiff = llmRes.character !== res.character;
         const llmColor = llmRes.type === 'survivor' ? 'var(--blue)' : llmRes.type === 'killer' ? 'var(--red)' : 'var(--text-muted)';
@@ -128,7 +130,7 @@ export function DebugPanel() {
       update(d.id, { character: 'Identificando...', type: 'unknown' });
     }
     for (const d of requests) {
-      const result = await identifyCharacter(d, (msg) => showToast(msg, 'Erro LLM', 'red'));
+      const result = await identifyCharacter(d, (msg) => showToast(msg, t('debug.errorLlm'), 'red'));
       update(d.id, result);
     }
   };
@@ -181,7 +183,7 @@ export function DebugPanel() {
             <path d="M12 20h9" />
             <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
           </svg>
-          Debug
+          {t('debug.title')}
         </span>
       </div>
       <div className="settings-body">
@@ -190,37 +192,37 @@ export function DebugPanel() {
             type="text"
             value={input}
             onChange={e => setInput(e.target.value)}
-            placeholder="Digite uma mensagem para testar extração de personagem"
+            placeholder={t('debug.testPlaceholder')}
           />
           {!readOnly && (
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
               <input type="checkbox" checked={addToQueue} onChange={e => setAddToQueue(e.target.checked)} />
-              Adicionar à fila
+              {t('debug.addToQueue')}
             </label>
           )}
-          <button className="btn btn-ghost" type="submit">Testar</button>
+          <button className="btn btn-ghost" type="submit">{t('debug.test')}</button>
         </form>
         {result.show && (
           <div className="debug-result show" dangerouslySetInnerHTML={{ __html: result.text }} />
         )}
         {!readOnly && (
           <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Simular pedido</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>{t('debug.simulateRequest')}</div>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               <button className="btn btn-ghost" onClick={() => simulateIRC('donation-above')}>
-                Donate ≥ min
+                {t('debug.donateAbove')}
               </button>
               <button className="btn btn-ghost" onClick={() => simulateIRC('donation-below')}>
-                Donate &lt; min
+                {t('debug.donateBelow')}
               </button>
               <button className="btn btn-ghost" onClick={() => simulateIRC('resub')}>
-                Resub
+                {t('debug.resub')}
               </button>
               <button className="btn btn-ghost" onClick={() => simulateIRC('chat-sub')}>
-                Chat (sub)
+                {t('debug.chatSub')}
               </button>
               <button className="btn btn-ghost" onClick={() => simulateIRC('chat-nosub')}>
-                Chat (no sub)
+                {t('debug.chatNoSub')}
               </button>
             </div>
             {simResult.show && (
@@ -231,34 +233,34 @@ export function DebugPanel() {
         {!readOnly && (
           <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             <button className="btn btn-ghost" onClick={handleReidentifyAll}>
-              Re-identificar todos
+              {t('debug.reidentifyAll')}
             </button>
             <button className="btn btn-ghost" onClick={handleClearAll}>
-              Limpar tudo
+              {t('debug.clearAll')}
             </button>
             <button className="btn btn-ghost" onClick={() => useSources.getState().setRecoveryCheckpoint('', 0)}>
-              Reset recovery
+              {t('debug.resetRecovery')}
             </button>
             <button className="btn btn-ghost" onClick={handleLoadMock}>
-              Carregar mock
+              {t('debug.loadMock')}
             </button>
             <button className="btn btn-ghost" onClick={() => simulateDisconnect()}>
-              Simular desconexão
+              {t('debug.simulateDisconnect')}
             </button>
             <button className="btn btn-ghost" onClick={() => setTimeout(() => simulateDisconnect(true), 3000)}>
-              Simular desconexão permanente (3s)
+              {t('debug.simulatePermDisconnect')}
             </button>
           </div>
         )}
         {!readOnly && (
           <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>Replay VOD Chat</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>{t('debug.vodReplay')}</div>
             <div className="debug-row">
               <input
                 type="text"
                 value={vodId}
                 onChange={e => setVodId(e.target.value)}
-                placeholder="VOD ID (ex: 2345678901)"
+                placeholder={t('debug.vodPlaceholder')}
               />
               <select value={speed} onChange={e => setSpeed(Number(e.target.value))} style={{ width: '100px' }}>
                 <option value={0}>Instant</option>
@@ -267,7 +269,7 @@ export function DebugPanel() {
                 <option value={1000}>1x</option>
               </select>
               <button className="btn btn-ghost" type="button" onClick={handleVODReplay}>
-                {isReplaying ? 'Stop' : 'Replay'}
+                {isReplaying ? t('debug.stop') : t('debug.replay')}
               </button>
             </div>
             {vodStatus && <div className="debug-result show">{vodStatus}</div>}

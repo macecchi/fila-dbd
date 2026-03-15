@@ -4,6 +4,7 @@ import { CharacterRequestCard } from './CharacterRequestCard';
 import { ContextMenu } from './ContextMenu';
 import { ContextMenuProvider } from '../context/ContextMenuContext';
 import { useChannel } from '../store';
+import { useTranslation } from '../i18n';
 
 export function CharacterRequestList() {
   const { useRequests, useSources, useChannelInfo, isOwnChannel, canControlConnection } = useChannel();
@@ -78,10 +79,12 @@ export function CharacterRequestList() {
     toggleDone(id);
   }, [toggleDone, readOnly]);
 
+  const { t } = useTranslation();
+
   const rerunExtraction = useCallback(async (id: number) => {
     const request = requests.find(r => r.id === id);
     if (request) {
-      update(id, { character: 'Identificando...', type: 'unknown' });
+      update(id, { character: t('card.identifying'), type: 'unknown' });
       const result = await identifyCharacter(request);
       update(id, result);
     }
@@ -159,8 +162,8 @@ export function CharacterRequestList() {
       );
     }
     const emptyMessage = !isOwnChannel && channelStatus !== 'live'
-      ? 'Streamer offline'
-      : 'Aguardando pedidos...';
+      ? t('list.streamerOffline')
+      : t('list.waitingRequests');
     return <div className="empty">{emptyMessage}</div>;
   }
 
