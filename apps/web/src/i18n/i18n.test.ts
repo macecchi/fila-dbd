@@ -21,8 +21,8 @@ describe('i18n locale files', () => {
   });
 
   it('no empty translation values', () => {
-    const emptyPt = ptKeys.filter((k) => ptBR[k as keyof typeof ptBR] === '');
-    const emptyEn = enKeys.filter((k) => en[k as keyof typeof en] === '');
+    const emptyPt = ptKeys.filter((k) => (ptBR as Record<string, string>)[k] === '');
+    const emptyEn = enKeys.filter((k) => (en as Record<string, string>)[k] === '');
     expect(emptyPt, `Empty values in pt-BR.ts: ${emptyPt.join(', ')}`).toEqual([]);
     expect(emptyEn, `Empty values in en.ts: ${emptyEn.join(', ')}`).toEqual([]);
   });
