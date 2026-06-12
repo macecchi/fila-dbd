@@ -13,14 +13,23 @@ type ExtractedCharacter = {
   build?: { text: string; matchedTerms?: string[] };
 };
 
+// `ok: false` means we could not get a judgment from the LLM (no token, HTTP
+// error, rate limit, network failure). Callers MUST treat this as "no answer"
+// and fall back to the local match — NOT as an authoritative "not a character".
+// Encoding errors as sentinel character objects (the old behavior) let a
+// transient outage permanently overwrite a good local guess with "unidentified".
+type APIResult =
+  | { ok: true; characters: ExtractedCharacter[] }
+  | { ok: false };
+
 async function callAPI(
   message: string,
   maxCount: number,
   extras: RequestExtraType[],
   onError?: (msg: string) => void
-): Promise<ExtractedCharacter[]> {
+): Promise<APIResult> {
   const token = await useAuth.getState().getAccessToken();
-  if (!token) return [];
+  if (!token) return { ok: false };
 
   try {
     const res = await fetch(`${API_URL}/api/extract-character`, {
@@ -38,11 +47,11 @@ async function callAPI(
       const errorCode = (err as { error?: string }).error;
       if (errorCode === 'daily_limit_exceeded') {
         onError?.('Limite diário de identificações atingido');
-        return [];
+        return { ok: false };
       }
       const msg = (err as { message?: string }).message || errorCode || `HTTP ${res.status}`;
       onError?.(msg);
-      return [{ character: 'Erro na API', type: 'unknown' }];
+      return { ok: false };
     }
 
     const body = await res.json() as {
@@ -51,15 +60,15 @@ async function callAPI(
       type?: string;
       matchedTerm?: string;
     };
-    if (Array.isArray(body.characters)) return body.characters;
+    if (Array.isArray(body.characters)) return { ok: true, characters: body.characters };
     if (body.character || body.type) {
-      return [{ character: body.character ?? '', type: body.type ?? 'none', matchedTerm: body.matchedTerm }];
+      return { ok: true, characters: [{ character: body.character ?? '', type: body.type ?? 'none', matchedTerm: body.matchedTerm }] };
     }
-    return [];
+    return { ok: true, characters: [] };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Erro de rede';
     onError?.(msg);
-    return [{ character: 'Erro', type: 'unknown' }];
+    return { ok: false };
   }
 }
 
@@ -92,8 +101,14 @@ export async function identifyCharacter(
   // local character immediately, then let the LLM result replace it wholesale.
   // The LLM is the source of truth for both identification and build extraction.
   if (local && onLLMUpdate) {
-    callAPI(request.message, 1, extras, onError).then(arr => {
-      const llmResult = arr[0] ?? { character: '', type: 'none' };
+    callAPI(request.message, 1, extras, onError).then(res => {
+      // API unreachable/errored — keep the local guess, just stop validating.
+      // Without this, a transient outage would clobber "Trapper" → "unidentified".
+      if (!res.ok) {
+        onLLMUpdate({ character: local.character, type: local.type, matchedTerm: local.matchedTerm, validating: false });
+        return;
+      }
+      const llmResult = res.characters[0] ?? { character: '', type: 'none' };
       onLLMUpdate({
         character: llmResult.character || '',
         type: (llmResult.type || 'unknown') as 'survivor' | 'killer' | 'unknown' | 'none',
@@ -105,8 +120,11 @@ export async function identifyCharacter(
     return { ...local, validating: true };
   }
 
-  const arr = await callAPI(request.message, 1, extras, onError);
-  const result = arr[0] ?? { character: '', type: 'none' };
+  const res = await callAPI(request.message, 1, extras, onError);
+  // No judgment from the LLM — preserve the local guess (best effort) rather
+  // than overwriting it with an error sentinel.
+  if (!res.ok) return local ?? { character: '', type: 'unknown' };
+  const result = res.characters[0] ?? { character: '', type: 'none' };
   const type = result.type || 'unknown';
   return {
     character: result.character || '',
@@ -128,8 +146,9 @@ export async function testExtraction(
 
   if (localResult) {
     if (localResult.ambiguous && isAuthenticated && onLLMUpdate) {
-      callAPI(input, 1, [], onError).then(arr => {
-        const llmResult = arr[0] ?? { character: '', type: 'none' };
+      callAPI(input, 1, [], onError).then(res => {
+        if (!res.ok) return;
+        const llmResult = res.characters[0] ?? { character: '', type: 'none' };
         if (llmResult.type !== 'none' && llmResult.character) {
           onLLMUpdate({
             character: llmResult.character,
@@ -145,8 +164,8 @@ export async function testExtraction(
     return { character: '', type: 'unknown', isLocal: false };
   }
 
-  const arr = await callAPI(input, 1, [], onError);
-  const llm = arr[0] ?? { character: '', type: 'none' };
+  const res = await callAPI(input, 1, [], onError);
+  const llm = (res.ok ? res.characters[0] : undefined) ?? { character: '', type: 'none' };
   return {
     character: llm.character || '',
     type: (llm.type as 'killer' | 'survivor' | 'unknown') || 'unknown',
@@ -167,8 +186,12 @@ export async function identifyMultiple(
 }>> {
   const isAuthenticated = useAuth.getState().isAuthenticated;
   if (!isAuthenticated) return [];
-  const arr = await callAPI(message, maxCount, extras, onError);
-  return arr.map(c => {
+  const res = await callAPI(message, maxCount, extras, onError);
+  // On failure return [] — the caller (buildDonationRequests) then emits a single
+  // `needsIdentification` placeholder that auto-identify retries, instead of a
+  // request permanently stuck on an "Erro na API" sentinel.
+  if (!res.ok) return [];
+  return res.characters.map(c => {
     const extrasOut: RequestExtra[] = [];
     if (c.build?.text) {
       extrasOut.push({ type: 'build', text: c.build.text, matchedTerms: c.build.matchedTerms });

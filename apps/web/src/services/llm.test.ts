@@ -100,3 +100,88 @@ describe('identifyCharacter — skip LLM when local match is the whole message',
     );
   });
 });
+
+describe('identifyCharacter — API failures must not clobber a local match', () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('__APP_VERSION__', 'test');
+  });
+
+  afterEach(() => {
+    fetchMock.mockReset();
+    vi.unstubAllGlobals();
+  });
+
+  it('streaming path: an HTTP error keeps the local guess instead of overwriting it', async () => {
+    fetchMock.mockResolvedValue(new Response('boom', { status: 500 }));
+
+    const onLLMUpdate = vi.fn();
+    const result = await identifyCharacter(
+      makeRequest('manda um Trapper ai por favor'),
+      [],
+      undefined,
+      onLLMUpdate
+    );
+
+    expect(result.validating).toBe(true);
+    await vi.waitFor(() => expect(onLLMUpdate).toHaveBeenCalled());
+    const arg = onLLMUpdate.mock.calls.at(-1)![0];
+    expect(arg.character).toBe('Trapper');
+    expect(arg.type).toBe('killer');
+    expect(arg.matchedTerm).toBe('Trapper');
+    expect(arg.validating).toBe(false);
+  });
+
+  it('streaming path: a network error keeps the local guess', async () => {
+    fetchMock.mockRejectedValue(new Error('network down'));
+
+    const onLLMUpdate = vi.fn();
+    await identifyCharacter(makeRequest('manda um Trapper ai por favor'), [], undefined, onLLMUpdate);
+
+    await vi.waitFor(() => expect(onLLMUpdate).toHaveBeenCalled());
+    const arg = onLLMUpdate.mock.calls.at(-1)![0];
+    expect(arg.character).toBe('Trapper');
+    expect(arg.validating).toBe(false);
+  });
+
+  it('streaming path: the daily-limit error keeps the local guess', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ error: 'daily_limit_exceeded' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    const onLLMUpdate = vi.fn();
+    await identifyCharacter(makeRequest('manda um Trapper ai por favor'), [], undefined, onLLMUpdate);
+
+    await vi.waitFor(() => expect(onLLMUpdate).toHaveBeenCalled());
+    const arg = onLLMUpdate.mock.calls.at(-1)![0];
+    expect(arg.character).toBe('Trapper');
+    expect(arg.validating).toBe(false);
+  });
+
+  it('await path (no callback): an HTTP error returns the local guess, not an error sentinel', async () => {
+    fetchMock.mockResolvedValue(new Response('boom', { status: 500 }));
+
+    const result = await identifyCharacter(makeRequest('manda um Trapper ai por favor'), []);
+
+    expect(result.character).toBe('Trapper');
+    expect(result.type).toBe('killer');
+  });
+
+  it('await path (no callback): a successful empty result is authoritative and drops the local guess', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ characters: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    const result = await identifyCharacter(makeRequest('um Trapper qualquer no meio da frase'), []);
+
+    expect(result.character).toBe('');
+  });
+});
