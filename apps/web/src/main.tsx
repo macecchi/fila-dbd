@@ -4,8 +4,24 @@ import { App } from './App';
 import { I18nProvider, t } from './i18n';
 import { toast } from 'sonner';
 
+const UPDATE_CHECK_BACKSTOP = 30 * 60 * 1000; // 30-min periodic fallback
+
 const updateSW = registerSW({
   immediate: true,
+  onRegisteredSW(_swScriptUrl, registration) {
+    // The `prompt` flow only surfaces an update when the browser re-fetches
+    // sw.js. For a tab left open for hours (a streamer's queue) that otherwise
+    // only happens on a full reload — SPA navigation never triggers it — so the
+    // toast never appears on its own. Re-check on the moments that matter:
+    // returning to the tab and regaining network, plus a periodic backstop.
+    if (!registration) return;
+    const check = () => { if (navigator.onLine) registration.update(); };
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') check();
+    });
+    window.addEventListener('online', check);
+    setInterval(check, UPDATE_CHECK_BACKSTOP);
+  },
   onNeedRefresh() {
     // Don't activate the new SW eagerly — calling updateSW(true) here races
     // with the reload it triggers, so the waiting SW often doesn't actually
