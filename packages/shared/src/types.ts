@@ -22,6 +22,7 @@ export interface Request {
   doneAt?: Date;
   source: 'donation' | 'resub' | 'chat' | 'manual';
   subTier?: number;
+  isBroadcaster?: boolean;
   needsIdentification?: boolean;
   validating?: boolean;
   matchedTerm?: string;

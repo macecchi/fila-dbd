@@ -200,7 +200,7 @@ export function handleUserNotice(raw: string) {
   addRequest(request);
 }
 
-function handleChatCommand(tags: Record<string, string>, displayName: string, _username: string, requestText: string) {
+function handleChatCommand(tags: Record<string, string>, displayName: string, username: string, requestText: string) {
   const { useSources, useRequests } = getStores();
   const { enabled, chatTiers } = useSources.getState();
   const { add: addRequest } = useRequests.getState();
@@ -208,11 +208,13 @@ function handleChatCommand(tags: Record<string, string>, displayName: string, _u
   if (!enabled.chat) { console.log('[dbdDebug] chat source disabled'); return; }
   if (!requestText) { console.log('[dbdDebug] empty request'); return; }
 
-  const isSub = tags.subscriber === '1';
+  const isBroadcaster = (tags.badges?.split(',').some(b => b.startsWith('broadcaster/')) || false) || 
+                        (currentChannel !== null && username === currentChannel);
+  const isSub = tags.subscriber === '1' || isBroadcaster;
   const subTier = getSubTierFromBadges(tags.badges);
   const minTier = chatTiers.length > 0 ? Math.min(...chatTiers) : 1;
   if (!isSub) { console.log('[dbdDebug] not a sub'); return; }
-  if (subTier < minTier) { console.log('[dbdDebug] tier', subTier, '<', minTier); return; }
+  if (!isBroadcaster && subTier < minTier) { console.log('[dbdDebug] tier', subTier, '<', minTier); return; }
 
   const local = tryLocalMatch(requestText);
 
@@ -231,6 +233,7 @@ function handleChatCommand(tags: Record<string, string>, displayName: string, _u
     type: local?.type || 'unknown',
     source: 'chat',
     subTier,
+    isBroadcaster,
     needsIdentification: !isWholeMessageMatch(local, requestText),
     matchedTerm: local?.matchedTerm
   };

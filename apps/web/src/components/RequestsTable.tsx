@@ -143,9 +143,9 @@ export const RequestsTable = forwardRef<RequestsTableHandle, Props>(function Req
                 </td>
                 <td className="req-col-donor">
                   <div style={{ display: 'flex', alignItems: 'center', minWidth: 0, width: '100%' }}>
-                    {r.source === 'manual' && renderBroadcasterBadge()}
+                    {(r.source === 'manual' || r.isBroadcaster) && renderBroadcasterBadge()}
                     {r.source === 'donation' && renderDonationBadge()}
-                    {(r.source === 'chat' || r.source === 'resub') && (r.subTier || r.source === 'resub') && renderTwitchSubBadge(r.subTier || 1)}
+                    {(r.source === 'chat' || r.source === 'resub') && !r.isBroadcaster && (r.subTier || r.source === 'resub') && renderTwitchSubBadge(r.subTier || 1)}
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.donor}</span>
                   </div>
                 </td>

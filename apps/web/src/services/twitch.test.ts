@@ -120,3 +120,52 @@ describe('handleUserNotice — subscription plan and tier parsing', () => {
     expect(added[0].subTier).toBe(3);
   });
 });
+
+describe('handleMessage — chat command routing and broadcaster bypass', () => {
+  let added: Request[];
+
+  beforeEach(() => {
+    added = [];
+    setActiveStores({
+      useSources: {
+        getState: () => ({
+          enabled: { chat: true },
+          chatCommand: '!fila',
+          chatTiers: [2, 3], // Only T2 and T3 can request via chat
+        }),
+      },
+      useRequests: {
+        getState: () => ({ add: (r: Request) => added.push(r) }),
+      },
+    } as unknown as ChannelStores);
+  });
+
+  afterEach(() => {
+    setActiveStores(null);
+  });
+
+  it('ignores command if chatter is not a sub', () => {
+    handleMessage('@display-name=Bob;subscriber=0;id=111 :bob!bob@tmi.twitch.tv PRIVMSG #testchannel :!fila Trapper');
+    expect(added).toHaveLength(0);
+  });
+
+  it('ignores command if chatter is a Tier 1 sub but min is Tier 2', () => {
+    handleMessage('@display-name=Bob;subscriber=1;badges=subscriber/1000;id=112 :bob!bob@tmi.twitch.tv PRIVMSG #testchannel :!fila Trapper');
+    expect(added).toHaveLength(0);
+  });
+
+  it('allows command if chatter is a Tier 2 sub', () => {
+    handleMessage('@display-name=Bob;subscriber=1;badges=subscriber/2000;id=113 :bob!bob@tmi.twitch.tv PRIVMSG #testchannel :!fila Trapper');
+    expect(added).toHaveLength(1);
+    expect(added[0].isBroadcaster).toBeFalsy();
+    expect(added[0].subTier).toBe(2);
+  });
+
+  it('allows command if chatter is the broadcaster via badges (bypassing sub/tier requirements)', () => {
+    handleMessage('@display-name=StreamerName;badges=broadcaster/1;id=114 :streamername!streamername@tmi.twitch.tv PRIVMSG #testchannel :!fila Trapper');
+    expect(added).toHaveLength(1);
+    expect(added[0].isBroadcaster).toBe(true);
+    expect(added[0].donor).toBe('StreamerName');
+  });
+});
+
