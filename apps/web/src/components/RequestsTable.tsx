@@ -5,6 +5,7 @@ import { useTranslation } from '../i18n';
 import { getLocale } from '../i18n';
 import type { Request } from '../types';
 import { renderTwitchSubBadge, renderDonationBadge, renderBroadcasterBadge } from './UserBadges';
+import { useChannel } from '../store/ChannelContext';
 
 const SOURCE_LABELS: Record<string, string> = {
   donation: 'Donate',
@@ -62,6 +63,7 @@ export const RequestsTable = forwardRef<RequestsTableHandle, Props>(function Req
   onPageChange,
 }, ref) {
   const { t } = useTranslation();
+  const { channel } = useChannel();
   const resolvedEmptyText = emptyText ?? t('table.empty');
   const totalPages = pageSize ? Math.max(1, Math.ceil(requests.length / pageSize)) : 1;
   const [page, setPageRaw] = useState(initialPage === 'last' ? totalPages - 1 : 0);
@@ -120,6 +122,11 @@ export const RequestsTable = forwardRef<RequestsTableHandle, Props>(function Req
           {pageRows.map((r, localIdx) => {
             const globalIdx = pageOffset + localIdx;
             const portrait = r.type === 'killer' && r.character ? getKillerPortrait(r.character) : undefined;
+            const isBroadcaster = r.isBroadcaster || r.source === 'manual' || (
+              r.source === 'chat' &&
+              typeof r.donor === 'string' &&
+              r.donor.toLowerCase() === channel.toLowerCase()
+            );
             return (
               <tr
                 key={r.id}
@@ -143,9 +150,9 @@ export const RequestsTable = forwardRef<RequestsTableHandle, Props>(function Req
                 </td>
                 <td className="req-col-donor">
                   <div style={{ display: 'flex', alignItems: 'center', minWidth: 0, width: '100%' }}>
-                    {(r.source === 'manual' || r.isBroadcaster) && renderBroadcasterBadge()}
+                    {isBroadcaster && renderBroadcasterBadge()}
                     {r.source === 'donation' && renderDonationBadge()}
-                    {(r.source === 'chat' || r.source === 'resub') && !r.isBroadcaster && (r.subTier || r.source === 'resub') && renderTwitchSubBadge(r.subTier || 1)}
+                    {(r.source === 'chat' || r.source === 'resub') && !isBroadcaster && (r.subTier || r.source === 'resub') && renderTwitchSubBadge(r.subTier || 1)}
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.donor}</span>
                   </div>
                 </td>

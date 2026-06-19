@@ -7,6 +7,7 @@ import { useTranslation } from '../i18n';
 import { getLocale } from '../i18n';
 import { formatRelativeTime, highlightTerms } from '../utils/helpers';
 import { renderTwitchSubBadge, renderDonationBadge, renderBroadcasterBadge } from './UserBadges';
+import { useChannel } from '../store/ChannelContext';
 
 
 
@@ -38,6 +39,7 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
   group,
 }: Props) {
   const { show: showContextMenu } = useContextMenu();
+  const { channel } = useChannel();
   const { t } = useTranslation();
   const r = request;
   const portrait = r.type === 'killer' && r.character ? getKillerPortrait(r.character) : null;
@@ -48,6 +50,12 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
       r.character;
   const isCollapsed = r.done;
   const matchedTerm = useMemo(() => getMatchedTerm(r), [r.matchedTerm, r.message, r.character, r.type]);
+
+  const isBroadcaster = r.isBroadcaster || r.source === 'manual' || (
+    r.source === 'chat' &&
+    typeof r.donor === 'string' &&
+    r.donor.toLowerCase() === channel.toLowerCase()
+  );
 
   const buildMatchedTerms = useMemo(() => {
     const build = r.extras?.find(e => e.type === 'build');
@@ -136,7 +144,7 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
         onTouchStart: handleTouchStart,
       })}
     >
-      <div className="request-card-content">
+      <div className="request-card-content" onClick={handleClick}>
         <span className="request-position">{position ? String(position).padStart(2, '0') : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
           <polyline points="20 6 9 17 4 12"></polyline>
         </svg>}</span>
@@ -155,9 +163,9 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
           </div>
           <div className="request-card-body">
             <span className="donor-name" style={{ display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle' }}>
-              {(r.source === 'manual' || r.isBroadcaster) && renderBroadcasterBadge()}
+              {isBroadcaster && renderBroadcasterBadge()}
               {r.source === 'donation' && renderDonationBadge()}
-              {(r.source === 'chat' || r.source === 'resub') && !r.isBroadcaster && (r.subTier || r.source === 'resub') && renderTwitchSubBadge(r.subTier || 1)}
+              {(r.source === 'chat' || r.source === 'resub') && !isBroadcaster && (r.subTier || r.source === 'resub') && renderTwitchSubBadge(r.subTier || 1)}
               <span style={{ verticalAlign: 'middle' }}>{r.donor}</span>
               {group && <span className="donation-group-chip" title="Pedidos da mesma doação" style={{ marginLeft: '4px' }}>{group.index}/{group.total}</span>}
             </span>
