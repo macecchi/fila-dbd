@@ -162,11 +162,11 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
             {isValidating && <span className="validating-dot" title={t('card.validatingAI')} />}
           </div>
           <div className="request-card-body">
-            <span className="donor-name" style={{ display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle' }}>
+            <span className="donor-name">
               {isBroadcaster && renderBroadcasterBadge()}
               {r.source === 'donation' && renderDonationBadge()}
               {(r.source === 'chat' || r.source === 'resub') && !isBroadcaster && (r.subTier || r.source === 'resub') && renderTwitchSubBadge(r.subTier || 1)}
-              <span style={{ verticalAlign: 'middle' }}>{r.donor}</span>
+              {r.donor}
               {group && <span className="donation-group-chip" title="Pedidos da mesma doação" style={{ marginLeft: '4px' }}>{group.index}/{group.total}</span>}
             </span>
             {allTerms.length > 0 ? highlightTerms(r.message, allTerms) : r.message}
