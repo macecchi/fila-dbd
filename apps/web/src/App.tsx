@@ -156,13 +156,18 @@ function useRequestToasts(requests: Request[], update: (id: number, updates: Par
         });
         continue;
       }
+      const activeRequests = requests.filter(r => !r.done && (!hideNonRequests || r.type !== 'none'));
+      const index = activeRequests.findIndex(r => r.id === req.id);
+      const position = index !== -1 ? index + 1 : undefined;
+
       const title = req.source === 'manual' ? t('toast.newRequest') :
         req.source === 'donation' ? t('toast.newRequestDonation') :
           req.source === 'resub' ? t('toast.newRequestResub') : t('toast.newRequestChat');
+      const titleWithPos = position !== undefined ? `${title} (#${String(position).padStart(2, '0')})` : title;
       const message = req.character
         ? (req.amount ? t('toast.requestedCharAmount', { donor: req.donor, character: req.character, amount: req.amount }) : t('toast.requestedChar', { donor: req.donor, character: req.character }))
         : (req.amount ? t('toast.newRequestFromAmount', { donor: req.donor, amount: req.amount }) : t('toast.newRequestFrom', { donor: req.donor }));
-      toast(title, { description: message });
+      toast(titleWithPos, { description: message });
     }
     if (ready.length > 0) isFirstLoad.current = false;
   }, [requests, update, hideNonRequests, readOnly]);
@@ -275,8 +280,8 @@ function ChannelApp() {
     }
 
     const currentRequests = useRequests.getState().requests;
-    const { sortMode: currentSortMode, priority: currentPriority } = useSources.getState();
-    const { merged, added, skipped } = mergeRequests(selected, currentRequests, currentSortMode, currentPriority);
+    const { sortMode: currentSortMode, priority: currentPriority, prioritizeTiers, prioritizeDonations } = useSources.getState();
+    const { merged, added, skipped } = mergeRequests(selected, currentRequests, currentSortMode, currentPriority, prioritizeTiers, prioritizeDonations);
 
     if (added > 0) {
       setAll(merged);
@@ -331,7 +336,7 @@ function ChannelApp() {
     if (selected.length === 0) { setVodRecoveryOpen(false); return; }
 
     const currentRequests = useRequests.getState().requests;
-    const { sortMode: currentSortMode, priority: currentPriority } = useSources.getState();
+    const { sortMode: currentSortMode, priority: currentPriority, prioritizeTiers, prioritizeDonations } = useSources.getState();
     const selectedIds = new Set(selected.map(r => r.id));
     const existingIds = new Set(currentRequests.map(r => r.id));
     const newRequests = selected.filter(r => !existingIds.has(r.id));
@@ -343,7 +348,7 @@ function ChannelApp() {
     const undoneCount = currentRequests.filter(r => selectedIds.has(r.id) && r.done).length;
 
     if (newRequests.length > 0 || undoneCount > 0) {
-      setAll(sortRequests([...updated, ...newRequests], currentSortMode, currentPriority));
+      setAll(sortRequests([...updated, ...newRequests], currentSortMode, currentPriority, prioritizeTiers, prioritizeDonations));
     }
 
     setVodRecoveryOpen(false);

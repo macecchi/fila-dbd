@@ -1,20 +1,20 @@
 import type { Request } from '../types';
+import { compareRequests } from '../types';
 
 type SortMode = 'priority' | 'fifo';
 
-export function sortRequests(requests: Request[], sortMode: SortMode, priority: string[]): Request[] {
+export function sortRequests(
+  requests: Request[],
+  sortMode: SortMode,
+  priority: string[],
+  prioritizeTiers?: boolean,
+  prioritizeDonations?: boolean
+): Request[] {
   const sorted = [...requests];
   if (sortMode === 'fifo') {
     sorted.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   } else {
-    sorted.sort((a, b) => {
-      if (a.done && !b.done) return 1;
-      if (!a.done && b.done) return -1;
-      const aPri = priority.indexOf(a.source);
-      const bPri = priority.indexOf(b.source);
-      if (aPri !== bPri) return aPri - bPri;
-      return a.timestamp.getTime() - b.timestamp.getTime();
-    });
+    sorted.sort((a, b) => compareRequests(a, b, priority, prioritizeTiers ?? false, prioritizeDonations ?? false));
   }
   return sorted;
 }
@@ -23,12 +23,14 @@ export function mergeRequests(
   selected: Request[],
   existing: Request[],
   sortMode: SortMode,
-  priority: string[]
+  priority: string[],
+  prioritizeTiers?: boolean,
+  prioritizeDonations?: boolean
 ): { merged: Request[]; added: number; skipped: number } {
   const existingIds = new Set(existing.map(r => r.id));
   const newReqs = selected.filter(r => !existingIds.has(r.id));
   return {
-    merged: sortRequests([...existing, ...newReqs], sortMode, priority),
+    merged: sortRequests([...existing, ...newReqs], sortMode, priority, prioritizeTiers, prioritizeDonations),
     added: newReqs.length,
     skipped: selected.length - newReqs.length,
   };
@@ -44,19 +46,17 @@ export function insertRequest(
   requests: Request[],
   req: Request,
   sortMode: SortMode,
-  priority: string[]
+  priority: string[],
+  prioritizeTiers?: boolean,
+  prioritizeDonations?: boolean
 ): Request[] {
   if (requests.some(r => r.id === req.id)) return requests;
   if (sortMode === 'fifo') return [...requests, req];
   const out = [...requests];
-  const reqPri = priority.indexOf(req.source);
-  let insertIdx = out.length;
+  let insertIdx = 0;
   for (let i = 0; i < out.length; i++) {
-    if (out[i].done) continue;
-    const iPri = priority.indexOf(out[i].source);
-    if (iPri > reqPri || (iPri === reqPri && out[i].timestamp > req.timestamp)) {
-      insertIdx = i;
-      break;
+    if (compareRequests(req, out[i], priority, prioritizeTiers ?? false, prioritizeDonations ?? false) >= 0) {
+      insertIdx = i + 1;
     }
   }
   out.splice(insertIdx, 0, req);

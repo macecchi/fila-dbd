@@ -97,6 +97,10 @@ const ptBR = {
   'settings.order.fifo': 'Por chegada',
   'settings.order.priority': 'Por prioridade',
   'settings.order.help': 'Arraste para definir a ordem em que novos pedidos entram na fila.',
+  'settings.order.prioritizeTiers': 'Priorizar por nível de sub',
+  'settings.order.prioritizeTiersDesc': 'Ordena inscrições mais altas (Tier 3 > 2 > 1) primeiro.',
+  'settings.order.prioritizeDonations': 'Priorizar por valor de doação',
+  'settings.order.prioritizeDonationsDesc': 'Ordena valores de doações maiores primeiro.',
   'chatConfirm.toggle': 'Confirmar pedidos no chat',
   'chatConfirm.toggleDesc': '@FilaDBD responde no chat quando um pedido chega.',
   'chatConfirm.dialog.enabling.title': 'Adicione @FilaDBD como moderador',
@@ -271,6 +275,9 @@ const ptBR = {
   'whatsNew.chatConfirmations': 'O bot @FilaDBD agora pode confirmar no chat quando um pedido entra na fila. Ative  no painel de fontes.',
   'whatsNew.buildRequestsTitle': 'Pedidos com build',
   'whatsNew.buildRequests': 'Donates agora podem incluir uma build — perks, addons ou um tema. Configure em Donates → Pedidos com build.',
+  'whatsNew.sourceOrderingTitle': 'Mais opções de ordenação por prioridade',
+  'whatsNew.sourceOrdering': 'Agora você pode priorizar pedidos por valor de donate ou nível de inscrição mais alto. Ative nas opções de Ordenação. O nível de inscrição dos usuários agora aparece ao lado do nome.',
+
   // Push notifications
   'push.connectionLost': 'Fila DBD - Conexão perdida',
   'push.ircLost': 'Conexão com o chat da Twitch caiu. Reconecte para continuar recebendo pedidos.',

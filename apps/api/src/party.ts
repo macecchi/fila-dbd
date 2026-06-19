@@ -1,6 +1,6 @@
 import type * as Party from 'partykit/server';
 import { verifyJwt, type JwtPayload } from './jwt';
-import { MAX_PENDING_REQUESTS, PROTOCOL_VERSION, normalizeSourcesSettings } from '@dbd-utils/shared';
+import { MAX_PENDING_REQUESTS, PROTOCOL_VERSION, normalizeSourcesSettings, compareRequests } from '@dbd-utils/shared';
 import type { SerializedRequest, SourcesSettings, ChannelState, PartyMessage } from '@dbd-utils/shared';
 
 const SOURCES_DEFAULTS: SourcesSettings = {
@@ -12,6 +12,8 @@ const SOURCES_DEFAULTS: SourcesSettings = {
   minDonation: 5,
   hideNonRequests: true,
   confirmInChat: false,
+  prioritizeTiers: false,
+  prioritizeDonations: false,
 };
 
 const CHAT_NOT_MOD_NOTIFY_INTERVAL_MS = 5 * 60 * 1000;
@@ -310,7 +312,17 @@ export default class PartyServer implements Party.Server {
           console.warn(`${this.tag} ${user}: add-request #${msg.request.id} rejected (pending cap ${MAX_PENDING_REQUESTS})`);
           break;
         }
-        this.requests.push(msg.request);
+        if (this.sources.sortMode === 'fifo') {
+          this.requests.push(msg.request);
+        } else {
+          let insertIdx = 0;
+          for (let i = 0; i < this.requests.length; i++) {
+            if (compareRequests(msg.request, this.requests[i], this.sources.priority, this.sources.prioritizeTiers ?? false, this.sources.prioritizeDonations ?? false) >= 0) {
+              insertIdx = i + 1;
+            }
+          }
+          this.requests.splice(insertIdx, 0, msg.request);
+        }
         this.dirtyRequestIds.add(msg.request.id);
         await this.persist();
         this.broadcast(message);
@@ -597,23 +609,24 @@ export default class PartyServer implements Party.Server {
   // Mirrors the frontend's add-request ordering in store/channel.ts so the chat
   // message matches what the streamer/viewer actually sees.
   private queuePositionFor(req: SerializedRequest): number {
-    const pending = this.requests.filter(r => !r.done);
+    const pending = this.requests.filter(r => !r.done && (!this.sources.hideNonRequests || r.type !== 'none'));
 
     if (this.sources.sortMode === 'fifo') {
       const idx = pending.findIndex(r => r.id === req.id);
       return idx === -1 ? pending.length : idx + 1;
     }
 
-    const priority = this.sources.priority;
-    const reqPri = priority.indexOf(req.source);
-    let before = 0;
-    for (const r of pending) {
-      if (r.id === req.id) continue;
-      const rPri = priority.indexOf(r.source);
-      if (rPri < reqPri) before++;
-      else if (rPri === reqPri && r.timestamp <= req.timestamp) before++;
-    }
-    return before + 1;
+    const sorted = [...pending].sort((a, b) =>
+      compareRequests(
+        a,
+        b,
+        this.sources.priority,
+        this.sources.prioritizeTiers ?? false,
+        this.sources.prioritizeDonations ?? false
+      )
+    );
+    const idx = sorted.findIndex(r => r.id === req.id);
+    return idx === -1 ? pending.length : idx + 1;
   }
 
   // Posts a confirmation in chat via the @filadbd bot account. For viewer-originated

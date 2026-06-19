@@ -16,6 +16,8 @@ export interface SourcesSettings {
   extrasConfig?: RoomExtras;
   recoveryVodId?: string;
   recoveryVodOffset?: number;
+  prioritizeTiers?: boolean;
+  prioritizeDonations?: boolean;
 }
 
 export type ChannelStatus = 'offline' | 'online' | 'live';
@@ -92,6 +94,8 @@ export function normalizeSourcesSettings(sources: any): SourcesSettings {
       minDonation: 5,
       hideNonRequests: true,
       confirmInChat: false,
+      prioritizeTiers: false,
+      prioritizeDonations: false,
     };
   }
 
@@ -110,6 +114,8 @@ export function normalizeSourcesSettings(sources: any): SourcesSettings {
     minDonation: typeof sources.minDonation === 'number' ? sources.minDonation : 5,
     hideNonRequests: sources.hideNonRequests === undefined ? true : (sources.hideNonRequests === true || sources.hideNonRequests === 1 || sources.hideNonRequests === 'true'),
     confirmInChat: sources.confirmInChat === true || sources.confirmInChat === 1 || sources.confirmInChat === 'true',
+    prioritizeTiers: sources.prioritizeTiers === true || sources.prioritizeTiers === 1 || sources.prioritizeTiers === 'true',
+    prioritizeDonations: sources.prioritizeDonations === true || sources.prioritizeDonations === 1 || sources.prioritizeDonations === 'true',
     extrasConfig: sources.extrasConfig ? {
       build: sources.extrasConfig.build ? {
         enabled: sources.extrasConfig.build.enabled === true || sources.extrasConfig.build.enabled === 1 || sources.extrasConfig.build.enabled === 'true',
@@ -119,5 +125,39 @@ export function normalizeSourcesSettings(sources: any): SourcesSettings {
     recoveryVodId: sources.recoveryVodId,
     recoveryVodOffset: sources.recoveryVodOffset,
   };
+}
+
+export function compareRequests(
+  a: { done?: boolean; source: string; subTier?: number; amountVal?: number; timestamp: Date | string },
+  b: { done?: boolean; source: string; subTier?: number; amountVal?: number; timestamp: Date | string },
+  priority?: string[],
+  prioritizeTiers?: boolean,
+  prioritizeDonations?: boolean
+): number {
+  if (a.done && !b.done) return 1;
+  if (!a.done && b.done) return -1;
+
+  const actualPriority = priority || ['donation', 'chat', 'resub', 'manual'];
+  const aPri = actualPriority.indexOf(a.source);
+  const bPri = actualPriority.indexOf(b.source);
+  if (aPri !== bPri) return aPri - bPri;
+
+  if (a.source === 'chat' || a.source === 'resub') {
+    if (prioritizeTiers) {
+      const aTier = a.subTier || 1;
+      const bTier = b.subTier || 1;
+      if (aTier !== bTier) return bTier - aTier;
+    }
+  } else if (a.source === 'donation') {
+    if (prioritizeDonations) {
+      const aAmt = a.amountVal ?? 0;
+      const bAmt = b.amountVal ?? 0;
+      if (aAmt !== bAmt) return bAmt - aAmt;
+    }
+  }
+
+  const aTime = typeof a.timestamp === 'string' ? new Date(a.timestamp).getTime() : a.timestamp.getTime();
+  const bTime = typeof b.timestamp === 'string' ? new Date(b.timestamp).getTime() : b.timestamp.getTime();
+  return aTime - bTime;
 }
 

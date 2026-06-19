@@ -40,4 +40,9 @@ export const changelog: ChangelogEntry[] = [
     titleKey: 'whatsNew.buildRequestsTitle',
     descriptionKey: 'whatsNew.buildRequests',
   },
+  {
+    id: 'whats-new-source-ordering',
+    titleKey: 'whatsNew.sourceOrderingTitle',
+    descriptionKey: 'whatsNew.sourceOrdering',
+  },
 ];

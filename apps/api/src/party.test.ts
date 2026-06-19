@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import PartyServer from './party';
 import type { SerializedRequest, SourcesSettings, PartyMessage } from '@dbd-utils/shared';
-import { MAX_PENDING_REQUESTS, PROTOCOL_VERSION } from '@dbd-utils/shared';
+import { MAX_PENDING_REQUESTS, PROTOCOL_VERSION, normalizeSourcesSettings } from '@dbd-utils/shared';
 
 // Mock jwt module
 vi.mock('./jwt', () => ({
@@ -564,8 +564,9 @@ describe('PartyServer', () => {
 
       await server.onMessage(msg, ownerConn as any);
 
-      expect(server.sources).toEqual(newSources);
-      expect(mockRoom.storage.put).toHaveBeenCalledWith('sources', newSources);
+      const normalized = normalizeSourcesSettings(newSources);
+      expect(server.sources).toEqual(normalized);
+      expect(mockRoom.storage.put).toHaveBeenCalledWith('sources', normalized);
     });
 
     it('handles irc-status connected', async () => {

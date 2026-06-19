@@ -2,12 +2,22 @@ import { useState } from 'react';
 import { useChannel } from '../../store';
 import { useTranslation } from '../../i18n';
 import { SettingsSection } from './SettingsSection';
+import { Toggle } from './Toggle';
 import { SOURCE_ICONS, SOURCE_LABEL_KEYS, type SourceType } from './source-icons';
 
 export function OrderSection() {
   const { t } = useTranslation();
   const { useSources, canControlConnection } = useChannel();
-  const { priority, sortMode, setPriority, setSortMode } = useSources();
+  const {
+    priority,
+    sortMode,
+    prioritizeTiers,
+    prioritizeDonations,
+    setPriority,
+    setSortMode,
+    setPrioritizeTiers,
+    setPrioritizeDonations,
+  } = useSources();
   const readOnly = !canControlConnection;
 
   const [draggedItem, setDraggedItem] = useState<SourceType | null>(null);
@@ -88,6 +98,32 @@ export function OrderSection() {
                 <span className="priority-row-name">{t(SOURCE_LABEL_KEYS[source])}</span>
               </div>
             ))}
+          </div>
+
+          <div style={{ marginTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <div className="behavior-row" style={{ padding: '0.5rem 0' }}>
+              <div className="behavior-row-label">
+                <div className="behavior-row-title">{t('settings.order.prioritizeTiers')}</div>
+                <div className="behavior-row-desc">{t('settings.order.prioritizeTiersDesc')}</div>
+              </div>
+              <Toggle
+                checked={prioritizeTiers}
+                onClick={() => !readOnly && setPrioritizeTiers(!prioritizeTiers)}
+                disabled={readOnly}
+              />
+            </div>
+
+            <div className="behavior-row" style={{ padding: '0.5rem 0' }}>
+              <div className="behavior-row-label">
+                <div className="behavior-row-title">{t('settings.order.prioritizeDonations')}</div>
+                <div className="behavior-row-desc">{t('settings.order.prioritizeDonationsDesc')}</div>
+              </div>
+              <Toggle
+                checked={prioritizeDonations}
+                onClick={() => !readOnly && setPrioritizeDonations(!prioritizeDonations)}
+                disabled={readOnly}
+              />
+            </div>
           </div>
         </div>
       </div>

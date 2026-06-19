@@ -99,6 +99,10 @@ const en: TranslationKeys = {
   'settings.order.fifo': 'By arrival',
   'settings.order.priority': 'By priority',
   'settings.order.help': 'Drag to set the order new requests enter the queue.',
+  'settings.order.prioritizeTiers': 'Prioritize by sub tier',
+  'settings.order.prioritizeTiersDesc': 'Sort higher subscription tiers (Tier 3 > 2 > 1) first.',
+  'settings.order.prioritizeDonations': 'Prioritize by donation amount',
+  'settings.order.prioritizeDonationsDesc': 'Sort higher donation values first.',
   'chatConfirm.toggle': 'Confirm requests in chat',
   'chatConfirm.toggleDesc': '@FilaDBD replies in chat when a request lands.',
   'chatConfirm.dialog.enabling.title': 'Add @FilaDBD as a moderator',
@@ -273,6 +277,8 @@ const en: TranslationKeys = {
   'whatsNew.chatConfirmations': 'The @FilaDBD bot can now confirm in chat whenever a request lands in the queue. Enable it in the Donations panel.',
   'whatsNew.buildRequestsTitle': 'Build requests',
   'whatsNew.buildRequests': 'Donations can now include a build — perks, addons or a theme. Enable it under Donations → Build requests.',
+  'whatsNew.sourceOrderingTitle': 'More options in Priority mode ordering',
+  'whatsNew.sourceOrdering': 'You can now prioritize requests by donation value or subscription tier. Enable it in the Ordering options. The subscription tier of users now appears next to their name.',
 
   // Push notifications
   'push.connectionLost': 'Fila DBD - Connection lost',

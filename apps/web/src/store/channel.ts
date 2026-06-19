@@ -75,8 +75,8 @@ export function createRequestsStore(
           }
           // Optimistic: insert locally now, broadcast next. The server echoes
           // add-request back, but the echo dedupes by id (no-op for us).
-          const { sortMode, priority } = getSourcesState();
-          set((s) => ({ requests: insertRequest(s.requests, req, sortMode, priority) }));
+          const { sortMode, priority, prioritizeTiers, prioritizeDonations } = getSourcesState();
+          set((s) => ({ requests: insertRequest(s.requests, req, sortMode, priority, prioritizeTiers, prioritizeDonations) }));
           broadcastAdd(req);
         },
 
@@ -130,11 +130,11 @@ export function createRequestsStore(
             }
             case 'add-request': {
               const req = deserializeRequest(msg.request);
-              const { sortMode, priority } = getSourcesState();
+              const { sortMode, priority, prioritizeTiers, prioritizeDonations } = getSourcesState();
               // insertRequest dedupes by id, so our own optimistic add is a no-op
               // here (returns the same array → no re-render).
               set((s) => {
-                const requests = insertRequest(s.requests, req, sortMode, priority);
+                const requests = insertRequest(s.requests, req, sortMode, priority, prioritizeTiers, prioritizeDonations);
                 return requests === s.requests ? s : { requests };
               });
               break;
@@ -231,6 +231,8 @@ interface SourcesStore {
   hideNonRequests: boolean;
   confirmInChat: boolean;
   extrasConfig: RoomExtras;
+  prioritizeTiers: boolean;
+  prioritizeDonations: boolean;
   recoveryVodId?: string;
   recoveryVodOffset?: number;
   setEnabled: (enabled: SourcesEnabled) => void;
@@ -243,6 +245,8 @@ interface SourcesStore {
   setHideNonRequests: (hide: boolean) => void;
   setConfirmInChat: (confirm: boolean) => void;
   setExtrasConfig: (extrasConfig: RoomExtras) => void;
+  setPrioritizeTiers: (prioritize: boolean) => void;
+  setPrioritizeDonations: (prioritize: boolean) => void;
   setRecoveryCheckpoint: (vodId: string, offset: number) => void;
   handlePartyMessage: (msg: PartyMessage) => void;
 }
@@ -263,6 +267,8 @@ export const SOURCES_DEFAULTS = {
   minDonation: 5,
   hideNonRequests: true,
   confirmInChat: false,
+  prioritizeTiers: false,
+  prioritizeDonations: false,
   extrasConfig: DEFAULT_EXTRAS_CONFIG,
 };
 
@@ -288,6 +294,8 @@ export function createSourcesStore(
         hideNonRequests: SOURCES_DEFAULTS.hideNonRequests,
         confirmInChat: SOURCES_DEFAULTS.confirmInChat,
         extrasConfig: SOURCES_DEFAULTS.extrasConfig,
+        prioritizeTiers: SOURCES_DEFAULTS.prioritizeTiers,
+        prioritizeDonations: SOURCES_DEFAULTS.prioritizeDonations,
         setEnabled: (enabled) => {
           set({ enabled });
           maybeBroadcast(get);
@@ -328,6 +336,14 @@ export function createSourcesStore(
           set({ extrasConfig });
           maybeBroadcast(get);
         },
+        setPrioritizeTiers: (prioritizeTiers) => {
+          set({ prioritizeTiers });
+          maybeBroadcast(get);
+        },
+        setPrioritizeDonations: (prioritizeDonations) => {
+          set({ prioritizeDonations });
+          maybeBroadcast(get);
+        },
         setRecoveryCheckpoint: (recoveryVodId, recoveryVodOffset) => {
           set({ recoveryVodId, recoveryVodOffset });
           maybeBroadcast(get);
@@ -344,6 +360,8 @@ export function createSourcesStore(
               minDonation: sources.minDonation,
               hideNonRequests: sources.hideNonRequests,
               confirmInChat: sources.confirmInChat,
+              prioritizeTiers: sources.prioritizeTiers,
+              prioritizeDonations: sources.prioritizeDonations,
               recoveryVodId: sources.recoveryVodId,
               recoveryVodOffset: sources.recoveryVodOffset,
               extrasConfig: sources.extrasConfig ?? DEFAULT_EXTRAS_CONFIG,

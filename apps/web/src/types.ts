@@ -20,6 +20,7 @@ export {
   serializeRequest,
   deserializeRequest,
   deserializeRequests,
+  compareRequests,
 } from '@dbd-utils/shared';
 
 
