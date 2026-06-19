@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRoomStores, createSourcesStore } from './channel';
-import { MAX_PENDING_REQUESTS } from '@dbd-utils/shared';
+import { MAX_PENDING_REQUESTS } from '@filadbd/shared';
 import type { Request } from '../types';
 import type { SourcesSettings } from '../types';
 

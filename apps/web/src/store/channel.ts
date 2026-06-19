@@ -1,7 +1,7 @@
 // apps/web/src/store/channel.ts
 import { create } from 'zustand';
-import { MAX_PENDING_REQUESTS, DEFAULT_EXTRAS_CONFIG, normalizeSourcesSettings } from '@dbd-utils/shared';
-import type { RoomExtras } from '@dbd-utils/shared';
+import { MAX_PENDING_REQUESTS, DEFAULT_EXTRAS_CONFIG, normalizeSourcesSettings } from '@filadbd/shared';
+import type { RoomExtras } from '@filadbd/shared';
 import type { ConnectionState, Request, SourcesEnabled, PartyMessage, ChannelStatus } from '../types';
 import { deserializeRequest, deserializeRequests } from '../types';
 import { loadCachedQueue, saveCachedQueue } from './queueCache';

@@ -9,8 +9,6 @@
     // otherwise it re-applies the prior offset on reload/back-forward, dropping you
     // mid-queue. Set pre-bundle so it beats any restoration attempt.
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-    if (location.hostname === 'macecchi.github.io')
-      location.replace('https://filadbd.pages.dev' + location.pathname.replace('/dbd-utils', '') + (location.hash ? location.hash.slice(1) : ''));
   </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <title>Fila DBD - Fila de pedidos</title>
@@ -34,16 +32,11 @@
   <script type="module" src="/src/main.tsx"></script>
   <script>
     (function() {
-      var tokens = {
-        'macecchi.github.io': '95a748642fe74cbfa6815eb774292776',
-        'filadbd.pages.dev': 'f53f2a8d8fe94eb2b45924c2342403d6'
-      };
-      var token = tokens[location.hostname];
-      if (token) {
+      if (location.hostname === 'filadbd.pages.dev') {
         var s = document.createElement('script');
         s.defer = true;
         s.src = 'https://static.cloudflareinsights.com/beacon.min.js';
-        s.setAttribute('data-cf-beacon', '{"token": "' + token + '"}');
+        s.setAttribute('data-cf-beacon', '{"token": "f53f2a8d8fe94eb2b45924c2342403d6"}');
         document.body.appendChild(s);
       }
     })();

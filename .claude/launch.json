@@ -11,28 +11,28 @@
     {
       "name": "web",
       "runtimeExecutable": "bun",
-      "runtimeArgs": ["run", "--filter", "@dbd-utils/web", "dev"],
+      "runtimeArgs": ["run", "--filter", "@filadbd/web", "dev"],
       "cwd": ".",
       "port": 5173
     },
     {
       "name": "api",
       "runtimeExecutable": "bun",
-      "runtimeArgs": ["run", "--filter", "@dbd-utils/api", "dev"],
+      "runtimeArgs": ["run", "--filter", "@filadbd/api", "dev"],
       "cwd": ".",
       "port": 8787
     },
     {
       "name": "party",
       "runtimeExecutable": "bun",
-      "runtimeArgs": ["run", "--filter", "@dbd-utils/api", "dev:party"],
+      "runtimeArgs": ["run", "--filter", "@filadbd/api", "dev:party"],
       "cwd": ".",
       "port": 1999
     },
     {
       "name": "preview",
       "runtimeExecutable": "bun",
-      "runtimeArgs": ["run", "--filter", "@dbd-utils/web", "preview", "--", "--port", "4173", "--strictPort"],
+      "runtimeArgs": ["run", "--filter", "@filadbd/web", "preview", "--", "--port", "4173", "--strictPort"],
       "cwd": ".",
       "port": 4173
     }

@@ -1,4 +1,4 @@
-import type { RequestExtraType, RoomExtras } from '@dbd-utils/shared';
+import type { RequestExtraType, RoomExtras } from '@filadbd/shared';
 
 /**
  * Returns the list of extra types whose per-room price is met by `amount`.

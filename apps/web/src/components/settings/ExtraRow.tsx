@@ -1,7 +1,7 @@
 import { useTranslation } from '../../i18n';
 import { Toggle } from './Toggle';
 import { EditableField } from './EditableField';
-import type { RequestExtraType, ExtraConfig } from '@dbd-utils/shared';
+import type { RequestExtraType, ExtraConfig } from '@filadbd/shared';
 
 interface Props {
   extra: RequestExtraType;

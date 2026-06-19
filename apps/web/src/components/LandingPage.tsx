@@ -469,7 +469,7 @@ export function LandingPage() {
           {t('landing.helpAndFeedback')}
           <a href="#faq">{t('landing.faq.link')}</a>
           <span>•</span>
-          <a href="https://github.com/macecchi/dbd-utils" target="_blank">GitHub</a>
+          <a href="https://github.com/macecchi/fila-dbd" target="_blank">GitHub</a>
           <span>•</span>
           <a href="https://discord.gg/6pY7Efhxd" target="_blank">Discord</a>
         </span>

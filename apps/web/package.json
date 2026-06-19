@@ -1,5 +1,5 @@
 {
-  "name": "@dbd-utils/web",
+  "name": "@filadbd/web",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -23,7 +23,7 @@
     "workbox-window": "^7.4.0"
   },
   "dependencies": {
-    "@dbd-utils/shared": "workspace:*",
+    "@filadbd/shared": "workspace:*",
     "partysocket": "^1.0.2",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",

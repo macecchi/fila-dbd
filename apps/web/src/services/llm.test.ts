@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { identifyCharacter } from './llm';
-import type { Request } from '@dbd-utils/shared';
+import type { Request } from '@filadbd/shared';
 
 vi.mock('../store/auth', () => ({
   useAuth: {

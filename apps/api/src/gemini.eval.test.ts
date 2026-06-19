@@ -5,9 +5,9 @@
 //
 // Skipped by default. To run:
 //
-//   RUN_EVALS=1 GEMINI_API_KEY=... bun run --filter @dbd-utils/api test -- gemini.eval
+//   RUN_EVALS=1 GEMINI_API_KEY=... bun run --filter @filadbd/api test -- gemini.eval
 //   # or, with the env var already set in apps/api/.env:
-//   RUN_EVALS=1 bun run --filter @dbd-utils/api test -- gemini.eval
+//   RUN_EVALS=1 bun run --filter @filadbd/api test -- gemini.eval
 //
 // Scenarios were sampled and lightly anonymized from real production donation
 // messages on the @mandymess channel. Streamer-specific terms have been replaced

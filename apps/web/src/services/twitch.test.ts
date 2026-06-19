@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { handleMessage, handleUserNotice, setActiveStores } from './twitch';
 import { identifyMultiple } from './llm';
 import type { ChannelStores } from '../store/channel';
-import type { Request } from '@dbd-utils/shared';
+import type { Request } from '@filadbd/shared';
 
 vi.mock('./llm', () => ({
   identifyMultiple: vi.fn(async () => []),

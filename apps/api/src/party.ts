@@ -1,7 +1,7 @@
 import type * as Party from 'partykit/server';
 import { verifyJwt, type JwtPayload } from './jwt';
-import { MAX_PENDING_REQUESTS, PROTOCOL_VERSION, normalizeSourcesSettings, compareRequests } from '@dbd-utils/shared';
-import type { SerializedRequest, SourcesSettings, ChannelState, PartyMessage } from '@dbd-utils/shared';
+import { MAX_PENDING_REQUESTS, PROTOCOL_VERSION, normalizeSourcesSettings, compareRequests } from '@filadbd/shared';
+import type { SerializedRequest, SourcesSettings, ChannelState, PartyMessage } from '@filadbd/shared';
 
 const SOURCES_DEFAULTS: SourcesSettings = {
   enabled: { donation: true, chat: true, resub: false, manual: true },

@@ -13,7 +13,7 @@ export type {
   RequestExtra,
   RequestExtraType,
   RoomExtras,
-} from '@dbd-utils/shared';
+} from '@filadbd/shared';
 
 export {
   PROTOCOL_VERSION,
@@ -21,6 +21,6 @@ export {
   deserializeRequest,
   deserializeRequests,
   compareRequests,
-} from '@dbd-utils/shared';
+} from '@filadbd/shared';
 
 

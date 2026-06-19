@@ -1,5 +1,5 @@
-import { DEFAULT_CHARACTERS } from '@dbd-utils/shared';
-import type { RequestExtraType } from '@dbd-utils/shared';
+import { DEFAULT_CHARACTERS } from '@filadbd/shared';
+import type { RequestExtraType } from '@filadbd/shared';
 
 const MODEL = 'gemini-3.1-flash-lite';
 const RETRIABLE_CODES = [429, 500, 502, 503, 504];

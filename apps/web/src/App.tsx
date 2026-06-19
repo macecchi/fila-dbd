@@ -450,7 +450,7 @@ function ChannelApp() {
             <span className="footer-separator">•</span>
             <a href={`${basePath}/#faq`}>{t('landing.faq.link')}</a>
             <span className="footer-separator">•</span>
-            <a href="https://github.com/macecchi/dbd-utils" target="_blank">GitHub</a>
+            <a href="https://github.com/macecchi/fila-dbd" target="_blank">GitHub</a>
             <span className="footer-separator">•</span>
             <a href="https://discord.gg/6pY7Efhxd" target="_blank">Discord</a>
           </span>

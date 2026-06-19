@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import PartyServer from './party';
-import type { SerializedRequest, SourcesSettings, PartyMessage } from '@dbd-utils/shared';
-import { MAX_PENDING_REQUESTS, PROTOCOL_VERSION, normalizeSourcesSettings } from '@dbd-utils/shared';
+import type { SerializedRequest, SourcesSettings, PartyMessage } from '@filadbd/shared';
+import { MAX_PENDING_REQUESTS, PROTOCOL_VERSION, normalizeSourcesSettings } from '@filadbd/shared';
 
 // Mock jwt module
 vi.mock('./jwt', () => ({

@@ -4,7 +4,7 @@ import { sign } from "hono/jwt";
 import { Twitch } from "arctic";
 import { verifyJwt, type JwtPayload } from "./jwt";
 import { extractCharacters } from "./gemini";
-import type { RequestExtraType } from "@dbd-utils/shared";
+import type { RequestExtraType } from "@filadbd/shared";
 import { getAppToken, fetchProfiles, fetchStreams, cacheProfiles, sendChatMessage, checkBotIsMod } from "./twitch";
 
 const BATCH_CHUNK_SIZE = 80;

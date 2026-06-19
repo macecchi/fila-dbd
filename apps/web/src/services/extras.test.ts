@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { eligibleExtras } from './extras';
-import { DEFAULT_EXTRAS_CONFIG } from '@dbd-utils/shared';
+import { DEFAULT_EXTRAS_CONFIG } from '@filadbd/shared';
 
 const enabledBuild = { build: { enabled: true, price: 10 } };
 

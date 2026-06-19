@@ -6,7 +6,7 @@ import { Toggle } from './Toggle';
 import { EditableField } from './EditableField';
 import { SOURCE_ICONS, SOURCE_LABEL_KEYS, type SourceType } from './source-icons';
 import { ExtraRow } from './ExtraRow';
-import { DEFAULT_EXTRAS_CONFIG, type RequestExtraType } from '@dbd-utils/shared';
+import { DEFAULT_EXTRAS_CONFIG, type RequestExtraType } from '@filadbd/shared';
 
 const ENABLED_EXTRAS: RequestExtraType[] = ['build'];
 

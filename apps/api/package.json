@@ -1,5 +1,5 @@
 {
-  "name": "@dbd-utils/api",
+  "name": "@filadbd/api",
   "type": "module",
   "scripts": {
     "dev": "wrangler d1 migrations apply fila-dbd --local && wrangler dev",
@@ -17,7 +17,7 @@
     "test:eval": "RUN_EVALS=1 vitest run gemini.eval"
   },
   "dependencies": {
-    "@dbd-utils/shared": "workspace:*",
+    "@filadbd/shared": "workspace:*",
     "arctic": "^3.5.0",
     "hono": "^4.7.0"
   },

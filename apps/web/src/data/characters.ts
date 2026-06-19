@@ -4,4 +4,4 @@ export {
   getKillerPortrait,
   tryLocalMatch,
   isWholeMessageMatch,
-} from '@dbd-utils/shared';
+} from '@filadbd/shared';
