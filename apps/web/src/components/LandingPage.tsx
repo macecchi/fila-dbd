@@ -105,7 +105,7 @@ function LiveChannels() {
               ) : (
                 <img className="landing-channel-thumb-placeholder" src={`${import.meta.env.BASE_URL}images/Dead-by-Daylight-Emblem.webp`} alt="" />
               )}
-              {room.is_live && <span className="landing-channel-live">{t('landing.live')}</span>}
+              {room.is_live && !loading && <span className="landing-channel-live">{t('landing.live')}</span>}
             </div>
             <div className="landing-channel-info">
               <div className="landing-channel-card-header">
