@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { handleMessage, setActiveStores } from './twitch';
+import { handleMessage, handleUserNotice, setActiveStores } from './twitch';
 import { identifyMultiple } from './llm';
 import type { ChannelStores } from '../store/channel';
 import type { Request } from '@dbd-utils/shared';
@@ -26,7 +26,7 @@ describe('handleMessage — above-minimum donation routing', () => {
     setActiveStores({
       useSources: {
         getState: () => ({
-          enabled: { donation: true },
+          enabled: { donation: true, resub: true },
           chatCommand: '!fila',
           minDonation: 5,
           extrasConfig: undefined,
@@ -65,5 +65,58 @@ describe('handleMessage — above-minimum donation routing', () => {
     handleMessage(donationRaw('Bob', 50, 'Trapper com mori'));
 
     expect(identifyMultipleMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('handleUserNotice — subscription plan and tier parsing', () => {
+  let added: Request[];
+
+  beforeEach(() => {
+    added = [];
+    setActiveStores({
+      useSources: {
+        getState: () => ({
+          enabled: { donation: true, resub: true },
+          chatCommand: '!fila',
+          minDonation: 5,
+          extrasConfig: undefined,
+        }),
+      },
+      useRequests: {
+        getState: () => ({ add: (r: Request) => added.push(r) }),
+      },
+    } as unknown as ChannelStores);
+  });
+
+  afterEach(() => {
+    setActiveStores(null);
+  });
+
+  it('parses Tier 3 subscription plan', () => {
+    handleUserNotice('@msg-id=resub;display-name=Bob;msg-param-sub-plan=3000;id=123 :tmi.twitch.tv USERNOTICE #test :Quero Trapper');
+    expect(added).toHaveLength(1);
+    expect(added[0].subTier).toBe(3);
+    expect(added[0].donor).toBe('Bob');
+    expect(added[0].source).toBe('resub');
+  });
+
+  it('parses Tier 2 subscription plan', () => {
+    handleUserNotice('@msg-id=resub;display-name=Alice;msg-param-sub-plan=2000;id=124 :tmi.twitch.tv USERNOTICE #test :Quero Nurse');
+    expect(added).toHaveLength(1);
+    expect(added[0].subTier).toBe(2);
+  });
+
+  it('parses Tier 1 / Prime subscription plans', () => {
+    handleUserNotice('@msg-id=resub;display-name=Charlie;msg-param-sub-plan=1000;id=125 :tmi.twitch.tv USERNOTICE #test :Quero Wraith');
+    expect(added[0].subTier).toBe(1);
+
+    added = [];
+    handleUserNotice('@msg-id=resub;display-name=Delta;msg-param-sub-plan=Prime;id=126 :tmi.twitch.tv USERNOTICE #test :Quero Oni');
+    expect(added[0].subTier).toBe(1);
+  });
+
+  it('falls back to subscriber badge if sub-plan tag is missing', () => {
+    handleUserNotice('@msg-id=resub;display-name=Echo;badges=subscriber/3012,premium/1;id=127 :tmi.twitch.tv USERNOTICE #test :Quero Huntress');
+    expect(added[0].subTier).toBe(3);
   });
 });

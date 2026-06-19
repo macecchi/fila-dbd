@@ -4,6 +4,7 @@ import { getKillerPortrait } from '../data/characters';
 import { useTranslation } from '../i18n';
 import { getLocale } from '../i18n';
 import type { Request } from '../types';
+import { renderTwitchSubBadge, renderDonationBadge, renderBroadcasterBadge } from './UserBadges';
 
 const SOURCE_LABELS: Record<string, string> = {
   donation: 'Donate',
@@ -12,9 +13,9 @@ const SOURCE_LABELS: Record<string, string> = {
   manual: 'Manual',
 };
 
+
 export function formatSourceBadge(req: Pick<Request, 'source' | 'amount' | 'subTier'>): string {
   if (req.source === 'donation' && req.amount) return req.amount;
-  if (req.source === 'chat' && req.subTier) return `Tier ${req.subTier}`;
   return SOURCE_LABELS[req.source] ?? req.source;
 }
 
@@ -140,7 +141,14 @@ export const RequestsTable = forwardRef<RequestsTableHandle, Props>(function Req
                     </span>
                   </div>
                 </td>
-                <td className="req-col-donor">{r.donor}</td>
+                <td className="req-col-donor">
+                  <div style={{ display: 'flex', alignItems: 'center', minWidth: 0, width: '100%' }}>
+                    {r.source === 'manual' && renderBroadcasterBadge()}
+                    {r.source === 'donation' && renderDonationBadge()}
+                    {(r.source === 'chat' || r.source === 'resub') && (r.subTier || r.source === 'resub') && renderTwitchSubBadge(r.subTier || 1)}
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.donor}</span>
+                  </div>
+                </td>
                 <td className="req-col-source">
                   <span className={`amount source-${r.source}`}>
                     {formatSourceBadge(r)}

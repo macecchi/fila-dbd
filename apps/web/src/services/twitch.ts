@@ -155,6 +155,14 @@ function getSubTierFromBadges(badges: string): number {
   return t >= 3000 ? 3 : t >= 2000 ? 2 : 1;
 }
 
+function getSubTierFromUserNotice(tags: Record<string, string>): number {
+  const plan = tags['msg-param-sub-plan'];
+  if (plan === '3000') return 3;
+  if (plan === '2000') return 2;
+  if (plan === '1000' || plan === 'Prime') return 1;
+  return getSubTierFromBadges(tags.badges);
+}
+
 export function handleUserNotice(raw: string) {
   const { useSources, useRequests } = getStores();
   const { enabled } = useSources.getState();
@@ -185,6 +193,7 @@ export function handleUserNotice(raw: string) {
     character: local?.character || 'Identificando...',
     type: local?.type || 'unknown',
     source: 'resub',
+    subTier: getSubTierFromUserNotice(tags),
     needsIdentification: !isWholeMessageMatch(local, message),
     matchedTerm: local?.matchedTerm
   };
@@ -331,7 +340,7 @@ declare global {
       panel: boolean;
       chat: (user: string, message: string, opts?: { sub?: boolean; tier?: number }) => void;
       donate: (donor: string, amount: number, message: string) => void;
-      resub: (user: string, message: string) => void;
+      resub: (user: string, message: string, opts?: { tier?: number }) => void;
       raw: (ircLine: string) => void;
       review: () => void;
     };
@@ -362,9 +371,11 @@ window.dbdDebug = {
     const raw = `@display-name=livepix;color=#FF0000 :livepix!livepix@livepix.tmi.twitch.tv PRIVMSG #test :${donor} doou R$ ${amount},00: ${message}`;
     handleMessage(raw);
   },
-  resub: (user: string, message: string) => {
+  resub: (user: string, message: string, opts?: { tier?: number }) => {
     if (!checkWriteMode()) return;
-    const raw = `@display-name=${user};msg-id=resub :tmi.twitch.tv USERNOTICE #test :${message}`;
+    const tier = opts?.tier ?? 1;
+    const plan = tier === 3 ? '3000' : tier === 2 ? '2000' : '1000';
+    const raw = `@display-name=${user};msg-id=resub;msg-param-sub-plan=${plan} :tmi.twitch.tv USERNOTICE #test :${message}`;
     handleUserNotice(raw);
   },
   raw: (ircLine: string) => {

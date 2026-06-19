@@ -6,6 +6,9 @@ import { CharacterAvatar } from './CharacterAvatar';
 import { useTranslation } from '../i18n';
 import { getLocale } from '../i18n';
 import { formatRelativeTime, highlightTerms } from '../utils/helpers';
+import { renderTwitchSubBadge, renderDonationBadge, renderBroadcasterBadge } from './UserBadges';
+
+
 
 function getMatchedTerm(r: Request): string | undefined {
   if (r.matchedTerm) return r.matchedTerm;
@@ -70,7 +73,7 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
   };
 
   const badgeText = r.source === 'donation' ? r.amount :
-    r.source === 'chat' ? `TIER ${r.subTier || 1}` :
+    r.source === 'chat' ? 'CHAT' :
       r.source === 'resub' ? 'RESUB' : '';
 
   const handleDragStart = (e: React.DragEvent) => {
@@ -151,9 +154,12 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
             {isValidating && <span className="validating-dot" title={t('card.validatingAI')} />}
           </div>
           <div className="request-card-body">
-            <span className="donor-name">
-              {r.donor}
-              {group && <span className="donation-group-chip" title="Pedidos da mesma doação">{group.index}/{group.total}</span>}
+            <span className="donor-name" style={{ display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle' }}>
+              {r.source === 'manual' && renderBroadcasterBadge()}
+              {r.source === 'donation' && renderDonationBadge()}
+              {(r.source === 'chat' || r.source === 'resub') && (r.subTier || r.source === 'resub') && renderTwitchSubBadge(r.subTier || 1)}
+              <span style={{ verticalAlign: 'middle' }}>{r.donor}</span>
+              {group && <span className="donation-group-chip" title="Pedidos da mesma doação" style={{ marginLeft: '4px' }}>{group.index}/{group.total}</span>}
             </span>
             {allTerms.length > 0 ? highlightTerms(r.message, allTerms) : r.message}
           </div>

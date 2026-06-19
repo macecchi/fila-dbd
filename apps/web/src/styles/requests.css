@@ -255,6 +255,7 @@
   background: var(--green-bg-light);
   border-radius: var(--radius-sm);
   white-space: nowrap;
+  text-transform: uppercase;
 }
 
 .amount.below {
