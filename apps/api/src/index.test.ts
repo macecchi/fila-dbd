@@ -518,7 +518,7 @@ describe('Hono API', () => {
   describe('PUT /internal/rooms/:roomId/sources', () => {
     const internalAuth = 'Bearer internal:test-internal-secret';
 
-    it('persists extrasConfig to D1 extras_config column', async () => {
+    it('persists sources settings to D1 sources_config column', async () => {
       const bindCalls: unknown[][] = [];
       const mockDB2 = {
         prepare: vi.fn(() => ({
@@ -549,8 +549,10 @@ describe('Hono API', () => {
 
       expect(res.status).toBe(200);
       const args = bindCalls[0] ?? [];
-      const stringified = args.find((a) => typeof a === 'string' && a.includes('"build"'));
-      expect(stringified).toBe(JSON.stringify({ build: { enabled: true, price: 12 } }));
+      const stringified = args[2] as string; // index 2 is the sources_config JSON payload
+      const parsed = JSON.parse(stringified);
+      expect(parsed.extrasConfig).toEqual({ build: { enabled: true, price: 12 } });
+      expect(parsed.chatCommand).toBe('!fila');
     });
   });
 

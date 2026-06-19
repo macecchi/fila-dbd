@@ -557,6 +557,8 @@ describe('PartyServer', () => {
         priority: ['chat', 'donation', 'resub', 'manual'],
         sortMode: 'priority',
         minDonation: 20,
+        confirmInChat: false,
+        hideNonRequests: true,
       };
       const msg = JSON.stringify({ type: 'update-sources', sources: newSources });
 

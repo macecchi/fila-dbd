@@ -1,6 +1,6 @@
 // apps/web/src/store/channel.ts
 import { create } from 'zustand';
-import { MAX_PENDING_REQUESTS, DEFAULT_EXTRAS_CONFIG } from '@dbd-utils/shared';
+import { MAX_PENDING_REQUESTS, DEFAULT_EXTRAS_CONFIG, normalizeSourcesSettings } from '@dbd-utils/shared';
 import type { RoomExtras } from '@dbd-utils/shared';
 import type { ConnectionState, Request, SourcesEnabled, PartyMessage, ChannelStatus } from '../types';
 import { deserializeRequest, deserializeRequests } from '../types';
@@ -334,13 +334,7 @@ export function createSourcesStore(
         },
         handlePartyMessage: (msg) => {
           if (msg.type === 'sync-full' || msg.type === 'update-sources') {
-            const sources = msg.sources;
-            // No persisted extrasConfig → use the in-memory default. We do NOT
-            // broadcast it back: viewers don't have permission to write sources,
-            // and the owner persists their real choice the moment they touch
-            // the toggle (which goes through setExtrasConfig → broadcast).
-            const extrasConfig = sources.extrasConfig ?? DEFAULT_EXTRAS_CONFIG;
-
+            const sources = normalizeSourcesSettings(msg.sources);
             set({
               enabled: sources.enabled,
               chatCommand: sources.chatCommand,
@@ -348,11 +342,11 @@ export function createSourcesStore(
               priority: sources.priority,
               sortMode: sources.sortMode,
               minDonation: sources.minDonation,
-              hideNonRequests: sources.hideNonRequests ?? true,
-              confirmInChat: sources.confirmInChat ?? false,
+              hideNonRequests: sources.hideNonRequests,
+              confirmInChat: sources.confirmInChat,
               recoveryVodId: sources.recoveryVodId,
               recoveryVodOffset: sources.recoveryVodOffset,
-              extrasConfig,
+              extrasConfig: sources.extrasConfig ?? DEFAULT_EXTRAS_CONFIG,
             });
           }
         },

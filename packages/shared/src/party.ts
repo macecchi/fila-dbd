@@ -80,3 +80,44 @@ export function deserializeRequest(req: SerializedRequest): Request {
 export function deserializeRequests(requests: SerializedRequest[]): Request[] {
   return requests.map(deserializeRequest);
 }
+
+export function normalizeSourcesSettings(sources: any): SourcesSettings {
+  if (!sources) {
+    return {
+      enabled: { donation: true, chat: true, resub: false, manual: true },
+      chatCommand: '!fila',
+      chatTiers: [2, 3],
+      priority: ['donation', 'chat', 'resub', 'manual'],
+      sortMode: 'fifo',
+      minDonation: 5,
+      hideNonRequests: true,
+      confirmInChat: false,
+    };
+  }
+
+  const enabled = sources.enabled || {};
+  return {
+    enabled: {
+      donation: enabled.donation === true || enabled.donation === 1 || enabled.donation === 'true',
+      chat: enabled.chat === true || enabled.chat === 1 || enabled.chat === 'true',
+      resub: enabled.resub === true || enabled.resub === 1 || enabled.resub === 'true',
+      manual: enabled.manual === true || enabled.manual === 1 || enabled.manual === 'true',
+    },
+    chatCommand: typeof sources.chatCommand === 'string' ? sources.chatCommand : '!fila',
+    chatTiers: Array.isArray(sources.chatTiers) ? sources.chatTiers.map(Number) : [2, 3],
+    priority: Array.isArray(sources.priority) ? sources.priority : ['donation', 'chat', 'resub', 'manual'],
+    sortMode: sources.sortMode === 'priority' ? 'priority' : 'fifo',
+    minDonation: typeof sources.minDonation === 'number' ? sources.minDonation : 5,
+    hideNonRequests: sources.hideNonRequests === undefined ? true : (sources.hideNonRequests === true || sources.hideNonRequests === 1 || sources.hideNonRequests === 'true'),
+    confirmInChat: sources.confirmInChat === true || sources.confirmInChat === 1 || sources.confirmInChat === 'true',
+    extrasConfig: sources.extrasConfig ? {
+      build: sources.extrasConfig.build ? {
+        enabled: sources.extrasConfig.build.enabled === true || sources.extrasConfig.build.enabled === 1 || sources.extrasConfig.build.enabled === 'true',
+        price: typeof sources.extrasConfig.build.price === 'number' ? sources.extrasConfig.build.price : 10,
+      } : undefined
+    } : undefined,
+    recoveryVodId: sources.recoveryVodId,
+    recoveryVodOffset: sources.recoveryVodOffset,
+  };
+}
+

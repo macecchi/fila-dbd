@@ -1,6 +1,6 @@
 import type * as Party from 'partykit/server';
 import { verifyJwt, type JwtPayload } from './jwt';
-import { MAX_PENDING_REQUESTS, PROTOCOL_VERSION } from '@dbd-utils/shared';
+import { MAX_PENDING_REQUESTS, PROTOCOL_VERSION, normalizeSourcesSettings } from '@dbd-utils/shared';
 import type { SerializedRequest, SourcesSettings, ChannelState, PartyMessage } from '@dbd-utils/shared';
 
 const SOURCES_DEFAULTS: SourcesSettings = {
@@ -48,8 +48,18 @@ export default class PartyServer implements Party.Server {
 
     const storedSources = await this.room.storage.get<Partial<SourcesSettings>>('sources');
     if (storedSources) {
-      this.sources = { ...SOURCES_DEFAULTS, ...storedSources };
-      console.log(`${this.tag} Loaded sources config:`, JSON.stringify(this.sources.enabled));
+      this.sources = normalizeSourcesSettings(storedSources);
+      console.log(`${this.tag} Loaded sources config from DO:`, JSON.stringify(this.sources.enabled));
+    } else {
+      const recoveredSources = await this.recoverSourcesFromD1();
+      if (recoveredSources) {
+        this.sources = normalizeSourcesSettings(recoveredSources);
+        await this.room.storage.put('sources', this.sources);
+        console.log(`${this.tag} Recovered sources config from D1:`, JSON.stringify(this.sources.enabled));
+      } else {
+        this.sources = SOURCES_DEFAULTS;
+        console.log(`${this.tag} Using default sources config`);
+      }
     }
   }
 
@@ -375,11 +385,12 @@ export default class PartyServer implements Party.Server {
         break;
       }
       case 'update-sources': {
-        this.sources = msg.sources;
+        const normalized = normalizeSourcesSettings(msg.sources);
+        this.sources = normalized;
         await this.room.storage.put('sources', this.sources);
         this.syncSourcesToD1();
-        this.broadcast(message);
-        console.log(`${this.tag} ${user}: update-sources`, JSON.stringify(msg.sources.enabled));
+        this.broadcast(JSON.stringify({ ...msg, sources: normalized }));
+        console.log(`${this.tag} ${user}: update-sources`, JSON.stringify(normalized.enabled));
         break;
       }
       case 'irc-status': {
@@ -500,7 +511,29 @@ export default class PartyServer implements Party.Server {
     this.scheduleSyncRequests();
   }
 
+  private async recoverSourcesFromD1(): Promise<Partial<SourcesSettings> | null> {
+    const apiUrl = this.room.env.API_URL as string | undefined;
+    const secret = this.room.env.INTERNAL_API_SECRET as string | undefined;
+    if (!apiUrl || !secret) return null;
+
+    try {
+      const res = await fetch(`${apiUrl}/internal/rooms/${this.room.id}/sources`, {
+        headers: { 'Authorization': `Bearer internal:${secret}` },
+      });
+      if (!res.ok) {
+        console.error(`${this.tag} D1 sources recovery failed: ${res.status}`);
+        return null;
+      }
+      const data = await res.json<{ sources: Partial<SourcesSettings> | null }>();
+      return data.sources;
+    } catch (e) {
+      console.error(`${this.tag} D1 sources recovery error:`, e);
+      return null;
+    }
+  }
+
   private async recoverFromD1(): Promise<SerializedRequest[] | null> {
+
     const apiUrl = this.room.env.API_URL as string | undefined;
     const secret = this.room.env.INTERNAL_API_SECRET as string | undefined;
     if (!apiUrl || !secret) return null;

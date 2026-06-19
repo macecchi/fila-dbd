@@ -431,53 +431,35 @@ internal.put("/rooms/:roomId/requests", async (c) => {
 // PUT /internal/rooms/:roomId/sources — upsert room sources settings
 internal.put("/rooms/:roomId/sources", async (c) => {
   const roomId = c.req.param("roomId");
-  const body = await c.req.json<{
-    enabled: Record<string, boolean>;
-    chatCommand: string;
-    chatTiers: number[];
-    priority: string[];
-    sortMode: string;
-    minDonation: number;
-    recoveryVodId?: string;
-    recoveryVodOffset?: number;
-    extrasConfig?: Record<string, unknown>;
-  }>();
+  const body = await c.req.json<Record<string, unknown>>();
 
   await c.env.DB.prepare(
-    `INSERT INTO rooms (id, channel_login, enabled_donation, enabled_chat, enabled_resub, enabled_manual, chat_command, chat_tiers, priority, sort_mode, min_donation, recovery_vod_id, recovery_vod_offset, extras_config, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    `INSERT INTO rooms (id, channel_login, sources_config, updated_at)
+     VALUES (?, ?, ?, datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
-       enabled_donation = excluded.enabled_donation,
-       enabled_chat = excluded.enabled_chat,
-       enabled_resub = excluded.enabled_resub,
-       enabled_manual = excluded.enabled_manual,
-       chat_command = excluded.chat_command,
-       chat_tiers = excluded.chat_tiers,
-       priority = excluded.priority,
-       sort_mode = excluded.sort_mode,
-       min_donation = excluded.min_donation,
-       recovery_vod_id = excluded.recovery_vod_id,
-       recovery_vod_offset = excluded.recovery_vod_offset,
-       extras_config = excluded.extras_config,
+       sources_config = excluded.sources_config,
        updated_at = datetime('now')`
   ).bind(
     roomId,
     roomId,
-    body.enabled?.donation ? 1 : 0,
-    body.enabled?.chat ? 1 : 0,
-    body.enabled?.resub ? 1 : 0,
-    body.enabled?.manual ? 1 : 0,
-    body.chatCommand ?? "!fila",
-    JSON.stringify(body.chatTiers ?? [2, 3]),
-    JSON.stringify(body.priority ?? ["donation", "chat", "resub", "manual"]),
-    body.sortMode ?? "fifo",
-    body.minDonation ?? 5,
-    body.recoveryVodId ?? null,
-    body.recoveryVodOffset ?? null,
-    body.extrasConfig ? JSON.stringify(body.extrasConfig) : null
+    JSON.stringify(body)
   ).run();
 
   return c.json({ ok: true });
+});
+
+// GET /internal/rooms/:roomId/sources — return room sources settings for D1 recovery
+internal.get("/rooms/:roomId/sources", async (c) => {
+  const roomId = c.req.param("roomId").toLowerCase();
+  const row = await c.env.DB.prepare(
+    "SELECT sources_config FROM rooms WHERE id = ?"
+  ).bind(roomId).first<{ sources_config: string | null }>();
+
+  if (!row || !row.sources_config) {
+    return c.json({ sources: null });
+  }
+
+  return c.json({ sources: JSON.parse(row.sources_config) });
 });
 
 // PUT /internal/rooms/:roomId/status — update room status
