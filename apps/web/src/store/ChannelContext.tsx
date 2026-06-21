@@ -247,7 +247,7 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
                 id: 'new-version',
                 description: t('toast.newVersionUpdate'),
                 duration: Infinity,
-                action: { label: t('toast.updateAction'), onClick: () => location.reload() },
+                action: { label: t('toast.updateAction'), onClick: () => window.__triggerSWUpdate ? window.__triggerSWUpdate() : location.reload() },
               });
               sendPushNotification(t('push.newVersionTitle'), t('push.newVersion'));
               return;
