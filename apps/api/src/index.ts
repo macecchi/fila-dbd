@@ -194,8 +194,11 @@ api.use("*", async (c, next) => {
   await next();
 });
 
-// Twitch chat messages are capped at 500 characters
-const MAX_MESSAGE_LENGTH = 500;
+// Twitch caps chat messages at 500 characters, but JS `length` counts UTF-16
+// code units (emoji count 2+ each), so a legitimate emoji-heavy message can
+// exceed 500. Cap at 1000 units — enough for any real Twitch message — and
+// truncate instead of rejecting so long donates still get an extraction.
+const MAX_MESSAGE_LENGTH = 1000;
 const DAILY_EXTRACT_LIMIT = 200;
 const MAX_DONATION_REQUESTS = 10;
 
@@ -208,8 +211,13 @@ api.post("/extract-character", async (c) => {
     return c.json({ error: "invalid_input" }, 400);
   }
 
-  if (body.message.length > MAX_MESSAGE_LENGTH) {
-    return c.json({ error: "message_too_long", max: MAX_MESSAGE_LENGTH }, 400);
+  let message = body.message;
+  if (message.length > MAX_MESSAGE_LENGTH) {
+    console.warn(`[extract] Truncating message from ${message.length} to ${MAX_MESSAGE_LENGTH} chars`);
+    message = message.slice(0, MAX_MESSAGE_LENGTH);
+    // Don't leave half a surrogate pair (e.g. a split emoji) at the cut point.
+    const last = message.charCodeAt(message.length - 1);
+    if (last >= 0xd800 && last <= 0xdbff) message = message.slice(0, -1);
   }
 
   const requestedMax = typeof body.maxCount === "number" ? body.maxCount : 1;
@@ -225,14 +233,14 @@ api.post("/extract-character", async (c) => {
     return c.json({ error: "daily_limit_exceeded", limit: DAILY_EXTRACT_LIMIT }, 429);
   }
 
-  console.log(`[v${clientVersion}] Extract request from ${user.login} (maxCount=${maxCount}): ${body.message.slice(0, 100)}`);
+  console.log(`[v${clientVersion}] Extract request from ${user.login} (maxCount=${maxCount}): ${message.slice(0, 100)}`);
 
   try {
     const extras: RequestExtraType[] = Array.isArray(body.extras)
       ? body.extras.filter((e): e is RequestExtraType => e === 'build')
       : [];
 
-    const characters = await extractCharacters(body.message, c.env.GEMINI_API_KEY, maxCount, extras);
+    const characters = await extractCharacters(message, c.env.GEMINI_API_KEY, maxCount, extras);
 
     // Increment counter after successful extraction (TTL: 24h)
     const putPromise = c.env.CACHE.put(rateLimitKey, String(currentCount + 1), { expirationTtl: 86400 });

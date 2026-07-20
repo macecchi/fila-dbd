@@ -306,9 +306,10 @@ describe('Hono API', () => {
       expect(body.type).toBe('survivor');
     });
 
-    it('returns 400 when message exceeds 500 characters', async () => {
+    it('truncates messages exceeding 1000 UTF-16 units instead of rejecting', async () => {
+      const { extractCharacters } = await import('./gemini');
       const token = await createTestToken();
-      const longMessage = 'a'.repeat(501);
+      const longMessage = 'a'.repeat(1500);
 
       const res = await app.request('/api/extract-character', {
         method: 'POST',
@@ -319,15 +320,37 @@ describe('Hono API', () => {
         body: JSON.stringify({ message: longMessage }),
       }, TEST_ENV);
 
-      expect(res.status).toBe(400);
-      const body = await res.json() as ErrorResponse & { max: number };
-      expect(body.error).toBe('message_too_long');
-      expect(body.max).toBe(500);
+      expect(res.status).toBe(200);
+      expect(vi.mocked(extractCharacters)).toHaveBeenCalledWith(
+        'a'.repeat(1000), TEST_ENV.GEMINI_API_KEY, 1, []
+      );
     });
 
-    it('accepts message at exactly 500 characters', async () => {
+    it('does not leave a lone surrogate when truncation splits an emoji', async () => {
+      const { extractCharacters } = await import('./gemini');
       const token = await createTestToken();
-      const exactMessage = 'a'.repeat(500);
+      // 999 chars then an emoji (2 UTF-16 units) straddling the 1000 boundary
+      const longMessage = 'a'.repeat(999) + '😀'.repeat(10);
+
+      const res = await app.request('/api/extract-character', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ message: longMessage }),
+      }, TEST_ENV);
+
+      expect(res.status).toBe(200);
+      expect(vi.mocked(extractCharacters)).toHaveBeenCalledWith(
+        'a'.repeat(999), TEST_ENV.GEMINI_API_KEY, 1, []
+      );
+    });
+
+    it('accepts message at exactly 1000 characters without truncation', async () => {
+      const { extractCharacters } = await import('./gemini');
+      const token = await createTestToken();
+      const exactMessage = 'a'.repeat(1000);
 
       const res = await app.request('/api/extract-character', {
         method: 'POST',
@@ -339,6 +362,9 @@ describe('Hono API', () => {
       }, TEST_ENV);
 
       expect(res.status).toBe(200);
+      expect(vi.mocked(extractCharacters)).toHaveBeenCalledWith(
+        exactMessage, TEST_ENV.GEMINI_API_KEY, 1, []
+      );
     });
 
     it('returns 429 when daily limit is exceeded', async () => {
