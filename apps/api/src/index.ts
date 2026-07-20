@@ -233,7 +233,7 @@ api.post("/extract-character", async (c) => {
     return c.json({ error: "daily_limit_exceeded", limit: DAILY_EXTRACT_LIMIT }, 429);
   }
 
-  console.log(`[v${clientVersion}] Extract request from ${user.login} (maxCount=${maxCount}): ${message.slice(0, 100)}`);
+  console.log(`[v${clientVersion}] Extract request from ${user.login} (maxCount=${maxCount}): ${message}`);
 
   try {
     const extras: RequestExtraType[] = Array.isArray(body.extras)
