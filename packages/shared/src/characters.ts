@@ -54,6 +54,7 @@ export const CHARACTERS: CharacterData = {
         { name: "Dustin Henderson", aliases: [] },
         { name: "Eleven", aliases: ["Jane Hopper", "Onze"] },
         { name: "Kwon Tae-young", aliases: [] },
+        { name: "Shane Wiigwaas", aliases: [] },
         { name: "Aurora Stardotter", aliases: [] },
     ],
     killers: [
