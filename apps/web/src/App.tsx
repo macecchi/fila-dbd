@@ -1,5 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, Suspense } from 'react';
 import { ChannelHeader } from './components/ChannelHeader';
+import { WrappedBanner } from './components/WrappedBanner';
 import { HeaderMenu } from './components/HeaderMenu';
 import { CharacterRequestList } from './components/CharacterRequestList';
 import { SourcesBadges } from './components/SourcesBadges';
@@ -26,6 +27,7 @@ const ImportRequestsDialog = lazyWithReload(() => import('./components/ImportReq
 const VODSelectionDialog = lazyWithReload(() => import('./components/VODSelectionDialog').then((m) => ({ default: m.VODSelectionDialog })));
 const RequestsReviewDialog = lazyWithReload(() => import('./components/RequestsReviewDialog').then((m) => ({ default: m.RequestsReviewDialog })));
 const WrappedPage = lazyWithReload(() => import('./components/wrapped/WrappedPage').then((m) => ({ default: m.WrappedPage })));
+const WrappedExportPage = lazyWithReload(() => import('./components/wrapped/WrappedExportPage').then((m) => ({ default: m.WrappedExportPage })));
 
 // True once `value` has ever been true. Defers mounting a lazy dialog until its
 // first open, then keeps it mounted so close/exit transitions still play.
@@ -62,6 +64,7 @@ const getChannelFromPath = () => {
 };
 
 const isWrappedPath = () => !isAuthCallback() && getPathSegments()[1] === 'wrapped';
+const isWrappedExportPath = () => isWrappedPath() && getPathSegments()[2] === 'export';
 
 const isDebugMode = () => window.location.hash === '#debug' || window.location.hash === '#debug=true';
 
@@ -399,6 +402,8 @@ function ChannelApp() {
 
           <ChannelHeader />
 
+          <WrappedBanner channel={channel} isOwner={canControlConnection} />
+
         <main className="grid">
           <Panel as="div" className="panel">
             <PanelHeader
@@ -529,6 +534,7 @@ function ChannelApp() {
 
 export function App() {
   const [wrapped, setWrapped] = useState<boolean>(isWrappedPath);
+  const [wrappedExport, setWrappedExport] = useState<boolean>(isWrappedExportPath);
   const [channel, setChannel] = useState<string | null>(() => {
     // Migrate hash routes to path routes
     if (window.location.hash.startsWith('#/')) {
@@ -574,6 +580,7 @@ export function App() {
     const syncChannel = () => {
       const pathChannel = getChannelFromPath();
       setWrapped(isWrappedPath());
+      setWrappedExport(isWrappedExportPath());
       if (pathChannel) {
         const ch = pathChannel.toLowerCase();
         setChannel(ch);
@@ -599,6 +606,7 @@ export function App() {
 
   if (authPending) return null;
   if (!channel) return <Suspense fallback={null}><LandingPage /></Suspense>;
+  if (wrappedExport) return <Suspense fallback={null}><WrappedExportPage channel={channel} /></Suspense>;
   if (wrapped) return <Suspense fallback={null}><WrappedPage channel={channel} /></Suspense>;
 
   return (

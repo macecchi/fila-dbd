@@ -58,7 +58,7 @@
   left: 0;
   width: 120%;
   background: url('/images/bg.webp') center / cover no-repeat;
-  animation: wrapped-fog-pan 45s ease-in-out infinite alternate;
+  animation: wrapped-fog-pan 26s ease-in-out infinite alternate;
   will-change: transform;
 }
 
@@ -1317,11 +1317,21 @@
 
 .wrapped-close:hover { color: var(--text); border-color: var(--border-light); }
 
-.wrapped-share-float {
+/* Fixed wrapper around the floating share pill + its popover. Column-reverse
+   so the popover (last in DOM) renders above the pill, which sits pinned to
+   the bottom-right corner. */
+.wr-share-root {
   position: fixed;
   bottom: 1.4rem;
   right: 1.4rem;
   z-index: 3;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-end;
+  gap: 0.6rem;
+}
+
+.wrapped-share-float {
   display: flex;
   align-items: center;
   gap: 0.45rem;
@@ -1339,6 +1349,82 @@
 }
 
 .wrapped-share-float:hover { color: var(--text); border-color: var(--border-light); }
+
+/* ---- Share popover: copy link / native share / video-for-Stories + QR ---- */
+
+.wr-share-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 200px;
+  background: rgba(16, 14, 19, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 0.4rem;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+  animation: wrapped-item-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.wr-share-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 9px;
+  color: var(--w-bone, var(--text));
+  font-family: 'DM Sans', 'DM Sans Fallback', sans-serif;
+  font-size: 0.86rem;
+  font-weight: 500;
+  padding: 0.6rem 0.75rem;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.wr-share-menu-item:hover { background: rgba(236, 229, 216, 0.08); color: var(--w-gold, var(--accent)); }
+
+.wr-share-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.9rem 0.9rem 0.7rem;
+  margin-top: 0.15rem;
+  border-top: 1px solid var(--border);
+}
+
+.wr-share-qr-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.wr-share-qr-code {
+  width: 148px;
+  height: 148px;
+  background: var(--w-bone, #ece5d8);
+  border-radius: 10px;
+  padding: 8px;
+  box-sizing: border-box;
+  display: flex;
+}
+
+.wr-share-qr-code svg { width: 100%; height: 100%; display: block; }
+
+.wr-share-qr-hint {
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 300;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.wrapped-finale-actions .wr-share-menu {
+  align-self: center;
+}
 
 /* Desktop chevron nav (streamers live on desktop) */
 .wrapped-nav {
@@ -1367,7 +1453,10 @@
 /* Touch devices navigate by tapping the story itself. */
 @media (hover: none), (max-width: 640px) {
   .wrapped-nav { display: none; }
-  .wrapped-share-float { bottom: auto; top: 1.6rem; right: 1rem; padding: 0.5rem; }
+  /* Pill moves to the top on touch/small screens — flip so its popover opens
+     downward (below the pill) instead of upward off the top of the screen. */
+  .wr-share-root { bottom: auto; top: 1.6rem; right: 1rem; flex-direction: column; }
+  .wrapped-share-float { padding: 0.5rem; }
   .wrapped-share-float span { display: none; }
 }
 

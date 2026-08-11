@@ -371,6 +371,13 @@ const en: TranslationKeys = {
 
   // Wrapped (Retrospectiva)
   'wrapped.menuItem': 'Wrapped',
+  'wrapped.banner.ownerCta': 'Your {label} has arrived! Generate your queue recap and share it with your community.',
+  'wrapped.banner.ownerReady': 'Your {label} is live — share it with your community!',
+  'wrapped.banner.viewerReady': '{channel}\'s {label} is live!',
+  'wrapped.banner.viewerNotYet': '{channel} hasn\'t generated their {label} yet. Stay tuned!',
+  'wrapped.banner.watch': 'Watch',
+  'wrapped.banner.generate': 'Generate now',
+  'wrapped.banner.dismiss': 'Dismiss',
   'wrapped.loading': 'Summoning the Entity…',
   'wrapped.tapToStart': 'Tap to start',
   'wrapped.tapHint': 'Tap to continue',
@@ -415,6 +422,22 @@ const en: TranslationKeys = {
   'wrapped.personaTitle': 'Your community is…',
   'wrapped.superlativeTitle': 'And this edition\'s award goes to…',
   'wrapped.finaleShareHint': 'Share your wrapped with your community',
+  'wrapped.share.copyLink': 'Copy link',
+  'wrapped.share.video': 'Share on Instagram',
+  'wrapped.share.scanHint': 'Scan with your phone',
+
+  // Wrapped video export (Instagram Stories)
+  'wrapped.export.loadError': 'Could not load this wrapped.',
+  'wrapped.export.backToWrapped': 'Back to wrapped',
+  'wrapped.export.generateButton': 'Generate video',
+  'wrapped.export.recording': 'Recording…',
+  'wrapped.export.ready': 'Video ready!',
+  'wrapped.export.download': 'Download video',
+  'wrapped.export.shareVideo': 'Share video',
+  'wrapped.export.iosHint': 'On iPhone: save it to Photos and post from Instagram.',
+  'wrapped.export.generalHint': 'Save the video and post it to your Instagram Stories.',
+  'wrapped.export.unsupported': 'Your browser doesn\'t support video recording.',
+  'wrapped.export.generateAgain': 'Generate again',
 
   // Language
   'lang.label': 'Language',

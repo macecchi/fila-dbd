@@ -369,6 +369,13 @@ const ptBR = {
 
   // Wrapped (Retrospectiva)
   'wrapped.menuItem': 'Retrospectiva',
+  'wrapped.banner.ownerCta': 'Sua {label} chegou! Gere o recap da sua fila e compartilhe com a comunidade.',
+  'wrapped.banner.ownerReady': 'Sua {label} está no ar — compartilhe com a comunidade!',
+  'wrapped.banner.viewerReady': 'A {label} de {channel} está no ar!',
+  'wrapped.banner.viewerNotYet': '{channel} ainda não gerou a {label}. Fique de olho!',
+  'wrapped.banner.watch': 'Assistir',
+  'wrapped.banner.generate': 'Gerar agora',
+  'wrapped.banner.dismiss': 'Dispensar',
   'wrapped.loading': 'Invocando a Entidade…',
   'wrapped.tapToStart': 'Toque para começar',
   'wrapped.tapHint': 'Toque para avançar',
@@ -413,6 +420,22 @@ const ptBR = {
   'wrapped.personaTitle': 'Sua comunidade é…',
   'wrapped.superlativeTitle': 'E o prêmio da edição vai para…',
   'wrapped.finaleShareHint': 'Compartilhe sua retrospectiva com a sua comunidade',
+  'wrapped.share.copyLink': 'Copiar link',
+  'wrapped.share.video': 'Compartilhar no Instagram',
+  'wrapped.share.scanHint': 'Escaneie com o celular',
+
+  // Wrapped video export (Instagram Stories)
+  'wrapped.export.loadError': 'Não foi possível carregar essa retrospectiva.',
+  'wrapped.export.backToWrapped': 'Voltar para a retrospectiva',
+  'wrapped.export.generateButton': 'Gerar vídeo',
+  'wrapped.export.recording': 'Gravando…',
+  'wrapped.export.ready': 'Vídeo pronto!',
+  'wrapped.export.download': 'Baixar vídeo',
+  'wrapped.export.shareVideo': 'Compartilhar vídeo',
+  'wrapped.export.iosHint': 'No iPhone: salve nos Fotos e publique pelo Instagram.',
+  'wrapped.export.generalHint': 'Salve o vídeo e publique nos Stories do Instagram.',
+  'wrapped.export.unsupported': 'Seu navegador não suporta gravação de vídeo.',
+  'wrapped.export.generateAgain': 'Gerar novamente',
 
   // Language
   'lang.label': 'Idioma',

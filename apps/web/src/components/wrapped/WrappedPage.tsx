@@ -1,14 +1,64 @@
 import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect, type ReactNode } from 'react';
 import { toast } from 'sonner';
+import { renderSVG as renderQrSvg } from 'uqr';
 import { useAuth } from '../../store';
 import { useTranslation, tLocale, type Locale } from '../../i18n';
 import { navigate } from '../../utils/helpers';
-import { getCharacterPortrait, tryLocalMatch } from '../../data/characters';
+import { getCharacterPortrait, getCharacterPortraitLarge, tryLocalMatch } from '../../data/characters';
 import { CURRENT_WRAPPED_EDITION, getWrappedEdition, type WrappedPayload, type WrappedLanguage } from '@filadbd/shared';
 import { fetchPublicWrapped, fetchOwnerWrapped, generateWrapped, WrappedError } from '../../services/wrapped';
 import '../../styles/wrapped.css';
 
 const base = import.meta.env.BASE_URL;
+
+// Desktop/laptop pointers can't tap-navigate to the phone-only export flow —
+// they get a QR to scan with their phone instead. Touch devices (the phone
+// itself) jump straight to the route.
+function hasFinePointer(): boolean {
+  return typeof matchMedia !== 'undefined' && matchMedia('(pointer: fine)').matches;
+}
+
+// Share popover attached to both the floating pill and the finale button:
+// copy link, native share (when available), and the video-export entry point
+// (QR on desktop, direct navigation on touch devices).
+function SharePopover({
+  wt,
+  exportUrl,
+  onCopyLink,
+  canNativeShare,
+  onNativeShare,
+  onNavigateExport,
+  align,
+}: {
+  wt: (key: any, params?: Record<string, string | number>) => string;
+  exportUrl: string;
+  onCopyLink: () => void;
+  canNativeShare: boolean;
+  onNativeShare: () => void;
+  onNavigateExport: () => void;
+  align: 'float' | 'finale';
+}) {
+  // Desktop (fine pointer): the QR is always visible in the open popover —
+  // no extra click. Touch devices navigate straight to the export page.
+  const fine = hasFinePointer();
+  const qrSvg = useMemo(() => (fine ? renderQrSvg(exportUrl, { border: 1 }) : ''), [fine, exportUrl]);
+
+  return (
+    <div className={`wr-share-menu wr-share-menu--${align}`} onClick={(e) => e.stopPropagation()}>
+      <button className="wr-share-menu-item" onClick={onCopyLink}>{wt('wrapped.share.copyLink')}</button>
+      {canNativeShare && <button className="wr-share-menu-item" onClick={onNativeShare}>{wt('wrapped.share')}</button>}
+      {fine ? (
+        <div className="wr-share-qr">
+          <span className="wr-share-qr-title">{wt('wrapped.share.video')}</span>
+          <div className="wr-share-qr-code" dangerouslySetInnerHTML={{ __html: qrSvg }} />
+          <span className="wr-share-qr-hint">{wt('wrapped.share.scanHint')}</span>
+        </div>
+      ) : (
+        <button className="wr-share-menu-item" onClick={onNavigateExport}>{wt('wrapped.share.video')}</button>
+      )}
+    </div>
+  );
+}
 
 type PageState =
   | { phase: 'loading' }
@@ -43,6 +93,17 @@ function formatDay(date: string, locale: string): string {
 
 function formatBRL(value: number): string {
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+// Large (lg/) portraits may not exist for every character (freshly added
+// ones the scrape hasn't picked up yet, or future data). Degrade to the
+// small queue-avatar portrait rather than a broken image.
+function fallbackToSmall(smallSrc: string) {
+  return (e: React.SyntheticEvent<HTMLImageElement>) => {
+    if (e.currentTarget.src !== window.location.origin + smallSrc && !e.currentTarget.src.endsWith(smallSrc)) {
+      e.currentTarget.src = smallSrc;
+    }
+  };
 }
 
 // Deterministic Twitch-chat username hue per name.
@@ -244,20 +305,50 @@ export function WrappedPage({ channel }: { channel: string }) {
     }
   }, [edition, t, genLang]);
 
-  const handleShare = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const url = `${window.location.origin}${base.replace(/\/$/, '')}/${channel.toLowerCase()}/wrapped`;
+  const shareUrl = `${window.location.origin}${base.replace(/\/$/, '')}/${channel.toLowerCase()}/wrapped`;
+  const exportUrl = `${window.location.origin}${base.replace(/\/$/, '')}/${channel.toLowerCase()}/wrapped/export`;
+  const canNativeShare = typeof navigator !== 'undefined' && !!navigator.share;
+
+  const [shareOpenFloat, setShareOpenFloat] = useState(false);
+  const [shareOpenFinale, setShareOpenFinale] = useState(false);
+  const floatShareRef = useRef<HTMLDivElement>(null);
+  const finaleShareRef = useRef<HTMLDivElement>(null);
+
+  // Close whichever popover is open on an outside click — the popovers
+  // themselves stopPropagation so their own clicks don't trigger this.
+  useEffect(() => {
+    if (!shareOpenFloat && !shareOpenFinale) return;
+    const onDocClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (shareOpenFloat && floatShareRef.current && !floatShareRef.current.contains(target)) setShareOpenFloat(false);
+      if (shareOpenFinale && finaleShareRef.current && !finaleShareRef.current.contains(target)) setShareOpenFinale(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [shareOpenFloat, shareOpenFinale]);
+
+  const copyLink = useCallback(async () => {
+    await navigator.clipboard.writeText(shareUrl);
+    toast.success(t('wrapped.copied'));
+    setShareOpenFloat(false);
+    setShareOpenFinale(false);
+  }, [shareUrl, t]);
+
+  const nativeShare = useCallback(async () => {
     const payload = state.phase === 'ready' ? state.payload : null;
     const title = payload ? `${payload.editionLabel} — ${payload.channel.displayName} — Fila DBD` : 'Fila DBD';
-    if (navigator.share) {
-      try {
-        await navigator.share({ title, url });
-        return;
-      } catch { /* user cancelled — fall through to clipboard */ }
-    }
-    await navigator.clipboard.writeText(url);
-    toast.success(t('wrapped.copied'));
-  }, [channel, state, t]);
+    try {
+      await navigator.share({ title, url: shareUrl });
+    } catch { /* user cancelled */ }
+    setShareOpenFloat(false);
+    setShareOpenFinale(false);
+  }, [shareUrl, state]);
+
+  const navigateToExport = useCallback(() => {
+    setShareOpenFloat(false);
+    setShareOpenFinale(false);
+    navigate(`${base.replace(/\/$/, '')}/${channel.toLowerCase()}/wrapped/export`);
+  }, [channel]);
 
   const goToQueue = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -380,7 +471,8 @@ export function WrappedPage({ channel }: { channel: string }) {
 
     for (const ch of champions) {
       const top = ch.list[0];
-      const portrait = getCharacterPortrait(top.character, ch.kind);
+      const portraitSmall = getCharacterPortrait(top.character, ch.kind);
+      const portraitLarge = getCharacterPortraitLarge(top.character, ch.kind);
       built.push({
         key: ch.key,
         render: () => (
@@ -389,9 +481,9 @@ export function WrappedPage({ channel }: { channel: string }) {
             <span className="wr-eyebrow">{ch.title}</span>
             <div className="wr-champ-hero">
               <div className="wr-champ-portrait-wrap">
-                {portrait
-                  ? <img className="wr-champ-portrait" src={portrait} alt={top.character} />
-                  : <img className="wr-champ-portrait wr-champ-portrait-icon" src={`${base}images/${ch.kind === 'killer' ? 'IconKiller' : 'IconSurv'}.webp`} alt="" />}
+                {portraitLarge && portraitSmall
+                  ? <img className="wr-champ-portrait" src={portraitLarge} onError={fallbackToSmall(portraitSmall)} alt={top.character} />
+                  : <img className="wr-champ-portrait wr-champ-portrait-icon" src={`${base}images/${ch.kind === 'killer' ? 'IconKiller-lg' : 'IconSurv-lg'}.webp`} alt="" />}
               </div>
               <div className="wr-champ-titleblock">
                 <h2 className="wr-champ-name">{top.character}</h2>
@@ -519,19 +611,24 @@ export function WrappedPage({ channel }: { channel: string }) {
     }
 
     for (const [i, h] of narrative.highlights.entries()) {
-      // Resolve a character portrait for the highlight: explicit field first,
-      // then a local match on the title (cached payloads predate `character`).
-      let portrait = h.character ? getCharacterPortrait(h.character) : undefined;
-      if (!portrait) {
+      // Resolve a character (name + type) for the highlight: explicit field
+      // first, then a local match on the title (cached payloads predate
+      // `character`). Both the small and large portraits are resolved from
+      // the same name/type so they always refer to the same character.
+      let resolvedName: string | undefined = h.character;
+      let resolvedType: 'killer' | 'survivor' | undefined;
+      if (!resolvedName) {
         const match = tryLocalMatch(h.title);
-        if (match) portrait = getCharacterPortrait(match.character, match.type);
+        if (match) { resolvedName = match.character; resolvedType = match.type; }
       }
+      const portrait = resolvedName ? getCharacterPortrait(resolvedName, resolvedType) : undefined;
+      const portraitLarge = resolvedName ? getCharacterPortraitLarge(resolvedName, resolvedType) : undefined;
       built.push({
         key: `highlight-${i}`,
         render: () => (
           <div className="wr-poster wr-highlight">
             {portrait
-              ? <img className="wr-highlight-portrait" src={portrait} alt="" />
+              ? <img className="wr-highlight-portrait" src={portraitLarge ?? portrait} onError={fallbackToSmall(portrait)} alt="" />
               : <img className="wr-perk-mark" src={`${base}images/perk.webp`} alt="" />}
             <h3 className="wr-highlight-title">{h.title}</h3>
             <p className="wr-highlight-text">{h.text}</p>
@@ -606,10 +703,21 @@ export function WrappedPage({ channel }: { channel: string }) {
           <span className="wr-eyebrow">{wt('wrapped.superlativeTitle')}</span>
           <h2 className="wr-finale-title">{narrative.superlative.title}</h2>
           <p className="wr-body wr-finale-text">{narrative.superlative.text}</p>
-          <div className="wrapped-finale-actions">
-            <button className="wrapped-share-btn" onClick={handleShare}>
+          <div className="wrapped-finale-actions" ref={finaleShareRef}>
+            <button className="wrapped-share-btn" onClick={(e) => { e.stopPropagation(); setShareOpenFinale((v) => !v); }}>
               {wt('wrapped.share')}
             </button>
+            {shareOpenFinale && (
+              <SharePopover
+                wt={wt}
+                exportUrl={exportUrl}
+                onCopyLink={copyLink}
+                canNativeShare={canNativeShare}
+                onNativeShare={nativeShare}
+                onNavigateExport={navigateToExport}
+                align="finale"
+              />
+            )}
             <a className="wrapped-back-link" href={`${base.replace(/\/$/, '')}/${channel.toLowerCase()}`} onClick={goToQueue}>
               {wt('wrapped.backToQueue')}
             </a>
@@ -620,7 +728,7 @@ export function WrappedPage({ channel }: { channel: string }) {
     });
 
     return built;
-  }, [state, showMoney, wt, channel, isOwner, handleShare, handleGenerate, goToQueue]);
+  }, [state, showMoney, wt, channel, isOwner, handleGenerate, goToQueue, shareOpenFinale, exportUrl, copyLink, canNativeShare, nativeShare, navigateToExport]);
 
   const goTo = useCallback((next: number) => {
     setIndex((_) => Math.max(0, Math.min(slides.length - 1, next)));
@@ -745,13 +853,26 @@ export function WrappedPage({ channel }: { channel: string }) {
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
             </button>
-            <button className="wrapped-share-float" onClick={handleShare} aria-label={wt('wrapped.share')}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
-                <path d="M8.6 13.5l6.8 3.9M15.4 6.6L8.6 10.5" />
-              </svg>
-              <span>{wt('wrapped.share')}</span>
-            </button>
+            <div className="wr-share-root" ref={floatShareRef}>
+              <button className="wrapped-share-float" onClick={(e) => { e.stopPropagation(); setShareOpenFloat((v) => !v); }} aria-label={wt('wrapped.share')}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+                  <path d="M8.6 13.5l6.8 3.9M15.4 6.6L8.6 10.5" />
+                </svg>
+                <span>{wt('wrapped.share')}</span>
+              </button>
+              {shareOpenFloat && (
+                <SharePopover
+                  wt={wt}
+                  exportUrl={exportUrl}
+                  onCopyLink={copyLink}
+                  canNativeShare={canNativeShare}
+                  onNativeShare={nativeShare}
+                  onNavigateExport={navigateToExport}
+                  align="float"
+                />
+              )}
+            </div>
           </>
         )}
       </div>

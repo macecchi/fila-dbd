@@ -4,6 +4,7 @@ export {
   getKillerPortrait,
   getSurvivorPortrait,
   getCharacterPortrait,
+  getCharacterPortraitLarge,
   tryLocalMatch,
   isWholeMessageMatch,
 } from '@filadbd/shared';

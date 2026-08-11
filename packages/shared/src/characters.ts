@@ -121,6 +121,17 @@ export function getCharacterPortrait(name: string, type?: 'killer' | 'survivor')
     return getKillerPortrait(name) ?? getSurvivorPortrait(name);
 }
 
+// 512x512 portrait variant used by the Wrapped page/export, where the small
+// 200x200 queue avatars would look pixelated at the larger render sizes.
+// Same filename as the small portrait, under a `lg/` subdir — callers should
+// fall back to `getCharacterPortrait` (e.g. via <img onError>) if the large
+// file is missing for a given character.
+export function getCharacterPortraitLarge(name: string, type?: 'killer' | 'survivor'): string | undefined {
+    const portrait = getCharacterPortrait(name, type);
+    if (!portrait) return undefined;
+    return portrait.replace('/portraits/', '/portraits/lg/');
+}
+
 const GENERIC_SURVIVOR_PATTERNS = [
     /\b(?:jog[aue]|uma?)\s+(?:de\s+)?surv(?:ivor)?(?:zinho|zinha)?\b/i,
     /\b(?:de\s+)?surv(?:ivor)?(?:zinho|zinha)?\b/i,

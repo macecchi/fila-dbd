@@ -1,0 +1,119 @@
+/* Wrapped video export ("Video for your Stories") — the phone-preview canvas
+   and its controls. Loaded only by the lazy WrappedExportPage chunk, on top
+   of wrapped.css (shares the .wrapped-root/.wrapped-fog/.wr-eyebrow chrome). */
+
+.wx-stage {
+  justify-content: center;
+  overflow-y: auto;
+}
+
+.wx-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.1rem;
+  width: 100%;
+  max-width: 420px;
+  margin: auto;
+  padding: 2.5rem 0;
+}
+
+.wx-eyebrow { padding-left: 0; }
+.wx-eyebrow::before { display: none; }
+
+.wx-canvas-wrap {
+  position: relative;
+  width: min(78vw, 320px);
+  aspect-ratio: 9 / 16;
+  border-radius: 22px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  background: #07060a;
+}
+
+.wx-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.wx-canvas-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(7, 6, 10, 0.6);
+}
+
+.wx-generate-btn {
+  width: 100%;
+  max-width: 280px;
+}
+
+.wx-generate-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+  box-shadow: none;
+}
+
+.wx-progress {
+  width: 100%;
+  max-width: 280px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(236, 229, 216, 0.14);
+  overflow: hidden;
+}
+
+.wx-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--w-gold, #c4a063), var(--w-bone, #ece5d8));
+  transition: width 0.12s linear;
+}
+
+.wx-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  text-align: center;
+}
+
+.wx-result-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--w-bone, var(--text));
+}
+
+.wx-result-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  max-width: 280px;
+}
+
+.wx-result-actions a.wrapped-share-btn {
+  text-decoration: none;
+  display: inline-block;
+  text-align: center;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.wx-secondary-btn {
+  background: transparent;
+  border: 1px solid var(--border-light);
+  box-shadow: none;
+  width: 100%;
+}
+
+.wx-hint {
+  max-width: 32ch;
+  margin: 0;
+  font-size: 0.78rem;
+}

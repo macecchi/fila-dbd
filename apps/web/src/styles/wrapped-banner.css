@@ -1,0 +1,91 @@
+/* Retrospectiva discovery banner on the channel page. Eager but tiny — the
+   wrapped page itself stays in its lazy chunk. */
+
+.wrapped-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.9rem auto 0;
+  max-width: var(--content-max-width, 1200px);
+  padding: 0.65rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  background:
+    radial-gradient(120% 160% at 0% 50%, rgba(139, 92, 246, 0.16), transparent 55%),
+    radial-gradient(120% 160% at 100% 50%, rgba(196, 160, 99, 0.12), transparent 55%),
+    rgba(20, 17, 26, 0.85);
+  animation: wrapped-banner-in 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes wrapped-banner-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.wrapped-banner--muted {
+  border-color: var(--border);
+  background: rgba(20, 17, 26, 0.6);
+}
+
+.wrapped-banner--muted .wrapped-banner-text { color: var(--text-muted); }
+
+.wrapped-banner-flame {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+}
+
+.wrapped-banner-flame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 8px rgba(139, 92, 246, 0.5));
+}
+
+.wrapped-banner-text {
+  flex: 1;
+  font-size: 0.88rem;
+  color: var(--text);
+  min-width: 0;
+}
+
+.wrapped-banner-cta {
+  flex-shrink: 0;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 0.4rem 1rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 2px 14px rgba(139, 92, 246, 0.35);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.wrapped-banner-cta:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 18px rgba(139, 92, 246, 0.5);
+}
+
+.wrapped-banner-dismiss {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 0.25rem;
+  border-radius: 6px;
+  transition: color 0.15s ease;
+}
+
+.wrapped-banner-dismiss:hover { color: var(--text); }
+
+@media (max-width: 640px) {
+  .wrapped-banner { flex-wrap: wrap; }
+  .wrapped-banner-text { flex-basis: calc(100% - 5rem); }
+  .wrapped-banner-cta { margin-left: 2.4rem; }
+}
