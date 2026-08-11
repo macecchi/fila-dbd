@@ -1,6 +1,6 @@
 ---
 name: update-characters
-description: Check the Dead by Daylight wiki for newly announced characters (chapters/DLCs) and add any missing ones to the character base, including killer portraits. Use when asked to update/sync the character database or check for new DBD characters.
+description: Check the Dead by Daylight wiki for new playable characters (released or on the PTB) and add any missing ones to the character base, including killer portraits. Use when asked to update/sync the character database or check for new DBD characters.
 ---
 
 # Update DBD character base from the wiki
@@ -9,15 +9,16 @@ Adds newly announced Dead by Daylight characters to `packages/shared/src/charact
 
 ## 1. Find new characters
 
-1. Fetch https://deadbydaylight.wiki.gg/wiki/Characters (the official wiki; ignore fandom.com mirrors) and list all killers and survivors, including upcoming/announced chapters. Also check https://deadbydaylight.wiki.gg/wiki/Chapters for unreleased chapters — characters should be added as soon as they are announced, before release.
-2. Compare against the `CHARACTERS` object in `packages/shared/src/characters.ts`. Note the naming convention: killer names drop the "The" prefix (`Trapper`, `Slasher`) unless the bare name would be too generic to match safely (`The First`).
-3. If nothing is missing, stop and report "character base is up to date".
+1. Fetch https://deadbydaylight.wiki.gg/wiki/Characters (the official wiki; ignore fandom.com mirrors) and list all killers and survivors. Also check https://deadbydaylight.wiki.gg/wiki/Chapters for recent/upcoming chapters.
+2. **Only include characters that are playable**: released, or currently on the PTB (Player Test Build). Skip characters that are merely announced/teased — viewers can't request to play what doesn't exist yet, and announced details (names, titles, portraits) often change before release. A chapter's wiki page states its release date and PTB status; when in doubt, treat a character with no PTB date and a release date more than ~3 weeks away as announced-only and skip it.
+3. Compare the playable set against the `CHARACTERS` object in `packages/shared/src/characters.ts`. Note the naming convention: killer names drop the "The" prefix (`Trapper`, `Slasher`) unless the bare name would be too generic to match safely (`The First`).
+4. If nothing is missing, stop and report "character base is up to date".
 
 ## 2. Add entries
 
 For each new character, follow the existing entry style:
 
-- **Killers**: `{ name, aliases, portrait }`. Aliases should include: the official PT-BR localized name (the userbase is Brazilian — check the wiki or use the obvious translation, e.g. Judgment → "Julgamento"), common community nicknames, licensed-character real names (e.g. "Jason Voorhees"), and frequent misspellings (e.g. "Judgement").
+- **Killers**: `{ name, aliases, portrait }`. Aliases should include: the official PT-BR localized name (the userbase is Brazilian — check the wiki or use the obvious translation, e.g. Judgment → "Julgamento"), common community nicknames, licensed-character real names (e.g. "Jason Voorhees"), and frequent misspellings (e.g. "Judgement"). Avoid aliases that are everyday words in English or Portuguese chat (e.g. "Art", "Campeão") — matching is word-boundary based and such aliases cause false positives on ordinary messages.
 - **Survivors**: `{ name, aliases }`. Aliases are usually empty for originals; add well-known alternate names for licensed characters (e.g. Eleven → "Jane Hopper").
 - Append at the end of the respective array, preserving release order.
 
