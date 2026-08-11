@@ -47,6 +47,10 @@ You need to keep the site open to receive requests.
 - Select request ordering by arrival order or by priority
 - **+** button adds a manual request
 
+#### Retrospectiva (Wrapped)
+
+A Spotify-Wrapped-style recap of your queue, generated per edition (first edition covers everything up to July 2026). Open it from the menu ("Retrospectiva") or at `/:channel/wrapped`. It compiles your most requested killers and survivors, top requesters, peak months, and AI-written highlights personalized to your community (including a hall of fame of the funniest usernames). Money stats appear only to the channel owner, with amounts hidden by default. The wrapped is written in a single language (Portuguese or English) that you pick when generating it — every viewer sees it in that language. The page is public once generated — share the link with your community.
+
 #### Sources panel
 
 Enable/disable each source individually at any time:
@@ -210,6 +214,10 @@ Use o nosso [Discord](https://discord.gg/6pY7Efhxd) ou o próprio GitHub para ma
 - Arraste para reordenar manualmente
 - Selecione a ordenação de pedidos por fila de chegada ou por prioridade
 - Botão **+** adiciona pedido manual
+
+#### Retrospectiva (Wrapped)
+
+Um recap da sua fila no estilo Spotify Wrapped, gerado por edição (a primeira edição cobre tudo até julho de 2026). Abra pelo menu ("Retrospectiva") ou em `/:canal/wrapped`. Ela compila seus killers e sobreviventes mais pedidos, quem mais pediu, meses de pico e destaques escritos por IA personalizados para a sua comunidade (incluindo um hall da fama dos nomes de usuário mais engraçados). Estatísticas de dinheiro aparecem só para o dono do canal, com valores ocultos por padrão. A retrospectiva é escrita em um único idioma (português ou inglês) que você escolhe na hora de gerar — todo mundo vê nesse idioma. A página fica pública depois de gerada — compartilhe o link com a sua comunidade.
 
 #### Painel de fontes
 

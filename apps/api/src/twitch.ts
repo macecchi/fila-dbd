@@ -92,6 +92,35 @@ export async function fetchStreams(logins: string[], token: string, clientId: st
   }));
 }
 
+// Recent VOD (archive) thumbnails for a channel — visual texture for the
+// Wrapped slides. Best-effort: any failure returns [].
+export async function fetchRecentVodThumbs(
+  login: string,
+  token: string,
+  clientId: string,
+  count = 3
+): Promise<string[]> {
+  try {
+    const userRes = await fetch(`https://api.twitch.tv/helix/users?login=${login}`, { headers: helixHeaders(token, clientId) });
+    if (!userRes.ok) return [];
+    const userData = await userRes.json() as { data: Array<{ id: string }> };
+    const userId = userData.data[0]?.id;
+    if (!userId) return [];
+
+    const vodRes = await fetch(
+      `https://api.twitch.tv/helix/videos?user_id=${userId}&type=archive&first=${count}`,
+      { headers: helixHeaders(token, clientId) }
+    );
+    if (!vodRes.ok) return [];
+    const vodData = await vodRes.json() as { data: Array<{ thumbnail_url: string }> };
+    return vodData.data
+      .map((v) => v.thumbnail_url.replace("%{width}", "640").replace("%{height}", "360"))
+      .filter((u) => u.length > 0);
+  } catch {
+    return [];
+  }
+}
+
 export function cacheProfiles(db: D1Database, profiles: TwitchProfile[], ctx: ExecutionContext) {
   if (profiles.length === 0) return;
   const statements = profiles.map((p) =>

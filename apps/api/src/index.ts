@@ -4,8 +4,10 @@ import { sign } from "hono/jwt";
 import { Twitch } from "arctic";
 import { verifyJwt, type JwtPayload } from "./jwt";
 import { extractCharacters } from "./gemini";
-import type { RequestExtraType } from "@filadbd/shared";
-import { getAppToken, fetchProfiles, fetchStreams, cacheProfiles, sendChatMessage, checkBotIsMod } from "./twitch";
+import { computeWrappedStats, generateWrappedNarrative } from "./wrapped";
+import type { RequestExtraType, WrappedPayload, WrappedLanguage } from "@filadbd/shared";
+import { getWrappedEdition, wrappedEditionLabel, WRAPPED_MIN_REQUESTS } from "@filadbd/shared";
+import { getAppToken, fetchProfiles, fetchStreams, fetchRecentVodThumbs, cacheProfiles, sendChatMessage, checkBotIsMod } from "./twitch";
 
 const BATCH_CHUNK_SIZE = 80;
 
@@ -314,6 +316,122 @@ api.get("/rooms/:roomId/requests", async (c) => {
   }));
 
   return c.json({ requests });
+});
+
+// ============ WRAPPED (Retrospectiva) ============
+
+const DAILY_WRAPPED_GENERATE_LIMIT = 5;
+
+// GET /api/wrapped/:edition — owner's full payload (includes private money stats)
+api.get("/wrapped/:edition", async (c) => {
+  const user = c.get("jwtPayload");
+  const roomId = user.login.toLowerCase();
+  const edition = c.req.param("edition");
+
+  const row = await c.env.DB.prepare(
+    "SELECT payload FROM wrapped WHERE room_id = ? AND edition = ?"
+  ).bind(roomId, edition).first<{ payload: string }>();
+
+  if (!row) return c.json({ error: "not_generated" }, 404);
+  return c.json({ wrapped: JSON.parse(row.payload) as WrappedPayload });
+});
+
+// POST /api/wrapped/:edition/generate — compute stats, run the LLM narrative,
+// cache in D1, return the full payload. Owner-only (room = JWT login).
+api.post("/wrapped/:edition/generate", async (c) => {
+  const user = c.get("jwtPayload");
+  const roomId = user.login.toLowerCase();
+  const editionId = c.req.param("edition");
+
+  const edition = getWrappedEdition(editionId);
+  if (!edition) return c.json({ error: "unknown_edition" }, 400);
+
+  // The whole retrospective (narrative + UI labels) renders in one language,
+  // picked by the streamer at generation time and baked into the payload.
+  const body = await c.req.json().catch(() => ({})) as { language?: string };
+  const language: WrappedLanguage = body.language === "en" ? "en" : "pt-BR";
+
+  // Per-room daily generation limit (each run is a Gemini call)
+  const today = new Date().toISOString().slice(0, 10);
+  const rateLimitKey = `ratelimit:wrapped:${roomId}:${today}`;
+  const currentCount = parseInt((await c.env.CACHE.get(rateLimitKey)) || "0", 10);
+  if (currentCount >= DAILY_WRAPPED_GENERATE_LIMIT) {
+    return c.json({ error: "daily_limit_exceeded", limit: DAILY_WRAPPED_GENERATE_LIMIT }, 429);
+  }
+
+  const { stats, priv, sampleMessages, requesterNames } = await computeWrappedStats(c.env.DB, roomId, edition);
+
+  if (stats.totalRequests < WRAPPED_MIN_REQUESTS) {
+    return c.json({ error: "not_enough_data", minRequests: WRAPPED_MIN_REQUESTS, totalRequests: stats.totalRequests }, 422);
+  }
+
+  const room = await c.env.DB.prepare(
+    "SELECT display_name, avatar_url, banner_url FROM rooms WHERE id = ?"
+  ).bind(roomId).first<{ display_name: string | null; avatar_url: string | null; banner_url: string | null }>();
+
+  const channelName = room?.display_name ?? user.display_name ?? roomId;
+  console.log(`[wrapped] Generating ${editionId} for ${roomId} (${stats.totalRequests} requests)`);
+
+  // Narrative + Twitch media (VOD thumbnails for slide texture) in parallel.
+  const token = await getAppToken(c.env);
+  const [narrative, vodThumbs] = await Promise.all([
+    generateWrappedNarrative(channelName, stats, priv, sampleMessages, requesterNames, c.env.GEMINI_API_KEY, language),
+    token ? fetchRecentVodThumbs(roomId, token, c.env.TWITCH_CLIENT_ID) : Promise.resolve([]),
+  ]);
+
+  // Best-effort Twitch avatars for featured community members. Donor names are
+  // free text (donation platforms), so only names that look like real Twitch
+  // logins get resolved; missing entries simply have no avatar.
+  let userAvatars: Record<string, string> = {};
+  if (token) {
+    const featured = [
+      ...stats.topRequesters.map((r) => r.donor),
+      ...priv.topDonors.map((d) => d.donor),
+      ...narrative.funniestNames.map((f) => f.name),
+      ...(stats.loyalFan ? [stats.loyalFan.donor] : []),
+    ];
+    const logins = [...new Set(
+      featured.map((n) => n.trim().toLowerCase()).filter((n) => /^[a-z0-9_]{3,25}$/.test(n))
+    )].slice(0, 30);
+    try {
+      const profiles = await fetchProfiles(logins, token, c.env.TWITCH_CLIENT_ID);
+      userAvatars = Object.fromEntries(profiles.filter((p) => p.avatar_url).map((p) => [p.login, p.avatar_url]));
+    } catch {
+      // avatars are decoration — never fail generation over them
+    }
+  }
+
+  const payload: WrappedPayload = {
+    edition: edition.id,
+    editionLabel: wrappedEditionLabel(edition, language),
+    language,
+    channel: {
+      login: roomId,
+      displayName: channelName,
+      avatarUrl: room?.avatar_url ?? user.profile_image_url ?? null,
+      bannerUrl: room?.banner_url ?? null,
+    },
+    media: { vodThumbs },
+    userAvatars,
+    generatedAt: new Date().toISOString(),
+    stats,
+    narrative,
+    private: priv,
+  };
+
+  await c.env.DB.prepare(
+    `INSERT INTO wrapped (room_id, edition, payload, generated_at) VALUES (?, ?, ?, datetime('now'))
+     ON CONFLICT (room_id, edition) DO UPDATE SET payload = excluded.payload, generated_at = datetime('now')`
+  ).bind(roomId, edition.id, JSON.stringify(payload)).run();
+
+  const putPromise = c.env.CACHE.put(rateLimitKey, String(currentCount + 1), { expirationTtl: 86400 });
+  try {
+    c.executionCtx.waitUntil(putPromise);
+  } catch {
+    await putPromise;
+  }
+
+  return c.json({ wrapped: payload });
 });
 
 app.route("/api", api);
@@ -679,6 +797,22 @@ app.get("/rooms/active", async (c) => {
   }
 
   return c.json(response);
+});
+
+// GET /rooms/:roomId/wrapped/:edition — public wrapped payload, money stats stripped
+app.get("/rooms/:roomId/wrapped/:edition", async (c) => {
+  const roomId = c.req.param("roomId").toLowerCase();
+  const edition = c.req.param("edition");
+
+  const row = await c.env.DB.prepare(
+    "SELECT payload FROM wrapped WHERE room_id = ? AND edition = ?"
+  ).bind(roomId, edition).first<{ payload: string }>();
+
+  if (!row) return c.json({ error: "not_generated" }, 404);
+
+  const payload = JSON.parse(row.payload) as WrappedPayload;
+  delete payload.private;
+  return c.json({ wrapped: payload });
 });
 
 app.get("/rooms/:roomId", async (c) => {

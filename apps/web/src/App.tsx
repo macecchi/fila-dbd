@@ -25,6 +25,7 @@ const ManualEntry = lazyWithReload(() => import('./components/ManualEntry').then
 const ImportRequestsDialog = lazyWithReload(() => import('./components/ImportRequestsDialog').then((m) => ({ default: m.ImportRequestsDialog })));
 const VODSelectionDialog = lazyWithReload(() => import('./components/VODSelectionDialog').then((m) => ({ default: m.VODSelectionDialog })));
 const RequestsReviewDialog = lazyWithReload(() => import('./components/RequestsReviewDialog').then((m) => ({ default: m.RequestsReviewDialog })));
+const WrappedPage = lazyWithReload(() => import('./components/wrapped/WrappedPage').then((m) => ({ default: m.WrappedPage })));
 
 // True once `value` has ever been true. Defers mounting a lazy dialog until its
 // first open, then keeps it mounted so close/exit transitions still play.
@@ -59,6 +60,8 @@ const getChannelFromPath = () => {
   if (isAuthCallback()) return null;
   return getPathSegments()[0] || null;
 };
+
+const isWrappedPath = () => !isAuthCallback() && getPathSegments()[1] === 'wrapped';
 
 const isDebugMode = () => window.location.hash === '#debug' || window.location.hash === '#debug=true';
 
@@ -525,6 +528,7 @@ function ChannelApp() {
 }
 
 export function App() {
+  const [wrapped, setWrapped] = useState<boolean>(isWrappedPath);
   const [channel, setChannel] = useState<string | null>(() => {
     // Migrate hash routes to path routes
     if (window.location.hash.startsWith('#/')) {
@@ -569,6 +573,7 @@ export function App() {
   useEffect(() => {
     const syncChannel = () => {
       const pathChannel = getChannelFromPath();
+      setWrapped(isWrappedPath());
       if (pathChannel) {
         const ch = pathChannel.toLowerCase();
         setChannel(ch);
@@ -594,6 +599,7 @@ export function App() {
 
   if (authPending) return null;
   if (!channel) return <Suspense fallback={null}><LandingPage /></Suspense>;
+  if (wrapped) return <Suspense fallback={null}><WrappedPage channel={channel} /></Suspense>;
 
   return (
     <ChannelProvider channel={channel}>

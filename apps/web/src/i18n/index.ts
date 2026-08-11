@@ -38,12 +38,19 @@ function setModuleLocale(locale: Locale) {
 type TranslationKey = keyof TranslationKeys;
 
 export function t(key: TranslationKey, params?: Record<string, string | number>): string {
-  let str: string = currentTranslations[key] ?? ptBR[key] ?? key;
+  return tLocale(currentLocale, key, params);
+}
+
+// Translate in an explicit locale, ignoring the app-wide one. Used by the
+// Wrapped page, which renders in the language baked into its payload.
+export function tLocale(locale: Locale, key: TranslationKey, params?: Record<string, string | number>): string {
+  const table = translations[locale];
+  let str: string = table[key] ?? ptBR[key] ?? key;
 
   // Pluralization: if count param provided and !== 1, try _plural key
   if (params?.count !== undefined && params.count !== 1) {
     const pluralKey = (key + '_plural') as TranslationKey;
-    const plural = currentTranslations[pluralKey] ?? ptBR[pluralKey];
+    const plural = table[pluralKey] ?? ptBR[pluralKey];
     if (plural) str = plural;
   }
 

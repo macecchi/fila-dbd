@@ -16,7 +16,7 @@ Before and after each feature or refactoring, evaluate how changes impact existi
 
 The web app is tuned for fast initial load. When modifying it, preserve these invariants and apply the same patterns to new code:
 
-- **Bundle** (`vite.config.ts` `manualChunks`): each major dep gets its own chunk (react, react-dom, zustand, partysocket, sonner), build target `esnext`. Keep the channel view (`ChannelApp` + its components) eager in the main entry; `LandingPage`, dialogs, debug panel, and `services/vod` stay lazy. New heavy off-first-paint feature → lazy-load it. New major dep → add a `manualChunks` entry.
+- **Bundle** (`vite.config.ts` `manualChunks`): each major dep gets its own chunk (react, react-dom, zustand, partysocket, sonner), build target `esnext`. Keep the channel view (`ChannelApp` + its components) eager in the main entry; `LandingPage`, dialogs, debug panel, `services/vod`, and the Wrapped page (`components/wrapped/` + `styles/wrapped.css` + `services/wrapped.ts`, route `/:channel/wrapped`) stay lazy. New heavy off-first-paint feature → lazy-load it. New major dep → add a `manualChunks` entry.
 - **Fonts**: self-hosted woff2, preloaded in `index.html`. Do NOT reintroduce Google Fonts (render-blocking).
 - **Critical CSS**: inlined in `index.html` `<head>` to paint the dark shell pre-bundle; keep in sync with the bg/text tokens in `base.css` to avoid reflow.
 - **Instant paint**: the queue hydrates from the `fila-dbd-queue` localStorage cache and mutations (add/toggleDone/reorder) are optimistic. New persisted client state → version the key + defensive reads (`store/queueCache.ts`).
@@ -84,6 +84,7 @@ bun run deploy:party # Deploy PartyKit
 **D1 database (persistent store):**
 - `rooms` table — flattened sources settings, Twitch profile cache (`avatar_url`, `banner_url`), room `status`
 - `requests` table — one row per request with `position` for ordering
+- `wrapped` table — one generated Retrospectiva payload per room per edition (JSON in `payload`). Stats are SQL aggregations over `requests`; the narrative layer (persona, captions, dynamic highlights, funniest usernames) comes from one Gemini call at generation time. The whole retrospective is single-language: the owner picks pt-BR or en on the generate CTA, the narrative is written in it, and the page renders every UI label from `payload.language` (via `tLocale`) regardless of the viewer's app locale — payloads generated before language support have no `language` field and default to pt-BR. The stored payload includes the private money section; the public endpoint (`GET /rooms/:roomId/wrapped/:edition`) strips it, the owner endpoints (`GET/POST /api/wrapped/:edition[/generate]`) return it. Editions are defined in `packages/shared/src/wrapped.ts` (`WRAPPED_EDITIONS`) — add a new entry there to open the next edition.
 - Debounced sync (10s) for requests, immediate for sources and status
 - Internal auth via `INTERNAL_API_SECRET` shared between Worker and PartyKit
 - ⚠️ **100 bound params per statement** — D1 free plan limit. Full sync's `NOT IN` clause fails at ≥100 requests. See Known Issues below.

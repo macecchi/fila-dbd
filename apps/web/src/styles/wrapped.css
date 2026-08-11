@@ -1,0 +1,1481 @@
+/* Wrapped ("Retrospectiva") — full-screen story UI, loaded with the lazy
+   WrappedPage chunk.
+
+   Design system: every slide is a page of the Entity's archive — a poster,
+   not a card. Three type voices in DM Sans only:
+     POSTER   800, uppercase, tight tracking, gradient-clipped, huge
+     WHISPER  300, 0.35em tracking, tiny uppercase eyebrows
+     BODY     400–500, sentence case
+   Ranks I–V are tinted with DBD rarity colors (iridescent → purple → blue
+   → green → yellow) — structure borrowed from the game itself. */
+
+.wrapped-root {
+  /* Palette */
+  --w-void: #07060a;
+  --w-bone: #ece5d8;
+  --w-ember: #ff6a3c;
+  --w-blood: #7d1f2b;
+  --w-entity: #8b5cf6;
+  --w-gold: #c4a063;
+  --w-hope: #7fb3ff;
+  /* Rarity ramp (rank 1 = iridescent … rank 5 = yellow) */
+  --rar-1: #ff6a5c;
+  --rar-2: #b18cf5;
+  --rar-3: #6f9fe8;
+  --rar-4: #7db87d;
+  --rar-5: #cfae55;
+
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  /* The fog photo itself lives in .wrapped-fog (it pans); root is the base. */
+  background: #0a080c;
+  color: var(--text);
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  /* Every digit the same width — numbers never jitter or misalign. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* Drifting fog — the actual fog photo, oversized and slowly panning from one
+   side to the other like the game's main menu, with the retrospective tint
+   (ember rising from below, entity violet from above) layered on top of it. */
+.wrapped-fog {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* The photo: 120% wide, panning its 20% excess left↔right. translateX % is
+   relative to the layer's own width, so -16.67% of 120% = the full excess. */
+.wrapped-fog::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 120%;
+  background: url('/images/bg.webp') center / cover no-repeat;
+  animation: wrapped-fog-pan 45s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+/* Tint + darkening for text legibility, above the moving photo. */
+.wrapped-fog::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 85% at 50% 115%, rgba(120, 32, 42, 0.5), transparent 62%),
+    radial-gradient(90% 60% at 50% -15%, rgba(139, 92, 246, 0.28), transparent 60%),
+    linear-gradient(rgba(6, 5, 8, 0.72), rgba(10, 8, 12, 0.78));
+}
+
+@keyframes wrapped-fog-pan {
+  from { transform: translateX(0); }
+  to { transform: translateX(-16.67%); }
+}
+
+.wrapped-stage {
+  position: relative;
+  /* Own stacking context: slides use z-index:-1 ghost layers (banner, giant
+     numerals, VOD backdrop); without isolation they'd sink below the fog. */
+  isolation: isolate;
+  height: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  padding: 3.4rem clamp(1.25rem, 5vw, 4rem) 2.5rem;
+  box-sizing: border-box;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.wrapped-stage::-webkit-scrollbar { display: none; }
+
+/* Slides taller than the viewport scroll; shorter ones stay centered. */
+.wrapped-slide {
+  margin: auto 0;
+  padding: 0.5rem 0 2.5rem;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+/* --- Progress (pinned to the viewport, above scrolling content) --- */
+
+.wrapped-progress {
+  position: fixed;
+  top: 1.1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(calc(100% - 2rem), 460px);
+  display: flex;
+  gap: 4px;
+  z-index: 2;
+}
+
+.wrapped-progress-seg {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(236, 229, 216, 0.14);
+  overflow: hidden;
+  position: relative;
+}
+
+.wrapped-progress-seg.past { background: rgba(236, 229, 216, 0.65); }
+
+.wrapped-progress-seg.active::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--w-gold), var(--w-bone));
+  transform-origin: left;
+  animation: wrapped-seg-fill 0.4s ease-out forwards;
+}
+
+@keyframes wrapped-seg-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* ============================================================
+   Poster base — each slide composes its own asymmetric page
+   ============================================================ */
+
+.wr-poster {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  gap: 1.1rem;
+  animation: wrapped-slide-in 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes wrapped-slide-in {
+  from { opacity: 0; transform: translateY(18px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Staggered blurred rise for each poster block. */
+.wr-poster > * {
+  animation: wrapped-item-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.wr-poster > *:nth-child(2) { animation-delay: 0.1s; }
+.wr-poster > *:nth-child(3) { animation-delay: 0.22s; }
+.wr-poster > *:nth-child(4) { animation-delay: 0.36s; }
+.wr-poster > *:nth-child(5) { animation-delay: 0.5s; }
+.wr-poster > *:nth-child(6) { animation-delay: 0.64s; }
+.wr-poster > *:nth-child(7) { animation-delay: 0.78s; }
+
+@keyframes wrapped-item-in {
+  from { opacity: 0; transform: translateY(14px); filter: blur(3px); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+
+/* WHISPER voice — the archive's small print. */
+.wr-eyebrow {
+  font-size: 0.72rem;
+  font-weight: 300;
+  letter-spacing: 0.38em;
+  text-transform: uppercase;
+  color: var(--w-gold);
+  padding-left: 0.1em;
+}
+
+.wr-eyebrow::before {
+  content: '';
+  display: inline-block;
+  width: 2.2em;
+  height: 1px;
+  background: linear-gradient(90deg, var(--w-gold), transparent);
+  vertical-align: middle;
+  margin-right: 0.9em;
+  opacity: 0.7;
+}
+
+/* BODY voice */
+.wr-body {
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 0;
+  max-width: 46ch;
+}
+
+.wr-body strong { color: var(--text); }
+
+/* Digit-by-digit pop-in (transitions.dev number pop-in: 500ms, 8px rise,
+   2px blur, 70ms stagger via inline animation-delay). */
+.wr-pop-num {
+  display: inline-flex;
+  align-items: baseline;
+  position: relative;
+}
+
+/* Count-up layout stability: the sizer reserves the final value's width
+   (invisible), the live digits animate in an overlay above it. */
+.wr-pop-sizer { visibility: hidden; }
+
+.wr-pop-live {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: inline-flex;
+  align-items: baseline;
+  white-space: pre;
+}
+
+/* No will-change and no `both` fill here: a persistent layer promotion or a
+   lingering end-state filter on the digits breaks background-clip:text on
+   gradient-clipped ancestors (.wr-giant-number etc) — text goes invisible. */
+.wrapped-digit {
+  display: inline-block;
+  animation: wrapped-digit-in 500ms cubic-bezier(0.34, 1.45, 0.64, 1) backwards;
+}
+
+@keyframes wrapped-digit-in {
+  from { opacity: 0; transform: translateY(8px); filter: blur(2px); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+
+/* Count-up ticks re-pop each changed digit — snappier than the entry pop so
+   digits keep up with the ~90ms count interval. */
+.wrapped-digit--tick { animation-duration: 240ms; }
+
+/* Shimmer sweep for loading / generating status lines. */
+.wrapped-shimmer {
+  background: linear-gradient(100deg, var(--text-muted) 40%, #f0f0f0 50%, var(--text-muted) 60%);
+  background-size: 400% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: wrapped-shimmer 2s linear infinite;
+}
+
+@keyframes wrapped-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+.wrapped-hint {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 300;
+}
+
+.wrapped-tap-hint {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 2rem 0 0.9rem;
+  background: linear-gradient(transparent, rgba(10, 10, 12, 0.9));
+  text-align: center;
+  animation: wrapped-pulse 2.4s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+
+@keyframes wrapped-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.85; }
+}
+
+/* ============================================================
+   Intro — the tome cover
+   ============================================================ */
+
+.wr-intro { gap: 1.4rem; }
+
+.wr-intro-banner {
+  position: absolute;
+  top: 50%;
+  right: -6%;
+  transform: translateY(-56%);
+  width: min(70vw, 620px);
+  height: 320px;
+  background-size: cover;
+  background-position: center;
+  opacity: 0.18;
+  filter: saturate(0.7);
+  mask-image: radial-gradient(65% 60% at 50% 50%, #000 25%, transparent 74%);
+  -webkit-mask-image: radial-gradient(65% 60% at 50% 50%, #000 25%, transparent 74%);
+  pointer-events: none;
+  z-index: -1;
+  animation: none;
+}
+
+/* Edition number as an enormous ghost glyph behind the cover. */
+.wr-intro-year {
+  position: absolute;
+  right: -0.05em;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: clamp(9rem, 34vw, 24rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.05em;
+  color: transparent;
+  -webkit-text-stroke: 1px rgba(236, 229, 216, 0.09);
+  pointer-events: none;
+  z-index: -1;
+  white-space: nowrap;
+  /* Centered via transform — the poster's entrance animation would override
+     it mid-flight and snap back at the end (visible jump). Opt out. */
+  animation: none;
+}
+
+.wr-intro-head {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.wr-intro-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 1px solid rgba(236, 229, 216, 0.3);
+  box-shadow: 0 0 34px rgba(139, 92, 246, 0.45);
+}
+
+.wr-intro-head .wr-eyebrow {
+  font-size: 0.9rem;
+  letter-spacing: 0.3em;
+  color: var(--w-bone);
+}
+
+.wr-intro-head .wr-eyebrow::before { display: none; }
+
+.wr-intro-title {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  text-transform: uppercase;
+}
+
+.wr-intro-title-name {
+  font-size: clamp(2.6rem, 9.5vw, 7.2rem);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.035em;
+  background: linear-gradient(115deg, var(--w-bone) 25%, var(--w-gold) 60%, var(--w-entity) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.wr-intro-title-no {
+  font-size: clamp(1.6rem, 4.5vw, 3.4rem);
+  font-weight: 300;
+  letter-spacing: 0.42em;
+  color: var(--w-entity);
+  margin-top: 0.35em;
+}
+
+.wr-intro-caption { max-width: 52ch; }
+
+/* ============================================================
+   Totals — the number is the poster
+   ============================================================ */
+
+.wr-totals { gap: 0.4rem; }
+
+.wr-giant-number {
+  font-size: clamp(6.5rem, 27vw, 19rem);
+  font-weight: 800;
+  line-height: 0.92;
+  letter-spacing: -0.05em;
+  margin-left: -0.04em;
+}
+
+/* Gradient clipped PER DIGIT, not on the group: an animating descendant
+   breaks an ancestor's background-clip:text (digits go invisible while the
+   count-up ticks). The gradient is vertical, so per-digit clips align. */
+.wr-giant-number .wrapped-digit {
+  background-image: linear-gradient(180deg, var(--w-bone) 30%, var(--w-gold) 72%, var(--w-blood) 105%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.wr-totals-label {
+  font-size: clamp(1rem, 2.4vw, 1.5rem);
+  font-weight: 300;
+  letter-spacing: 0.5em;
+  text-transform: uppercase;
+  color: var(--w-bone);
+  margin-top: -0.2rem;
+  display: flex;
+  align-items: baseline;
+  gap: 1.1rem;
+  flex-wrap: wrap;
+}
+
+/* Analyzed period, quiet, beside the label. */
+.wr-totals-period {
+  font-size: 0.62em;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Marginal ledger annotations. */
+.wr-ledger {
+  display: flex;
+  gap: clamp(1.4rem, 5vw, 3.5rem);
+  margin-top: 1.6rem;
+  flex-wrap: wrap;
+}
+
+.wr-ledger-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid rgba(196, 160, 99, 0.35);
+  min-width: 5.5rem;
+}
+
+.wr-ledger-cell strong {
+  font-size: clamp(1.5rem, 3vw, 2.1rem);
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.wr-ledger-cell span {
+  font-size: 0.72rem;
+  font-weight: 300;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.wr-totals .wr-body { margin-top: 1.2rem; }
+
+/* ============================================================
+   Champions — portrait poster, blood vs. hope duotone
+   ============================================================ */
+
+.wr-champ { gap: 0.9rem; }
+
+/* The champion's request count as an enormous ghost figure behind the page. */
+.wr-champ-ghost {
+  position: absolute;
+  top: 42%;
+  right: -0.04em;
+  transform: translateY(-55%);
+  font-size: clamp(11rem, 34vw, 24rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.06em;
+  color: transparent;
+  -webkit-text-stroke: 1px rgba(236, 229, 216, 0.08);
+  pointer-events: none;
+  z-index: -1;
+  /* Same transform-centering vs entrance-animation clash as .wr-intro-year. */
+  animation: none;
+}
+
+.wr-champ-hero {
+  display: flex;
+  align-items: center;
+  gap: clamp(0.6rem, 3vw, 2.2rem);
+  flex-wrap: wrap;
+}
+
+.wr-champ-portrait-wrap {
+  position: relative;
+  width: clamp(190px, 30vw, 300px);
+  height: clamp(190px, 30vw, 300px);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wr-champ--killer .wr-champ-portrait-wrap::before {
+  content: '';
+  position: absolute;
+  inset: -12%;
+  background: radial-gradient(closest-side, rgba(125, 31, 43, 0.8), transparent 72%);
+  animation: wrapped-glow-killer 3s ease-in-out infinite alternate;
+}
+
+.wr-champ--survivor .wr-champ-portrait-wrap::before {
+  content: '';
+  position: absolute;
+  inset: -12%;
+  background: radial-gradient(closest-side, rgba(127, 179, 255, 0.34), transparent 72%);
+}
+
+@keyframes wrapped-glow-killer {
+  from { opacity: 0.75; }
+  to { opacity: 1.1; filter: brightness(1.25); }
+}
+
+.wr-champ-portrait {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 34px rgba(0, 0, 0, 0.85));
+}
+
+.wr-champ-portrait-icon {
+  width: 55%;
+  height: 55%;
+  opacity: 0.95;
+}
+
+/* Name overlaps the portrait's edge — poster type over image. */
+.wr-champ-titleblock {
+  margin-left: clamp(-3.5rem, -6vw, -1rem);
+  z-index: 1;
+  min-width: 0;
+}
+
+.wr-champ-name {
+  margin: 0;
+  font-size: clamp(2.5rem, 7.5vw, 5.6rem);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  text-transform: uppercase;
+  text-shadow: 0 6px 30px rgba(0, 0, 0, 0.9);
+}
+
+.wr-champ--killer .wr-champ-name {
+  background: linear-gradient(120deg, var(--w-bone) 35%, var(--w-ember) 85%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.wr-champ--survivor .wr-champ-name {
+  background: linear-gradient(120deg, var(--w-bone) 35%, var(--w-hope) 85%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.wr-champ-count {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 300;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+.wr-champ--killer .wr-champ-count { color: var(--w-ember); }
+.wr-champ--survivor .wr-champ-count { color: var(--w-hope); }
+
+/* Rarity ladder — runners-up II…V, each rank wears its rarity color. */
+.wr-ladder {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  width: min(100%, 430px);
+  display: flex;
+  flex-direction: column;
+}
+
+.wr-ladder-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.5rem 0.2rem;
+  border-bottom: 1px solid rgba(236, 229, 216, 0.08);
+}
+
+.wr-ladder-row:first-child { border-top: 1px solid rgba(236, 229, 216, 0.08); }
+
+.wr-ladder-pos {
+  font-weight: 800;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  min-width: 2rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.wr-rar-1 .wr-ladder-pos, .wr-rar-1 .wr-board-pos, .wr-rar-1 .wr-rank-bar { color: var(--rar-1); }
+.wr-rar-2 .wr-ladder-pos, .wr-rar-2 .wr-board-pos, .wr-rar-2 .wr-rank-bar { color: var(--rar-2); }
+.wr-rar-3 .wr-ladder-pos, .wr-rar-3 .wr-board-pos, .wr-rar-3 .wr-rank-bar { color: var(--rar-3); }
+.wr-rar-4 .wr-ladder-pos, .wr-rar-4 .wr-board-pos, .wr-rar-4 .wr-rank-bar { color: var(--rar-4); }
+.wr-rar-5 .wr-ladder-pos, .wr-rar-5 .wr-board-pos, .wr-rar-5 .wr-rank-bar { color: var(--rar-5); }
+
+/* Proportional rank bar: rides the row's bottom hairline, sized to the
+   list's max count, tinted by the row's rarity. */
+.wr-rank-bar {
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, currentColor, transparent);
+  opacity: 0.6;
+  transform-origin: left;
+  animation: wr-bar-grow 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.45s backwards;
+  pointer-events: none;
+}
+
+@keyframes wr-bar-grow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* Twitch avatar beside a featured username. */
+.wr-user-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  align-self: center;
+  border: 1px solid rgba(236, 229, 216, 0.18);
+}
+
+.wr-ladder-thumb {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: top;
+  background: radial-gradient(closest-side, rgba(120, 32, 42, 0.5), rgba(0, 0, 0, 0.6));
+  flex-shrink: 0;
+}
+
+.wr-ladder-name {
+  flex: 1;
+  font-size: 0.98rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wr-ladder-count {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.wr-champ-caption { margin-top: 0.4rem; }
+
+/* ============================================================
+   Ratio — split-screen arena; the columns ARE the data
+   ============================================================ */
+
+.wr-ratio { gap: 1.4rem; }
+
+.wr-ratio-arena {
+  display: grid;
+  width: 100%;
+  min-height: clamp(280px, 52vh, 460px);
+  border: 1px solid rgba(236, 229, 216, 0.1);
+  overflow: hidden;
+  /* Columns sweep from the mount-time 50/50 to the real split: a slow,
+     deliberate in-out — eases in, surges, and settles softly. */
+  transition: grid-template-columns 2.4s cubic-bezier(0.85, 0, 0.15, 1);
+}
+
+.wr-ratio-half {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1.2rem clamp(0.9rem, 3vw, 2.4rem);
+  min-width: 0;
+}
+
+.wr-ratio-half--killer {
+  align-items: flex-start;
+  background:
+    radial-gradient(90% 110% at 0% 100%, rgba(125, 31, 43, 0.55), transparent 70%),
+    linear-gradient(100deg, rgba(125, 31, 43, 0.32), rgba(20, 8, 10, 0.25));
+  border-right: 1px solid rgba(236, 229, 216, 0.16);
+}
+
+.wr-ratio-half--survivor {
+  align-items: flex-end;
+  text-align: right;
+  background:
+    radial-gradient(90% 110% at 100% 0%, rgba(59, 96, 158, 0.4), transparent 70%),
+    linear-gradient(260deg, rgba(59, 96, 158, 0.25), rgba(8, 12, 20, 0.2));
+}
+
+.wr-ratio-pct {
+  font-size: clamp(3rem, 11vw, 8.5rem);
+  font-weight: 800;
+  line-height: 0.9;
+  letter-spacing: -0.05em;
+  font-variant-numeric: tabular-nums;
+}
+
+.wr-ratio-pct em {
+  font-style: normal;
+  font-size: 0.38em;
+  font-weight: 300;
+  letter-spacing: 0;
+  vertical-align: 0.12em;
+  margin-left: 0.08em;
+  opacity: 0.75;
+}
+
+.wr-ratio-half--killer .wr-ratio-pct { color: var(--w-ember); }
+.wr-ratio-half--survivor .wr-ratio-pct { color: var(--w-hope); }
+
+.wr-ratio-label {
+  font-size: 0.75rem;
+  font-weight: 300;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--w-bone);
+  opacity: 0.85;
+}
+
+/* ============================================================
+   Requesters — typographic leaderboard ladder
+   ============================================================ */
+
+.wr-requesters { gap: 1.2rem; }
+
+.wr-board {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.wr-board-row {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: clamp(0.7rem, 2vw, 1.4rem);
+  padding: 0.55rem 0;
+  border-bottom: 1px solid rgba(236, 229, 216, 0.08);
+}
+
+.wr-board-row:first-child { border-top: 1px solid rgba(236, 229, 216, 0.08); }
+
+.wr-board-pos {
+  font-weight: 800;
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  min-width: 2.2rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.wr-board-name {
+  flex: 1;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* Type-scale ladder: rank I is enormous, each step quiets down. */
+.wr-board-row:nth-child(1) .wr-board-name { font-size: clamp(1.9rem, 5.4vw, 3.6rem); }
+.wr-board-row:nth-child(2) .wr-board-name { font-size: clamp(1.5rem, 4.2vw, 2.6rem); opacity: 0.95; }
+.wr-board-row:nth-child(3) .wr-board-name { font-size: clamp(1.25rem, 3.4vw, 2rem); opacity: 0.9; }
+.wr-board-row:nth-child(4) .wr-board-name { font-size: clamp(1.1rem, 2.8vw, 1.6rem); opacity: 0.85; }
+.wr-board-row:nth-child(n + 5) .wr-board-name { font-size: clamp(1rem, 2.4vw, 1.3rem); opacity: 0.8; }
+
+.wr-board-count {
+  font-size: 0.8rem;
+  font-weight: 300;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+   Timeline — the peak month as a monument
+   ============================================================ */
+
+.wr-timeline { gap: 1.2rem; }
+
+.wr-vod-backdrop {
+  position: absolute;
+  top: 46%;
+  left: 50%;
+  transform: translate(-50%, -52%);
+  width: min(96%, 760px);
+  height: 340px;
+  background-size: cover;
+  background-position: center;
+  opacity: 0.13;
+  filter: saturate(0.6) blur(1px);
+  mask-image: radial-gradient(60% 55% at 50% 50%, #000 25%, transparent 72%);
+  -webkit-mask-image: radial-gradient(60% 55% at 50% 50%, #000 25%, transparent 72%);
+  pointer-events: none;
+  z-index: -1;
+  animation: none;
+}
+
+.wr-timeline-peak { position: relative; }
+
+.wr-timeline-month {
+  font-size: clamp(3rem, 11vw, 8.5rem);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  text-transform: uppercase;
+  margin-left: -0.04em;
+  background: linear-gradient(120deg, var(--w-bone) 40%, var(--w-entity) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.wr-timeline-year {
+  position: absolute;
+  top: -0.85em;
+  left: 58%;
+  font-size: clamp(2.2rem, 7vw, 5rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: transparent;
+  -webkit-text-stroke: 1px rgba(236, 229, 216, 0.16);
+  pointer-events: none;
+}
+
+.wr-timeline-count {
+  margin-top: 0.7rem;
+  font-size: 0.85rem;
+  font-weight: 300;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--w-gold);
+}
+
+/* Busiest-day annotation, stamped slightly askew like an archive mark. */
+.wr-stamp {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.7rem 1rem;
+  border: 1px solid rgba(196, 160, 99, 0.5);
+  transform: rotate(-2deg);
+  margin-top: 0.6rem;
+}
+
+.wr-stamp-line {
+  font-size: 0.85rem;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.wr-stamp-date {
+  font-size: 0.72rem;
+  font-weight: 300;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--w-gold);
+}
+
+/* ============================================================
+   Funniest names — the stream chat window
+   ============================================================ */
+
+.wr-chat { gap: 1.2rem; }
+
+/* One window per name, popping in one by one; every other window hangs on
+   the opposite side like scattered chat popups. */
+.wr-chat-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: min(100%, 640px);
+}
+
+.wr-chat-window {
+  width: min(100%, 500px);
+  background: rgba(14, 11, 18, 0.82);
+  border: 1px solid rgba(236, 229, 216, 0.1);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  animation: wrapped-item-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.wr-chat-stack .wr-chat-window:nth-child(even) { align-self: flex-end; }
+
+.wr-chat-bar {
+  display: flex;
+  gap: 6px;
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid rgba(236, 229, 216, 0.08);
+  background: rgba(236, 229, 216, 0.03);
+}
+
+.wr-chat-bar i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(236, 229, 216, 0.16);
+}
+
+.wr-chat-bar i:first-child { background: rgba(255, 106, 60, 0.55); }
+
+.wr-chat-lines {
+  display: flex;
+  flex-direction: column;
+  padding: 0.8rem 0.95rem 1rem;
+  gap: 0.75rem;
+}
+
+.wr-chat-line {
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.wr-chat-user {
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.wr-chat-avatar {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  vertical-align: -0.3em;
+  margin-right: 0.4em;
+}
+
+.wr-chat-user::after {
+  content: ': ';
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.wr-chat-msg { color: var(--text-secondary); }
+
+/* ============================================================
+   Highlights — tome pages with ghost chapter numerals
+   ============================================================ */
+
+.wr-highlight {
+  gap: 1.1rem;
+  padding-left: clamp(0rem, 3vw, 2rem);
+  border-left: 1px solid rgba(139, 92, 246, 0.35);
+  min-height: 40vh;
+  justify-content: center;
+}
+
+.wr-perk-mark {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 16px rgba(139, 92, 246, 0.4));
+}
+
+/* Highlight's subject portrait — violet-lit, sitting where the mark goes. */
+.wr-highlight-portrait {
+  width: clamp(110px, 16vw, 160px);
+  height: clamp(110px, 16vw, 160px);
+  object-fit: contain;
+  filter: drop-shadow(0 8px 28px rgba(0, 0, 0, 0.85)) drop-shadow(0 0 24px rgba(139, 92, 246, 0.35));
+}
+
+.wr-highlight-title {
+  margin: 0;
+  font-size: clamp(2rem, 5.6vw, 4.2rem);
+  font-weight: 800;
+  font-style: italic;
+  line-height: 1.02;
+  letter-spacing: -0.025em;
+  max-width: 16ch;
+  /* Italic glyphs overhang their advance width; without this the last letter
+     clips at the box edge (background-clip:text renders nothing outside it). */
+  padding-right: 0.12em;
+  background: linear-gradient(110deg, var(--w-bone) 45%, var(--w-entity) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.wr-highlight-text {
+  font-size: 1.08rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 0;
+  max-width: 44ch;
+}
+
+/* ============================================================
+   Money — the confidential ledger (owner only)
+   ============================================================ */
+
+.wr-money { gap: 0.7rem; }
+
+/* Toggle + confidential stamp side by side. */
+.wr-money-actions {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.wr-money-stamp {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--rar-1);
+  border: 1px solid rgba(255, 106, 92, 0.55);
+  padding: 0.4rem 0.85rem 0.4rem 1.05rem;
+  transform: rotate(-2deg);
+}
+
+.wr-money-amount {
+  font-size: clamp(2.6rem, 9vw, 6.5rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  margin-left: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Same per-digit gradient clip as the giant number (count-up safe). */
+.wr-money-amount:not(.redacted) .wrapped-digit {
+  background-image: linear-gradient(180deg, var(--w-bone) 25%, var(--w-gold) 90%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.wr-money-amount.redacted { letter-spacing: 0.02em; }
+
+.wr-money-label {
+  font-size: 0.8rem;
+  font-weight: 300;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.wr-money-donors {
+  width: min(100%, 460px);
+  margin-top: 0.8rem;
+}
+
+.wr-money-donors-head {
+  font-size: 0.7rem;
+  font-weight: 300;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.wr-money-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.wr-money-list li {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(196, 160, 99, 0.18);
+}
+
+.wr-money-list li:first-child { border-top: 1px solid rgba(196, 160, 99, 0.18); }
+
+.wr-money-donor {
+  font-weight: 600;
+  font-size: 0.98rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Ledger dotted leader between name and amount. */
+.wr-money-leader {
+  flex: 1;
+  border-bottom: 1px dotted rgba(196, 160, 99, 0.4);
+  transform: translateY(-3px);
+  min-width: 1.5rem;
+}
+
+.wr-money-total {
+  color: var(--w-gold);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.wr-money-total.redacted, .wr-money-amount.redacted { color: var(--text-muted); -webkit-text-fill-color: currentColor; background: none; }
+
+.wrapped-money-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(236, 229, 216, 0.07);
+  color: var(--text);
+  border: 1px solid rgba(236, 229, 216, 0.2);
+  border-radius: 999px;
+  padding: 0.5rem 1.1rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.wrapped-money-toggle:hover { background: rgba(236, 229, 216, 0.13); border-color: rgba(236, 229, 216, 0.35); }
+
+/* ============================================================
+   Persona & finale
+   ============================================================ */
+
+.wr-persona {
+  min-height: 55vh;
+  justify-content: center;
+  gap: 1.4rem;
+}
+
+.wr-persona-title {
+  margin: 0;
+  font-size: clamp(2.8rem, 9vw, 7rem);
+  font-weight: 800;
+  line-height: 0.98;
+  letter-spacing: -0.035em;
+  text-transform: uppercase;
+  max-width: 12ch;
+  background: linear-gradient(115deg, var(--rar-1) 0%, var(--w-gold) 30%, var(--w-bone) 52%, var(--w-entity) 80%, var(--w-hope) 100%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: wr-iridescent 7s ease-in-out infinite alternate, wrapped-item-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@keyframes wr-iridescent {
+  from { background-position: 0% 0; }
+  to { background-position: 100% 0; }
+}
+
+.wr-persona-text { max-width: 52ch; font-size: 1.08rem; }
+
+.wr-finale {
+  align-items: center;
+  text-align: center;
+  min-height: 60vh;
+  justify-content: center;
+  gap: 1rem;
+}
+
+/* Campfire glow rising under the finale. */
+.wr-finale::before {
+  content: '';
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 45vh;
+  background: radial-gradient(60% 90% at 50% 108%, rgba(255, 106, 60, 0.22), transparent 70%);
+  pointer-events: none;
+  z-index: -1;
+  animation: wrapped-glow-killer 3.2s ease-in-out infinite alternate;
+}
+
+.wr-finale .wr-eyebrow::before { display: none; }
+
+.wr-emblem {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  opacity: 0.9;
+  filter: drop-shadow(0 4px 20px rgba(120, 32, 42, 0.6));
+}
+
+.wr-finale .wr-emblem {
+  animation: wrapped-emblem-pop 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) 0.2s backwards;
+}
+
+@keyframes wrapped-emblem-pop {
+  from { transform: scale(0.4); opacity: 0; }
+  to { transform: scale(1); opacity: 0.9; }
+}
+
+.wr-finale-title {
+  margin: 0;
+  font-size: clamp(2.2rem, 6.5vw, 4.6rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  text-transform: uppercase;
+  max-width: 15ch;
+  background: linear-gradient(120deg, var(--w-gold), var(--w-bone) 50%, var(--w-entity));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.wr-finale-text { max-width: 46ch; text-align: center; }
+
+.wrapped-finale-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 0.8rem;
+}
+
+.wrapped-share-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 0.75rem 2rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 24px rgba(139, 92, 246, 0.45);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.wrapped-share-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 28px rgba(139, 92, 246, 0.6);
+}
+
+.wrapped-back-link {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.wrapped-back-link:hover { color: var(--text-secondary); }
+
+.wrapped-branding {
+  margin-top: 0.8rem;
+  font-size: 0.78rem;
+  font-weight: 300;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* ============================================================
+   Chrome: close, share, nav, status
+   ============================================================ */
+
+.wrapped-close {
+  position: fixed;
+  top: 1.6rem;
+  left: 1.4rem;
+  z-index: 4;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: rgba(20, 18, 24, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.wrapped-close:hover { color: var(--text); border-color: var(--border-light); }
+
+.wrapped-share-float {
+  position: fixed;
+  bottom: 1.4rem;
+  right: 1.4rem;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: rgba(20, 18, 24, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 0.5rem 0.95rem;
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.wrapped-share-float:hover { color: var(--text); border-color: var(--border-light); }
+
+/* Desktop chevron nav (streamers live on desktop) */
+.wrapped-nav {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 3;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: rgba(20, 18, 24, 0.45);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, opacity 0.2s ease;
+}
+
+.wrapped-nav:hover { color: var(--text); border-color: var(--border-light); }
+.wrapped-nav.prev { left: max(0.9rem, calc(50% - 620px)); }
+.wrapped-nav.next { right: max(0.9rem, calc(50% - 620px)); }
+.wrapped-nav:disabled { opacity: 0; pointer-events: none; }
+
+/* Touch devices navigate by tapping the story itself. */
+@media (hover: none), (max-width: 640px) {
+  .wrapped-nav { display: none; }
+  .wrapped-share-float { bottom: auto; top: 1.6rem; right: 1rem; padding: 0.5rem; }
+  .wrapped-share-float span { display: none; }
+}
+
+/* When the chevrons exist (desktop pointer), keep content clear of them. */
+@media (hover: hover) and (min-width: 641px) {
+  .wrapped-stage { padding-left: max(4.5rem, 5vw); padding-right: max(4.5rem, 5vw); }
+}
+
+/* Status screens (loading / CTA / errors) keep a quiet centered voice. */
+.wrapped-stage > .wrapped-slide-content { margin: auto 0; }
+
+.wrapped-slide-content {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.9rem;
+  animation: wrapped-slide-in 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.wrapped-slide-content > * {
+  animation: wrapped-item-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.wrapped-slide-content > *:nth-child(2) { animation-delay: 0.12s; }
+.wrapped-slide-content > *:nth-child(3) { animation-delay: 0.24s; }
+.wrapped-slide-content > *:nth-child(4) { animation-delay: 0.38s; }
+.wrapped-slide-content > *:nth-child(5) { animation-delay: 0.52s; }
+
+.wrapped-caption {
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--text);
+  margin: 0.4rem 0 0;
+  max-width: 34ch;
+}
+
+/* Language picker on the generate CTA — the retrospective is written once,
+   in one language, for every viewer. */
+.wrapped-lang-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
+  cursor: default;
+}
+
+.wrapped-lang-label {
+  font-size: 0.7rem;
+  font-weight: 300;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.wrapped-lang-options {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.wrapped-lang-options button {
+  background: rgba(236, 229, 216, 0.05);
+  border: 1px solid rgba(236, 229, 216, 0.16);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 0.45rem 1.1rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.wrapped-lang-options button:hover { border-color: rgba(236, 229, 216, 0.35); color: var(--text); }
+
+.wrapped-lang-options button.active {
+  background: rgba(139, 92, 246, 0.18);
+  border-color: var(--w-entity);
+  color: var(--text);
+}
+
+.wrapped-status { cursor: default; }
+.wrapped-status h2 { font-size: 1.4rem; margin: 0; line-height: 1.3; }
+
+.wrapped-spinner {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.12);
+  border-top-color: var(--accent);
+  animation: wrapped-spin 0.9s linear infinite;
+}
+
+@keyframes wrapped-spin { to { transform: rotate(360deg); } }
+
+.wrapped-generating-msg { animation: wrapped-item-in 0.4s ease; }
+
+/* ============================================================
+   Small screens
+   ============================================================ */
+
+@media (max-width: 640px) {
+  .wr-champ-titleblock { margin-left: 0; }
+  .wr-champ-hero { gap: 0.9rem; }
+  .wr-intro-year { font-size: clamp(7rem, 40vw, 12rem); right: -0.1em; }
+  .wr-ratio-arena { min-height: 300px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wrapped-root *, .wrapped-root *::after, .wrapped-root *::before { animation: none !important; }
+}
