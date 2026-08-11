@@ -54,6 +54,7 @@ export const CHARACTERS: CharacterData = {
         { name: "Dustin Henderson", aliases: [] },
         { name: "Eleven", aliases: ["Jane Hopper", "Onze"] },
         { name: "Kwon Tae-young", aliases: [] },
+        { name: "Aurora Stardotter", aliases: [] },
     ],
     killers: [
         { name: "Trapper", aliases: ["Caçador"], portrait: "/images/portraits/K01_TheTrapper.webp" },
@@ -99,6 +100,7 @@ export const CHARACTERS: CharacterData = {
         { name: "Krasue", aliases: ["Senhora Linguiça"], portrait: "/images/portraits/K41_TheKrasue.webp" },
         { name: "The First", aliases: ["First", "Vecna", "Vecna Stranger Things", "Vecna Novo", "One", "Número Um", "Henry Creel"], portrait: "/images/portraits/K42_TheFirst.webp" },
         { name: "Slasher", aliases: ["Jason", "Jason Voorhees", "Voorhees", "Sexta-feira 13", "Friday the 13th"], portrait: "/images/portraits/K43_TheSlasher.webp" },
+        { name: "Judgment", aliases: ["Judgement", "Julgamento"], portrait: "/images/portraits/K44_TheJudgment.webp" },
     ]
 };
 
