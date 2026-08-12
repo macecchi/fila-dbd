@@ -7,6 +7,26 @@ import { useAuth } from './auth';
 import { toast } from 'sonner';
 import { t } from '../i18n';
 
+// Persisted opt-out for the "notifications blocked" warning toast: once the user
+// dismisses it, we never show it again (per browser).
+const NOTIF_TOAST_DISMISSED_KEY = 'fila-dbd-notif-toast-dismissed-v1';
+
+function isNotifToastDismissed(): boolean {
+  try {
+    return localStorage.getItem(NOTIF_TOAST_DISMISSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function setNotifToastDismissed() {
+  try {
+    localStorage.setItem(NOTIF_TOAST_DISMISSED_KEY, '1');
+  } catch {
+    // ignore (private mode / storage full)
+  }
+}
+
 function sendPushNotification(title: string, body: string) {
   if (!('Notification' in window)) return;
   if (Notification.permission === 'granted') {
@@ -103,19 +123,35 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
   useEffect(() => {
     if (!isOwnChannel || !('Notification' in window)) return;
 
+    // Distinguishes our own toast.dismiss() calls (permission granted / unmount)
+    // from a real user dismissal, since sonner fires onDismiss for both. Stays set
+    // until the next toast is created — onDismiss runs async, after this returns.
+    let dismissingSelf = false;
+    const dismissSelf = () => {
+      if (notifToastId.current === null) return;
+      dismissingSelf = true;
+      toast.dismiss(notifToastId.current);
+      notifToastId.current = null;
+    };
+
     const handlePermission = (state: string) => {
       if (state === 'default') {
         Notification.requestPermission();
       } else if (state === 'denied') {
-        if (notifToastId.current === null) {
+        if (notifToastId.current === null && !isNotifToastDismissed()) {
+          dismissingSelf = false;
           notifToastId.current = toast.warning(t('toast.notificationsBlocked'), {
             description: t('toast.notificationsBlockedDesc'),
             duration: Infinity,
+            onDismiss: () => {
+              if (dismissingSelf) return;
+              notifToastId.current = null;
+              setNotifToastDismissed();
+            },
           });
         }
-      } else if (state === 'granted' && notifToastId.current !== null) {
-        toast.dismiss(notifToastId.current);
-        notifToastId.current = null;
+      } else if (state === 'granted') {
+        dismissSelf();
       }
     };
 
@@ -135,10 +171,7 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
 
     return () => {
       permStatus?.removeEventListener('change', onChange);
-      if (notifToastId.current !== null) {
-        toast.dismiss(notifToastId.current);
-        notifToastId.current = null;
-      }
+      dismissSelf();
     };
   }, [isOwnChannel]);
 

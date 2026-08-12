@@ -103,6 +103,9 @@ bun run deploy:party # Deploy PartyKit
   the requests store on boot so the queue paints before PartyKit `sync-full`, which then
   replaces it (authoritative). Versioned + defensively parsed (`store/queueCache.ts`); bump the
   version to invalidate on a shape change. Never authoritative — DO remains source of truth.
+- `fila-dbd-notif-toast-dismissed-v1` - set to `'1'` once the streamer dismisses the
+  "notifications blocked" warning toast; suppresses it permanently on that browser
+  (`store/ChannelContext.tsx`). Absent = show it.
 - `fila-dbd-channels-v{N}` - landing-page active-channels cache (stale-while-revalidate).
   Hydrated into `LiveChannels` on mount so the list paints before `/rooms/active` returns; the
   response wins. Versioned + defensively parsed (`store/channelsCache.ts`). `/rooms/active` is
