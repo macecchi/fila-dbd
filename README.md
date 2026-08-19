@@ -1,6 +1,6 @@
 # Fila DBD
 
-[![Discord](https://img.shields.io/badge/Discord-Join%20Server-5865F2?logo=discord&logoColor=white)](https://discord.gg/6pY7Efhxd)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Server-5865F2?logo=discord&logoColor=white)](https://discord.gg/hXsAgk5KnX)
 
 [English](#english) | [Português](#português)
 
@@ -12,7 +12,7 @@ A website to manage Dead by Daylight character requests during Twitch streams.
 
 Made with love for the Dead by Daylight community, especially [MandyMess](https://twitch.tv/mandymess) 🫶
 
-Use our [Discord](https://discord.gg/6pY7Efhxd) or GitHub to send feedback, suggest features, and report bugs.
+Use our [Discord](https://discord.gg/hXsAgk5KnX) or GitHub to send feedback, suggest features, and report bugs.
 
 ### How it works
 
@@ -176,7 +176,7 @@ Site para gerenciar pedidos de personagens de Dead by Daylight durante streams n
 
 Feito com carinho para a comunidade brasileira 🇧🇷 de Dead by Daylight, em especial [MandyMess](https://twitch.tv/mandymess) 🫶
 
-Use o nosso [Discord](https://discord.gg/6pY7Efhxd) ou o próprio GitHub para mandar feedback, sugerir funcionalidades e reportar bugs.
+Use o nosso [Discord](https://discord.gg/hXsAgk5KnX) ou o próprio GitHub para mandar feedback, sugerir funcionalidades e reportar bugs.
 
 ### Como funciona
 

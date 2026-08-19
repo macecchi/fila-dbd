@@ -452,7 +452,7 @@ function ChannelApp() {
             <span className="footer-separator">•</span>
             <a href="https://github.com/macecchi/fila-dbd" target="_blank">GitHub</a>
             <span className="footer-separator">•</span>
-            <a href="https://discord.gg/6pY7Efhxd" target="_blank">Discord</a>
+            <a href="https://discord.gg/hXsAgk5KnX" target="_blank">Discord</a>
           </span>
         </footer>
       </div>
