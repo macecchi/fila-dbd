@@ -236,6 +236,7 @@ const en: TranslationKeys = {
   'toast.newVersionAvailable': 'New version available',
   'toast.updateAction': 'Update',
   'toast.newVersionUpdate': 'New requests won\'t be received.',
+  'toast.autoUpdateCountdown': 'Automatic update while you\'re away from the page',
   'toast.ircReconnecting': 'Chat connection dropped. Reconnecting...',
   'toast.ircLost': 'Chat connection lost. Reconnect manually.',
   'toast.ircReconnected': 'Reconnected to chat.',

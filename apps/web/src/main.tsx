@@ -1,8 +1,8 @@
 import { createRoot } from 'react-dom/client';
 import { registerSW } from 'virtual:pwa-register';
 import { App } from './App';
-import { I18nProvider, t } from './i18n';
-import { toast } from 'sonner';
+import { I18nProvider } from './i18n';
+import { showNewVersionToast } from './components/UpdateToast';
 
 const UPDATE_CHECK_BACKSTOP = 30 * 60 * 1000; // 30-min periodic fallback
 
@@ -35,11 +35,8 @@ registerSW({
     // Don't use updateSW(true) — its reload() races with skipWaiting and
     // often serves stale assets. We post SKIP_WAITING directly and let
     // the controllerchange listener reload after the new SW takes control.
-    toast(t('toast.newVersionAvailable'), {
-      id: 'new-version',
-      duration: Infinity,
-      action: { label: t('toast.updateAction'), onClick: () => window.__triggerSWUpdate?.() },
-    });
+    // The toast auto-updates after sustained user inactivity (see UpdateToast).
+    showNewVersionToast();
   }
 });
 

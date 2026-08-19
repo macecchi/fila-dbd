@@ -234,6 +234,7 @@ const ptBR = {
   'toast.newVersionAvailable': 'Nova versão disponível',
   'toast.updateAction': 'Atualizar',
   'toast.newVersionUpdate': 'Novos pedidos não serão recebidos.',
+  'toast.autoUpdateCountdown': 'Atualização automática quando você não estiver usando a página',
   'toast.ircReconnecting': 'Conexão com o chat caiu. Reconectando...',
   'toast.ircLost': 'Conexão com o chat perdida. Reconecte manualmente.',
   'toast.ircReconnected': 'Reconectado ao chat.',

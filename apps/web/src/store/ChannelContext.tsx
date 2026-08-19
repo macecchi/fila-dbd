@@ -6,6 +6,7 @@ import { connectParty, disconnectParty, broadcastIrcStatus, claimOwnership } fro
 import { useAuth } from './auth';
 import { toast } from 'sonner';
 import { t } from '../i18n';
+import { showNewVersionToast } from '../components/UpdateToast';
 
 // Persisted opt-out for the "notifications blocked" warning toast: once the user
 // dismisses it, we never show it again (per browser).
@@ -276,12 +277,7 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
             handleRequestsMessage(msg);
             if (msg.code === 'version_mismatch') {
               disconnectParty();
-              toast.warning(t('toast.newVersionAvailable'), {
-                id: 'new-version',
-                description: t('toast.newVersionUpdate'),
-                duration: Infinity,
-                action: { label: t('toast.updateAction'), onClick: () => window.__triggerSWUpdate ? window.__triggerSWUpdate() : location.reload() },
-              });
+              showNewVersionToast({ description: t('toast.newVersionUpdate'), warning: true });
               sendPushNotification(t('push.newVersionTitle'), t('push.newVersion'));
               return;
             }
