@@ -46,6 +46,14 @@
   overflow: hidden;
 }
 
+/* On mobile .request-actions is position: static (always visible, not a hover
+   overlay), so it's a second in-flow grid item here — without this it gets its
+   own implicit auto-sized row and is left floating after .request-card-content's
+   row collapses to 0, instead of collapsing away with the rest of the card. */
+.request-card.deleting .request-actions {
+  display: none;
+}
+
 .request-card.deleting .request-card-content {
   min-height: 0;
   overflow: hidden;
