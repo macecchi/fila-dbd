@@ -199,9 +199,7 @@ const en: TranslationKeys = {
   'manual.placeholder': 'Type the character name...',
   'manual.notePlaceholder': 'Note (optional)',
   'edit.title': 'Edit Request',
-  'edit.characterPlaceholder': 'Type the character name...',
   'edit.messagePlaceholder': 'Request message',
-  'edit.save': 'Save',
 
   // Chat log
   'chat.empty': 'Chat messages will appear here...',

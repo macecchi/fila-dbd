@@ -197,9 +197,7 @@ const ptBR = {
   'manual.placeholder': 'Digite o nome do personagem...',
   'manual.notePlaceholder': 'Nota (opcional)',
   'edit.title': 'Editar Pedido',
-  'edit.characterPlaceholder': 'Digite o nome do personagem...',
   'edit.messagePlaceholder': 'Mensagem do pedido',
-  'edit.save': 'Salvar',
 
   // Chat log
   'chat.empty': 'Mensagens do chat aparecerão aqui...',

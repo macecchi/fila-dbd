@@ -8,9 +8,15 @@ import { getAllCharacterNames, searchCharacters, type CharacterOption } from './
 interface Props {
   isOpen: boolean;
   onClose: () => void;
+  // Edit mode: same interface, but picking a character updates this request
+  // instead of adding a new one. The note field edits the request's message —
+  // useful for completing LivePix donates truncated at 250 chars. Pressing
+  // Enter on the note saves a message-only edit (character unchanged).
+  editRequest?: Request;
+  onSave?: (updates: Partial<Request>) => void;
 }
 
-export function ManualEntry({ isOpen, onClose }: Props) {
+export function ManualEntry({ isOpen, onClose, editRequest, onSave }: Props) {
   const { useRequests, useChannelInfo } = useChannel();
   const addRequest = useRequests((s) => s.add);
   const owner = useChannelInfo((s) => s.owner);
@@ -21,6 +27,7 @@ export function ManualEntry({ isOpen, onClose }: Props) {
   const [autocompleteIndex, setAutocompleteIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const allChars = useRef<CharacterOption[]>([]);
+  const isEdit = !!editRequest;
 
   useEffect(() => {
     allChars.current = getAllCharacterNames();
@@ -28,14 +35,16 @@ export function ManualEntry({ isOpen, onClose }: Props) {
 
   useEffect(() => {
     if (isOpen) {
-      setTimeout(() => inputRef.current?.focus(), 50);
+      setInput(editRequest && editRequest.character && editRequest.type !== 'none' ? editRequest.character : '');
+      setNote(editRequest?.message ?? '');
+      setTimeout(() => inputRef.current?.select(), 50);
     } else {
       setInput('');
       setNote('');
       setAutocompleteItems([]);
       setAutocompleteIndex(-1);
     }
-  }, [isOpen]);
+  }, [isOpen, editRequest]);
 
   const handleInputChange = (value: string) => {
     setInput(value);
@@ -48,7 +57,29 @@ export function ManualEntry({ isOpen, onClose }: Props) {
     setAutocompleteIndex(-1);
   };
 
+  const finishEdit = useCallback((char: CharacterOption | null) => {
+    if (!editRequest || !onSave) return;
+    const trimmedNote = note.trim();
+    const updates: Partial<Request> = {
+      message: trimmedNote || editRequest.message,
+      needsIdentification: false,
+      validating: false,
+    };
+    if (char) {
+      updates.character = char.name;
+      updates.type = char.type;
+      // A manual pick overrides whatever term was auto-matched before.
+      updates.matchedTerm = undefined;
+    }
+    onSave(updates);
+    onClose();
+  }, [editRequest, onSave, note, onClose]);
+
   const selectCharacter = useCallback((char: CharacterOption) => {
+    if (isEdit) {
+      finishEdit(char);
+      return;
+    }
     const trimmedNote = note.trim();
     const request: Request = {
       id: Date.now() + Math.random(),
@@ -66,7 +97,7 @@ export function ManualEntry({ isOpen, onClose }: Props) {
     setNote('');
     setAutocompleteItems([]);
     onClose();
-  }, [addRequest, onClose, owner, note]);
+  }, [addRequest, onClose, owner, note, isEdit, finishEdit]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -92,7 +123,7 @@ export function ManualEntry({ isOpen, onClose }: Props) {
     <div className="manual-entry-overlay" onClick={onClose}>
       <div className="manual-entry-popup" onClick={e => e.stopPropagation()}>
         <div className="manual-entry-header">
-          <span>{t('manual.title')}</span>
+          <span>{isEdit ? t('edit.title') : t('manual.title')}</span>
           <button className="manual-entry-close" onClick={onClose}>×</button>
         </div>
         <div className="manual-entry-body">
@@ -125,11 +156,13 @@ export function ManualEntry({ isOpen, onClose }: Props) {
             className="manual-entry-note"
             type="text"
             value={note}
-            placeholder={t('manual.notePlaceholder')}
+            placeholder={isEdit ? t('edit.messagePlaceholder') : t('manual.notePlaceholder')}
             autoComplete="off"
             onChange={e => setNote(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Escape') onClose();
+              // Edit mode: Enter on the note saves a message-only correction.
+              if (e.key === 'Enter' && isEdit) finishEdit(null);
             }}
           />
         </div>
