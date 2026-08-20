@@ -112,6 +112,18 @@ export function highlightTerms(message: string, terms: string[]): ReactNode[] {
   return out;
 }
 
+// LivePix relays at most 250 chars of the donor's message to Twitch chat and cuts
+// mid-word with no ellipsis (verified against production chat logs — every long
+// donate lands at exactly 250). The full text only exists in the streamer's
+// LivePix feed, so when the character request sits in the lost tail the LLM sees
+// nothing and would classify the donate as "no request". Callers use this to keep
+// such donates visible for manual review instead of hiding them.
+export const LIVEPIX_TRUNCATION_LENGTH = 250;
+
+export function isLikelyTruncatedDonation(message: string): boolean {
+  return message.length >= LIVEPIX_TRUNCATION_LENGTH;
+}
+
 export function parseDonationMessage(message: string): ParsedDonationMessage | null {
   const match = message.match(/^(.+?)\s+(?:doou|mandou|just tipped)\s+((?:R\$|\$)?\s?[\d,.]+)(?:\s*:\s*|\s+e disse:\s*|\s*-\s*)(.+)$/i);
   if (!match) return null;

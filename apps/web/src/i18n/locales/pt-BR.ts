@@ -129,6 +129,7 @@ const ptBR = {
   'card.identifying': 'Identificando...',
   'card.unidentified': 'Não identificado',
   'card.validatingAI': 'Validando com IA...',
+  'card.truncated': 'Mensagem cortada pelo LivePix — o pedido pode estar no trecho perdido. Confira a mensagem completa no seu painel do LivePix.',
   'card.markDone': 'Marcar como feito',
   'card.markUndone': 'Marcar como não feito',
 

@@ -35,7 +35,7 @@ function useEverTrue(value: boolean): boolean {
 }
 import { toast } from 'sonner';
 import { useAuth, ChannelProvider, useChannel, useLastChannel } from './store';
-import { navigate, handleLinkClick, scrollToTop } from './utils/helpers';
+import { navigate, handleLinkClick, scrollToTop, isLikelyTruncatedDonation } from './utils/helpers';
 import { sortRequests, mergeRequests } from './utils/requests';
 import { useTranslation, t } from './i18n';
 import type { Request } from './types';
@@ -86,8 +86,16 @@ function useAutoIdentify(
     for (const req of pending) {
       inFlight.current.add(req.id);
       const extras = eligibleExtras(req.amountVal, useSources.getState().extrasConfig);
-      identifyCharacter(req, extras, undefined, (llmResult) => update(req.id, llmResult))
-        .then(result => update(req.id, { ...result, needsIdentification: false }))
+      // LivePix cuts long donor messages at 250 chars in chat, so the request may
+      // be in the lost tail. Downgrade the LLM's "no request" verdict to
+      // "unidentified" for those donates so they stay visible for manual review
+      // instead of being hidden by hideNonRequests.
+      const guardTruncated = <T extends { character: string; type: string }>(res: T): T =>
+        req.source === 'donation' && res.type === 'none' && isLikelyTruncatedDonation(req.message)
+          ? { ...res, type: 'unknown', character: '' }
+          : res;
+      identifyCharacter(req, extras, undefined, (llmResult) => update(req.id, guardTruncated(llmResult)))
+        .then(result => update(req.id, { ...guardTruncated(result), needsIdentification: false }))
         .finally(() => inFlight.current.delete(req.id));
     }
   }, [requests, update, readOnly, useSources]);
