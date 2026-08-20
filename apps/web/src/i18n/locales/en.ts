@@ -132,6 +132,7 @@ const en: TranslationKeys = {
   'card.unidentified': 'Unidentified',
   'card.validatingAI': 'Validating with AI...',
   'card.truncated': 'Message cut off by LivePix — the request may be in the missing part. Check the full message in your LivePix dashboard.',
+  'card.edit': 'Edit request',
   'card.markDone': 'Mark as done',
   'card.markUndone': 'Mark as not done',
 
@@ -149,6 +150,7 @@ const en: TranslationKeys = {
   // Context menu
   'context.markDone': 'Mark as done',
   'context.markUndone': 'Mark as not done',
+  'context.edit': 'Edit',
   'context.reidentify': 'Re-identify',
   'context.skip': 'Skip',
 
@@ -196,6 +198,10 @@ const en: TranslationKeys = {
   'manual.title': 'Add Manual Request',
   'manual.placeholder': 'Type the character name...',
   'manual.notePlaceholder': 'Note (optional)',
+  'edit.title': 'Edit Request',
+  'edit.characterPlaceholder': 'Type the character name...',
+  'edit.messagePlaceholder': 'Request message',
+  'edit.save': 'Save',
 
   // Chat log
   'chat.empty': 'Chat messages will appear here...',

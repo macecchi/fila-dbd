@@ -130,6 +130,7 @@ const ptBR = {
   'card.unidentified': 'Não identificado',
   'card.validatingAI': 'Validando com IA...',
   'card.truncated': 'Mensagem cortada pelo LivePix — o pedido pode estar no trecho perdido. Confira a mensagem completa no seu painel do LivePix.',
+  'card.edit': 'Editar pedido',
   'card.markDone': 'Marcar como feito',
   'card.markUndone': 'Marcar como não feito',
 
@@ -147,6 +148,7 @@ const ptBR = {
   // Context menu
   'context.markDone': 'Marcar como feito',
   'context.markUndone': 'Marcar como não feito',
+  'context.edit': 'Editar',
   'context.reidentify': 'Re-identificar',
   'context.skip': 'Ignorar',
 
@@ -194,6 +196,10 @@ const ptBR = {
   'manual.title': 'Adicionar Pedido Manual',
   'manual.placeholder': 'Digite o nome do personagem...',
   'manual.notePlaceholder': 'Nota (opcional)',
+  'edit.title': 'Editar Pedido',
+  'edit.characterPlaceholder': 'Digite o nome do personagem...',
+  'edit.messagePlaceholder': 'Mensagem do pedido',
+  'edit.save': 'Salvar',
 
   // Chat log
   'chat.empty': 'Mensagens do chat aparecerão aqui...',
