@@ -94,3 +94,40 @@
     font-size: 16px; /* Prevent iOS zoom */
   }
 }
+
+/* Edit request dialog (reuses the manual-entry shell) */
+
+.manual-entry-body textarea.edit-request-message {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md) var(--space-lg);
+  font-size: var(--text-base);
+  font-family: inherit;
+  color: var(--text-muted);
+  resize: vertical;
+}
+
+.manual-entry-body textarea.edit-request-message:focus {
+  outline: none;
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.edit-request-save {
+  align-self: flex-end;
+  padding: var(--space-md) var(--space-xl);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--text-base);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.edit-request-save:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

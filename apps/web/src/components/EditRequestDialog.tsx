@@ -1,22 +1,23 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useChannel } from '../store';
 import { CharacterAvatar } from './CharacterAvatar';
 import { useTranslation } from '../i18n';
 import type { Request } from '../types';
 import { getAllCharacterNames, searchCharacters, type CharacterOption } from './characterSearch';
 
 interface Props {
-  isOpen: boolean;
+  request: Request;
   onClose: () => void;
+  onSave: (updates: Partial<Request>) => void;
 }
 
-export function ManualEntry({ isOpen, onClose }: Props) {
-  const { useRequests, useChannelInfo } = useChannel();
-  const addRequest = useRequests((s) => s.add);
-  const owner = useChannelInfo((s) => s.owner);
+// Lets the channel owner correct or fill in a request by hand — pick the right
+// character and, when the source message was cut (LivePix's 250-char chat relay),
+// complete the message text from the LivePix feed.
+export function EditRequestDialog({ request, onClose, onSave }: Props) {
   const { t } = useTranslation();
-  const [input, setInput] = useState('');
-  const [note, setNote] = useState('');
+  const [input, setInput] = useState(request.character && request.type !== 'none' ? request.character : '');
+  const [selected, setSelected] = useState<CharacterOption | null>(null);
+  const [message, setMessage] = useState(request.message);
   const [autocompleteItems, setAutocompleteItems] = useState<CharacterOption[]>([]);
   const [autocompleteIndex, setAutocompleteIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -24,21 +25,12 @@ export function ManualEntry({ isOpen, onClose }: Props) {
 
   useEffect(() => {
     allChars.current = getAllCharacterNames();
+    setTimeout(() => inputRef.current?.select(), 50);
   }, []);
-
-  useEffect(() => {
-    if (isOpen) {
-      setTimeout(() => inputRef.current?.focus(), 50);
-    } else {
-      setInput('');
-      setNote('');
-      setAutocompleteItems([]);
-      setAutocompleteIndex(-1);
-    }
-  }, [isOpen]);
 
   const handleInputChange = (value: string) => {
     setInput(value);
+    setSelected(null);
     const val = value.toLowerCase().trim();
     if (!val) {
       setAutocompleteItems([]);
@@ -49,31 +41,39 @@ export function ManualEntry({ isOpen, onClose }: Props) {
   };
 
   const selectCharacter = useCallback((char: CharacterOption) => {
-    const trimmedNote = note.trim();
-    const request: Request = {
-      id: Date.now() + Math.random(),
-      timestamp: new Date(),
-      donor: owner?.displayName || 'Manual',
-      amount: '',
-      amountVal: 0,
-      message: trimmedNote || char.name,
-      character: char.name,
-      type: char.type,
-      source: 'manual'
-    };
-    addRequest(request);
-    setInput('');
-    setNote('');
+    setSelected(char);
+    setInput(char.name);
     setAutocompleteItems([]);
+    setAutocompleteIndex(-1);
+  }, []);
+
+  const handleSave = useCallback(() => {
+    const updates: Partial<Request> = {
+      message: message.trim() || request.message,
+      needsIdentification: false,
+      validating: false,
+    };
+    if (selected) {
+      updates.character = selected.name;
+      updates.type = selected.type;
+      // A manual pick overrides whatever term was auto-matched before.
+      updates.matchedTerm = undefined;
+    }
+    onSave(updates);
     onClose();
-  }, [addRequest, onClose, owner, note]);
+  }, [selected, message, request.message, onSave, onClose]);
+
+  const canSave = !!selected || message.trim() !== request.message;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       onClose();
       return;
     }
-    if (autocompleteItems.length === 0) return;
+    if (autocompleteItems.length === 0) {
+      if (e.key === 'Enter' && canSave) handleSave();
+      return;
+    }
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setAutocompleteIndex(i => Math.min(i + 1, autocompleteItems.length - 1));
@@ -86,13 +86,11 @@ export function ManualEntry({ isOpen, onClose }: Props) {
     }
   };
 
-  if (!isOpen) return null;
-
   return (
     <div className="manual-entry-overlay" onClick={onClose}>
       <div className="manual-entry-popup" onClick={e => e.stopPropagation()}>
         <div className="manual-entry-header">
-          <span>{t('manual.title')}</span>
+          <span>{t('edit.title')}</span>
           <button className="manual-entry-close" onClick={onClose}>×</button>
         </div>
         <div className="manual-entry-body">
@@ -101,7 +99,7 @@ export function ManualEntry({ isOpen, onClose }: Props) {
               ref={inputRef}
               type="text"
               value={input}
-              placeholder={t('manual.placeholder')}
+              placeholder={t('edit.characterPlaceholder')}
               autoComplete="off"
               onChange={e => handleInputChange(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -121,17 +119,19 @@ export function ManualEntry({ isOpen, onClose }: Props) {
               </div>
             )}
           </div>
-          <input
-            className="manual-entry-note"
-            type="text"
-            value={note}
-            placeholder={t('manual.notePlaceholder')}
-            autoComplete="off"
-            onChange={e => setNote(e.target.value)}
+          <textarea
+            className="manual-entry-note edit-request-message"
+            value={message}
+            placeholder={t('edit.messagePlaceholder')}
+            rows={3}
+            onChange={e => setMessage(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Escape') onClose();
             }}
           />
+          <button className="edit-request-save" disabled={!canSave} onClick={handleSave}>
+            {t('edit.save')}
+          </button>
         </div>
       </div>
     </div>

@@ -26,6 +26,7 @@ interface Props {
   onDragStart?: (id: number) => void;
   onDragOver?: (id: number) => void;
   onDragEnd?: () => void;
+  onEdit?: (id: number) => void;
   readOnly?: boolean;
   exiting?: boolean;
   skipping?: boolean;
@@ -34,7 +35,7 @@ interface Props {
 }
 
 export const CharacterRequestCard = memo(function CharacterRequestCard({
-  request, position, onToggleDone,
+  request, position, onToggleDone, onEdit,
   isDragging, isDragOver, onDragStart, onDragOver, onDragEnd, readOnly = false, exiting = false, skipping = false, entering = false,
   group,
 }: Props) {
@@ -186,6 +187,17 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
       </div>
       {!readOnly && (
         <div className="request-actions">
+          {onEdit && !r.done && (
+            <button
+              className="request-action-btn edit"
+              onClick={(e) => { e.stopPropagation(); onEdit(r.id); }}
+              title={t('card.edit')}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+              </svg>
+            </button>
+          )}
           <button
             className={`request-action-btn ${r.done ? 'undo' : 'done'}`}
             onClick={handleClick}

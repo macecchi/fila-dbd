@@ -6,18 +6,20 @@ interface Props {
   onToggleDone: (id: number) => void;
   onRerun: (id: number) => void;
   onSkip: (id: number) => void;
+  onEdit: (id: number) => void;
 }
 
-export function ContextMenu({ onToggleDone, onRerun, onSkip }: Props) {
+export function ContextMenu({ onToggleDone, onRerun, onSkip, onEdit }: Props) {
   const { state, hide } = useContextMenu();
   const { t } = useTranslation();
 
-  const handleAction = (action: 'done' | 'rerun' | 'skip') => {
+  const handleAction = (action: 'done' | 'rerun' | 'skip' | 'edit') => {
     if (!state.requestId) return;
     switch (action) {
       case 'done': onToggleDone(state.requestId); break;
       case 'rerun': onRerun(state.requestId); break;
       case 'skip': onSkip(state.requestId); break;
+      case 'edit': onEdit(state.requestId); break;
     }
     hide();
   };
@@ -37,6 +39,12 @@ export function ContextMenu({ onToggleDone, onRerun, onSkip }: Props) {
           <polyline points="20 6 9 17 4 12"></polyline>
         </svg>
         <span>{state.isDone ? t('context.markUndone') : t('context.markDone')}</span>
+      </div>
+      <div className="context-menu-item" onClick={() => handleAction('edit')}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+        </svg>
+        {t('context.edit')}
       </div>
       <div className="context-menu-item" onClick={() => handleAction('rerun')}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

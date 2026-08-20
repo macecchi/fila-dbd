@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazyWithReload } from '../utils/lazyWithReload';
 import { identifyCharacter } from '../services';
 import { eligibleExtras } from '../services/extras';
 import { CharacterRequestCard } from './CharacterRequestCard';
@@ -6,6 +7,9 @@ import { ContextMenu } from './ContextMenu';
 import { ContextMenuProvider } from '../context/ContextMenuContext';
 import { useChannel } from '../store';
 import { useTranslation } from '../i18n';
+
+// Off the first-paint path — loaded on the first edit click.
+const EditRequestDialog = lazyWithReload(() => import('./EditRequestDialog').then((m) => ({ default: m.EditRequestDialog })));
 
 export function CharacterRequestList() {
   const { useRequests, useSources, useChannelInfo, isOwnChannel, canControlConnection } = useChannel();
@@ -117,6 +121,14 @@ export function CharacterRequestList() {
       update(id, result);
     }
   }, [requests, update, t, useSources]);
+
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const editingRequest = editingId !== null ? requests.find(r => r.id === editingId) : undefined;
+
+  const handleEdit = useCallback((id: number) => {
+    if (readOnly) return;
+    setEditingId(id);
+  }, [readOnly]);
 
   const skipRequest = useCallback((id: number) => {
     update(id, { type: 'none', character: '', needsIdentification: false });
@@ -237,6 +249,7 @@ export function CharacterRequestList() {
                 request={r}
                 position={position}
                 onToggleDone={handleToggleDone}
+                onEdit={readOnly ? undefined : handleEdit}
                 isDragging={draggedId === r.id}
                 isDragOver={dragOverId === r.id}
                 onDragStart={handleDragStart}
@@ -259,7 +272,17 @@ export function CharacterRequestList() {
           onToggleDone={handleToggleDone}
           onRerun={rerunExtraction}
           onSkip={skipRequest}
+          onEdit={handleEdit}
         />
+      )}
+      {!readOnly && editingRequest && (
+        <Suspense fallback={null}>
+          <EditRequestDialog
+            request={editingRequest}
+            onClose={() => setEditingId(null)}
+            onSave={(updates) => update(editingRequest.id, updates)}
+          />
+        </Suspense>
       )}
     </ContextMenuProvider>
   );
