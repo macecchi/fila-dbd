@@ -8,8 +8,9 @@ import { ContextMenuProvider } from '../context/ContextMenuContext';
 import { useChannel } from '../store';
 import { useTranslation } from '../i18n';
 
-// Off the first-paint path — loaded on the first edit click.
-const EditRequestDialog = lazyWithReload(() => import('./EditRequestDialog').then((m) => ({ default: m.EditRequestDialog })));
+// Off the first-paint path — loaded on the first edit click. Same dialog as the
+// "+" manual add, in edit mode.
+const ManualEntry = lazyWithReload(() => import('./ManualEntry').then((m) => ({ default: m.ManualEntry })));
 
 export function CharacterRequestList() {
   const { useRequests, useSources, useChannelInfo, isOwnChannel, canControlConnection } = useChannel();
@@ -277,8 +278,9 @@ export function CharacterRequestList() {
       )}
       {!readOnly && editingRequest && (
         <Suspense fallback={null}>
-          <EditRequestDialog
-            request={editingRequest}
+          <ManualEntry
+            isOpen
+            editRequest={editingRequest}
             onClose={() => setEditingId(null)}
             onSave={(updates) => update(editingRequest.id, updates)}
           />
