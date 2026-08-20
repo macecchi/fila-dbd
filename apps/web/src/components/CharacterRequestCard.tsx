@@ -5,7 +5,7 @@ import { getKillerPortrait, tryLocalMatch } from '../data/characters';
 import { CharacterAvatar } from './CharacterAvatar';
 import { useTranslation } from '../i18n';
 import { getLocale } from '../i18n';
-import { formatRelativeTime, highlightTerms } from '../utils/helpers';
+import { formatRelativeTime, highlightTerms, isLikelyTruncatedDonation } from '../utils/helpers';
 import { renderTwitchSubBadge, renderDonationBadge, renderBroadcasterBadge } from './UserBadges';
 import { useChannel } from '../store/ChannelContext';
 
@@ -170,6 +170,9 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
               {group && <span className="donation-group-chip" title="Pedidos da mesma doação" style={{ marginLeft: '4px' }}>{group.index}/{group.total}</span>}
             </span>
             {allTerms.length > 0 ? highlightTerms(r.message, allTerms) : r.message}
+            {r.source === 'donation' && isLikelyTruncatedDonation(r.message) && (
+              <span className="truncated-chip" title={t('card.truncated')}>… ✂️</span>
+            )}
           </div>
         </div>
         <div className="request-card-meta">

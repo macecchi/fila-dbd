@@ -1,5 +1,5 @@
 import { tryLocalMatch, isWholeMessageMatch } from '../data/characters';
-import { parseAmount, parseDonationMessage, isDonateBot } from '../utils/helpers';
+import { parseAmount, parseDonationMessage, isDonateBot, isLikelyTruncatedDonation } from '../utils/helpers';
 import { useSettings } from '../store/settings';
 import { useAuth } from '../store/auth';
 import type { Request } from '../types';
@@ -325,6 +325,12 @@ export function handleMessage(raw: string) {
   // (quantifiers like "2 de X", mixed natural language).
   const extras = eligibleExtras(amountVal, useSources.getState().extrasConfig);
   identifyMultiple(parsed.message, entitlement, extras).then(characters => {
+    // LivePix cuts long donor messages at 250 chars, so the request may live in
+    // the lost tail. Never let the LLM's "no request" verdict hide a paid donate
+    // it only saw part of — keep it in the queue as unidentified for manual review.
+    if (isLikelyTruncatedDonation(parsed.message)) {
+      characters = characters.map(c => c.type === 'none' ? { ...c, type: 'unknown' as const, character: '' } : c);
+    }
     const built = buildDonationRequests({
       donor: parsed.donor,
       amount: parsed.amount,

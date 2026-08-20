@@ -236,6 +236,16 @@
   margin-right: 0.4em;
 }
 
+/* Marks a donation whose LivePix chat message hit the 250-char relay cap —
+   the full request may be in the lost tail (tooltip explains). */
+.truncated-chip {
+  display: inline-block;
+  margin-left: 0.3em;
+  font-size: 0.85em;
+  opacity: 0.7;
+  cursor: help;
+}
+
 .donation-group-chip {
   display: inline-block;
   margin-left: 0.4em;

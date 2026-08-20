@@ -35,7 +35,7 @@ You need to keep the site open to receive requests.
 
 | Source | How it works |
 |--------|-------------|
-| **Donations** | Detects messages from donation bots (LivePix, StreamElements, etc.). Filters by minimum amount. Donations that exceed the minimum may contain multiple requests in one message (up to 10) |
+| **Donations** | Detects messages from donation bots (LivePix, StreamElements, etc.). Filters by minimum amount. Donations that exceed the minimum may contain multiple requests in one message (up to 10). LivePix relays only the first 250 characters of the message to chat — donates that hit that cap are never hidden and stay in the queue for manual review (a ✂️ marker links to the LivePix dashboard hint) |
 | **Resubs** | Captures resub messages via Twitch IRC USERNOTICE |
 | **Chat** | Configurable command (default: `!fila`) for subscribers. Filters by minimum tier |
 | **Manual** | Manual character entry |
@@ -201,7 +201,7 @@ Use o nosso [Discord](https://discord.gg/hXsAgk5KnX) ou o próprio GitHub para m
 
 | Fonte | Como funciona |
 |-------|---------------|
-| **Donates** | Detecta mensagens de bots de doação (LivePix, StreamElements, etc.). Filtra por valor mínimo. Donates acima do mínimo podem conter múltiplos pedidos numa mesma mensagem (até 10) |
+| **Donates** | Detecta mensagens de bots de doação (LivePix, StreamElements, etc.). Filtra por valor mínimo. Donates acima do mínimo podem conter múltiplos pedidos numa mesma mensagem (até 10). O LivePix envia só os primeiros 250 caracteres da mensagem pro chat — donates que batem nesse limite nunca são ocultados e ficam na fila para revisão manual (marcador ✂️ com dica para conferir o painel do LivePix) |
 | **Resubs** | Captura mensagens de resub via USERNOTICE do Twitch IRC |
 | **Chat** | Comando configurável (padrão: `!fila`) para inscritos. Filtra por tier mínimo |
 | **Manual** | Entrada manual de personagens |

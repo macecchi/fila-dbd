@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { parseDonationMessage, parseAmount, isDonateBot, highlightTerms, navigate, scrollToTop } from './helpers';
+import { parseDonationMessage, parseAmount, isDonateBot, highlightTerms, navigate, scrollToTop, isLikelyTruncatedDonation, LIVEPIX_TRUNCATION_LENGTH } from './helpers';
 
 describe('parseDonationMessage', () => {
   describe('LivePix format', () => {
@@ -257,5 +257,20 @@ describe('navigate', () => {
     navigate('/same');
     expect(pushSpy).not.toHaveBeenCalled();
     expect(scrollSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('isLikelyTruncatedDonation', () => {
+  it('flags a message at the LivePix relay cap (production shape: cut mid-word, no ellipsis)', () => {
+    // Real production case: 250-char donor message ending mid-word ("...cantou is").
+    const msg = 'x'.repeat(LIVEPIX_TRUNCATION_LENGTH - 20) + ' Ela cantou is';
+    expect(msg.length).toBeGreaterThanOrEqual(LIVEPIX_TRUNCATION_LENGTH - 6);
+    expect(isLikelyTruncatedDonation('a'.repeat(LIVEPIX_TRUNCATION_LENGTH))).toBe(true);
+    expect(isLikelyTruncatedDonation('a'.repeat(LIVEPIX_TRUNCATION_LENGTH + 30))).toBe(true);
+  });
+
+  it('does not flag ordinary short messages', () => {
+    expect(isLikelyTruncatedDonation('Trapper')).toBe(false);
+    expect(isLikelyTruncatedDonation('a'.repeat(LIVEPIX_TRUNCATION_LENGTH - 1))).toBe(false);
   });
 });
