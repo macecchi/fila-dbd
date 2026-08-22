@@ -169,3 +169,71 @@ describe('handleMessage — chat command routing and broadcaster bypass', () => 
   });
 });
 
+
+describe('request IDs are derived from the Twitch message ID alone', () => {
+  let added: Request[];
+
+  beforeEach(() => {
+    added = [];
+    setActiveStores({
+      useSources: {
+        getState: () => ({
+          enabled: { chat: true, resub: true },
+          chatCommand: '!fila',
+          chatTiers: [1, 2, 3],
+        }),
+      },
+      useRequests: {
+        getState: () => ({ add: (r: Request) => added.push(r) }),
+      },
+    } as unknown as ChannelStores);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    setActiveStores(null);
+  });
+
+  // Same message, different moment (lock handover, VOD replay): the ID has to match or
+  // the server's dedupe lets both copies into the queue.
+  it('gives the same chat message the same ID hours apart', () => {
+    const raw = '@display-name=Bob;subscriber=1;badges=subscriber/2000;id=abc-123 :bob!bob@tmi.twitch.tv PRIVMSG #testchannel :!fila Trapper';
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T10:00:00Z'));
+    handleMessage(raw);
+    vi.setSystemTime(new Date('2026-01-01T13:37:42Z'));
+    handleMessage(raw);
+
+    expect(added).toHaveLength(2);
+    expect(added[0].id).toBe(added[1].id);
+  });
+
+  it('gives the same resub the same ID hours apart', () => {
+    const raw = '@msg-id=resub;display-name=Bob;msg-param-sub-plan=2000;id=xyz-789 :tmi.twitch.tv USERNOTICE #testchannel :Trapper';
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T10:00:00Z'));
+    handleUserNotice(raw);
+    vi.setSystemTime(new Date('2026-01-01T13:37:42Z'));
+    handleUserNotice(raw);
+
+    expect(added).toHaveLength(2);
+    expect(added[0].id).toBe(added[1].id);
+  });
+
+  it('keeps IDs inside the safe-integer range, so no low bits are rounded away', () => {
+    handleMessage('@display-name=Bob;subscriber=1;badges=subscriber/2000;id=abc-123 :bob!bob@tmi.twitch.tv PRIVMSG #testchannel :!fila Trapper');
+
+    expect(added).toHaveLength(1);
+    expect(Number.isSafeInteger(added[0].id)).toBe(true);
+  });
+
+  it('separates distinct messages', () => {
+    handleMessage('@display-name=Bob;subscriber=1;badges=subscriber/2000;id=msg-1 :bob!bob@tmi.twitch.tv PRIVMSG #testchannel :!fila Trapper');
+    handleMessage('@display-name=Bob;subscriber=1;badges=subscriber/2000;id=msg-2 :bob!bob@tmi.twitch.tv PRIVMSG #testchannel :!fila Nurse');
+
+    expect(added).toHaveLength(2);
+    expect(added[0].id).not.toBe(added[1].id);
+  });
+});

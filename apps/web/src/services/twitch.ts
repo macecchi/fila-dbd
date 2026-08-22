@@ -131,8 +131,14 @@ function parseIrcTags(raw: string): Record<string, string> {
 }
 
 /**
- * Generate a deterministic numeric ID from the Twitch message ID.
- * This ensures multiple tabs processing the same IRC message produce the same request ID.
+ * Generate a deterministic numeric ID from the Twitch message ID, so whoever processes
+ * a message (another tab, a session that just took the lock, a VOD replay) derives the
+ * same ID and the server's add-request dedupe collapses it to one request.
+ *
+ * No time component, matching makeId in services/donation.ts: a minute-precision prefix
+ * made the ID depend on when it was processed, and pushed it past MAX_SAFE_INTEGER where
+ * the low bits of the hash were rounded away. Ordering comes from `position`.
+ *
  * Falls back to content-based hash if no Twitch ID is available.
  */
 function generateRequestId(twitchMsgId: string | undefined, fallbackContent: string): number {
@@ -144,9 +150,7 @@ function generateRequestId(twitchMsgId: string | undefined, fallbackContent: str
     hash = ((hash << 5) - hash) + char;
     hash = hash & hash; // Convert to 32bit integer
   }
-  // Ensure positive number and add timestamp prefix for rough ordering
-  const timePrefix = Math.floor(Date.now() / 60000); // Minute-level precision
-  return Math.abs(hash) + timePrefix * 1000000000;
+  return Math.abs(hash);
 }
 
 function getSubTierFromBadges(badges: string): number {
