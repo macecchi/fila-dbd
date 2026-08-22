@@ -266,6 +266,114 @@ a:hover {
   color: var(--text) !important;
 }
 
+/* Sonner packs the action button against the text with a 6px gap. */
+[data-sonner-toast][data-sonner-toast][data-styled='true'] {
+  gap: 16px;
+}
+
+/* Toast buttons (action + cancel, every toast) — sonner ships a fixed 24px
+   height and no hover/active state of its own. Its stylesheet is injected into
+   <head> after ours, so the repeated [data-button] outranks it on specificity
+   instead of relying on source order. */
+[data-sonner-toast][data-styled='true'] [data-button][data-button] {
+  position: relative;
+  height: auto;
+  padding: 9px 14px;
+  /* Depth instead of a border: a hairline bevel inside the bottom edge, a tight
+     contact shadow, and a soft ambient one so the button reads as a key sitting
+     on the toast's glass rather than a flat slab cut out of it. */
+  box-shadow:
+    inset 0 -1px 0 rgba(0, 0, 0, 0.16),
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    0 6px 16px -6px rgba(0, 0, 0, 0.55);
+  /* Release eases out; the press below snaps. box-shadow is deliberately not
+     transitioned — sonner's focus ring must appear instantly. */
+  transition: transform 90ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* Shading via an overlay's opacity (composite-only) instead of `filter`,
+   which would repaint the button subtree — countdown bar included. */
+[data-sonner-toast][data-styled='true'] [data-button][data-button]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  transition: opacity 150ms ease;
+  pointer-events: none;
+}
+
+/* Gated: a touch tap fires a false hover that would stay stuck on. */
+@media (hover: hover) and (pointer: fine) {
+  [data-sonner-toast][data-styled='true'] [data-button][data-button]:hover::after {
+    opacity: 0.12;
+  }
+
+  /* Hovering lifts it a touch: shadows spread and soften, as if raised. */
+  [data-sonner-toast][data-styled='true'] [data-button][data-button]:hover {
+    box-shadow:
+      inset 0 -1px 0 rgba(0, 0, 0, 0.16),
+      0 2px 4px rgba(0, 0, 0, 0.45),
+      0 10px 22px -8px rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* Pressed: the lift collapses and the bevel flips inward, so the button reads
+   as pushed into the toast rather than just shrunk. */
+[data-sonner-toast][data-styled='true'] [data-button][data-button]:active {
+  transform: scale(0.97);
+  transition-duration: 40ms;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.22),
+    0 1px 1px rgba(0, 0, 0, 0.4);
+}
+
+[data-sonner-toast][data-styled='true'] [data-button][data-button]:active::after {
+  opacity: 0.22;
+}
+
+/* Sonner's ring is a bare box-shadow, so it would drop the depth layers above
+   (this selector outranks it). Restate both: ring outside, depth kept. */
+[data-sonner-toast][data-styled='true'] [data-button][data-button]:focus-visible {
+  box-shadow:
+    inset 0 -1px 0 rgba(0, 0, 0, 0.16),
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    0 0 0 2px rgba(0, 0, 0, 0.55),
+    0 0 0 4px rgba(139, 92, 246, 0.55);
+}
+
+/* New-version toast — the Update button doubles as the auto-update countdown:
+   a thin bar along its bottom edge depletes over the delay, then the app
+   reloads itself. */
+[data-sonner-toast][data-styled='true'].new-version-toast [data-button][data-button] {
+  overflow: hidden;
+}
+
+.update-countdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  display: block;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+/* scaleX, not width: this runs once a second for a full minute, so it stays on
+   the compositor instead of re-laying out the button on every tick. */
+.update-countdown-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.45);
+  transform-origin: left center;
+  transition: transform 1s linear;
+}
+
+.update-countdown-label {
+  position: relative;
+}
+
 /* What's New digest toast — wider than a default toast so each update
    gets room to breathe, with each entry rendered as its own subtle card. */
 [data-sonner-toast].whats-new-toast {
