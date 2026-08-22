@@ -2,6 +2,8 @@ import { useState, useEffect, useLayoutEffect, useRef, useCallback, Suspense } f
 import { ChannelHeader } from './components/ChannelHeader';
 import { HeaderMenu } from './components/HeaderMenu';
 import { CharacterRequestList } from './components/CharacterRequestList';
+import { LandingPage } from './components/LandingPage';
+import { ManualEntry } from './components/ManualEntry';
 import { SourcesBadges } from './components/SourcesBadges';
 import { SettingsPanel } from './components/SettingsPanel';
 import { Panel, PanelHeader } from './components/Panel';
@@ -16,12 +18,10 @@ import { DONATE_BOT_NAMES } from './services/twitch';
 import { lazyWithReload } from './utils/lazyWithReload';
 
 // Off the first-paint path — each is its own async chunk loaded on demand: the
-// landing page, the debug panel (#debug), and the dialogs (on first open).
+// debug panel (#debug) and the recovery/review dialogs (on first open).
 // lazyWithReload recovers from a stale-deploy chunk 404 by reloading once.
 // services/vod is dynamically imported at its call sites below.
-const LandingPage = lazyWithReload(() => import('./components/LandingPage').then((m) => ({ default: m.LandingPage })));
 const DebugDevTools = lazyWithReload(() => import('./components/DebugDevTools').then((m) => ({ default: m.DebugDevTools })));
-const ManualEntry = lazyWithReload(() => import('./components/ManualEntry').then((m) => ({ default: m.ManualEntry })));
 const ImportRequestsDialog = lazyWithReload(() => import('./components/ImportRequestsDialog').then((m) => ({ default: m.ImportRequestsDialog })));
 const VODSelectionDialog = lazyWithReload(() => import('./components/VODSelectionDialog').then((m) => ({ default: m.VODSelectionDialog })));
 const RequestsReviewDialog = lazyWithReload(() => import('./components/RequestsReviewDialog').then((m) => ({ default: m.RequestsReviewDialog })));
@@ -333,7 +333,6 @@ function ChannelApp() {
   const pendingCount = requests.filter(d => !d.done && (!hideNonRequests || d.type !== 'none')).length;
 
   // Gate each lazy dialog on first-open so its chunk loads then, not at app start.
-  const showManual = useEverTrue(manualOpen);
   const showReview = useEverTrue(reviewOpen);
   const showRecovery = useEverTrue(recoveryOpen);
   const showVodSelect = useEverTrue(vodSelectOpen);
@@ -415,8 +414,9 @@ function ChannelApp() {
         </footer>
       </div>
 
+      <ManualEntry isOpen={manualOpen} onClose={() => setManualOpen(false)} />
+
       <Suspense fallback={null}>
-        {showManual && <ManualEntry isOpen={manualOpen} onClose={() => setManualOpen(false)} />}
         {showReview && (
           <RequestsReviewDialog
             isOpen={reviewOpen}
@@ -551,7 +551,7 @@ export function App() {
   }, [channel]);
 
   if (authPending) return null;
-  if (!channel) return <Suspense fallback={null}><LandingPage /></Suspense>;
+  if (!channel) return <LandingPage />;
 
   return (
     <ChannelProvider channel={channel}>
