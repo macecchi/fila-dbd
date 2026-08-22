@@ -1,50 +1,51 @@
 /* Modal Styles */
 
+/* Shared modal enter/exit, driven by `data-state` (see Dialog.tsx).
+   Exit is shorter than enter. */
+
 .modal-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
   opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.2s, visibility 0.2s;
+  transition: opacity var(--duration-normal) var(--ease-out);
 }
 
-.modal-overlay.open {
+.modal-overlay[data-state='open'] {
   opacity: 1;
-  visibility: visible;
-  animation: fadeIn var(--duration-normal) var(--ease-out);
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+.modal-overlay[data-state='closed'] {
+  transition-duration: var(--duration-fast);
 }
 
-@keyframes slideUp {
-  from { transform: translateY(10px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+.modal-surface {
+  opacity: 0;
+  transform: scale(0.96) translateY(8px);
+  transition:
+    opacity var(--duration-normal) var(--ease-out),
+    transform var(--duration-normal) var(--ease-out);
 }
 
-.modal {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  width: 90%;
-  max-width: 400px;
-  transform: scale(0.95) translateY(10px);
-  transition: transform var(--duration-normal) var(--ease-in);
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-  overflow: visible;
+.modal-overlay[data-state='open'] .modal-surface {
+  opacity: 1;
+  transform: none;
 }
 
-.modal-overlay.open .modal {
-  transform: scale(1) translateY(0);
-  transition: transform var(--duration-normal) var(--ease-out);
+.modal-overlay[data-state='closed'] .modal-surface {
+  transition-duration: var(--duration-fast);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-surface {
+    transform: none;
+  }
 }
 
 .modal-header {
@@ -97,15 +98,12 @@
 .modal-field {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.4rem;
 }
 
 .modal-field label {
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
 }
 
 .modal-field select,
@@ -163,7 +161,6 @@
   display: flex;
   flex-direction: column;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-  animation: slideUp 0.2s ease;
 }
 
 .bot-mod-command {

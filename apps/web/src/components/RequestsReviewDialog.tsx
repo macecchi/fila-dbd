@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
+import { Dialog } from './Dialog';
 import type { Request } from '../types';
 import { deserializeRequests } from '../types';
 import { fetchRequestsHistory } from '../services/api';
@@ -179,7 +180,6 @@ export function RequestsReviewDialog({ isOpen, requests: storeRequests, channel,
     });
   }, [requests]);
 
-  if (!isOpen) return null;
 
   const changesTab = tab === 'changes';
   const displayRequests = changesTab
@@ -285,93 +285,91 @@ export function RequestsReviewDialog({ isOpen, requests: storeRequests, channel,
   ];
 
   return (
-    <div className="modal-overlay open" onClick={handleClose}>
-      <div className="review-dialog" onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <div className="modal-title">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <path d="M3 9h18M9 3v18" />
-            </svg>
-            {t('review.title')}
-          </div>
-          <button className="modal-close" onClick={handleClose}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
+    <Dialog isOpen={isOpen} onClose={handleClose} className="review-dialog">
+      <div className="modal-header">
+        <div className="modal-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <path d="M3 9h18M9 3v18" />
+          </svg>
+          {t('review.title')}
         </div>
-
-        <p className="dialog-help-text">{t('review.helpText')}</p>
-
-        {loading ? (
-          <div className="req-table-wrap" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3rem' }}>
-            <span className="loading-spinner" />
-          </div>
-        ) : (<>
-          <div className="review-tabs">
-            <button
-              className={`review-tab${tab === 'current' ? ' active' : ''}`}
-              onClick={() => setTab('current')}
-            >
-              {t('review.tabAll', { count: requests.length })}
-            </button>
-            <button
-              className={`review-tab${tab === 'changes' ? ' active' : ''}`}
-              onClick={() => setTab('changes')}
-            >
-              {t('review.tabChanges')} {changedIds.size > 0 && <span className="review-tab-badge">{changedIds.size}</span>}
-            </button>
-          </div>
-
-          <div className="req-table-wrap" ref={tableWrapRef}>
-            <RequestsTable
-              ref={tableRef}
-              requests={displayRequests}
-              leadColumns={leadColumns}
-              trailColumns={trailColumns}
-              showId
-              showTimestamp={false}
-              rowClassName={(r) => changedIds.has(r.id) ? 'review-row-changed' : undefined}
-              emptyText={changesTab ? t('review.emptyChanges') : t('review.emptyQueue')}
-              pageSize={50}
-              initialPage="last"
-              onPageChange={handlePageChange}
-            />
-          </div>
-        </>)}
-
-        <div className="modal-footer">
-          {pageInfo.totalPages > 1 && (
-            <div className="req-table-pagination">
-              <button className="btn btn-ghost btn-small" onClick={() => tableRef.current?.setPage(pageInfo.page - 1)} disabled={pageInfo.page === 0}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 18l-6-6 6-6" /></svg>
-              </button>
-              <span className="req-table-page-info">{pageInfo.page + 1} / {pageInfo.totalPages}</span>
-              <button className="btn btn-ghost btn-small" onClick={() => tableRef.current?.setPage(pageInfo.page + 1)} disabled={pageInfo.page >= pageInfo.totalPages - 1}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 18l6-6-6-6" /></svg>
-              </button>
-            </div>
-          )}
-          <div style={{ flex: 1 }} />
-          <button className="btn btn-ghost" onClick={handleClose}>{t('review.cancel')}</button>
-          <button
-            className="btn btn-ghost"
-            onClick={markAllDone}
-            disabled={undoneCount === 0}
-            title={t('review.markAllDone')}
-          >
-            {undoneCount > 0 ? t('review.markAllDoneCount', { count: undoneCount }) : t('review.markAllDone')}
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={handleApply}
-            disabled={changedIds.size === 0}
-          >
-            {changedIds.size > 0 ? t('review.applyChanges', { count: changedIds.size }) : ''}
-          </button>
-        </div>
+        <button className="modal-close" onClick={handleClose}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
       </div>
-    </div>
+
+      <p className="dialog-help-text">{t('review.helpText')}</p>
+
+      {loading ? (
+        <div className="req-table-wrap" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3rem' }}>
+          <span className="loading-spinner" />
+        </div>
+      ) : (<>
+        <div className="review-tabs">
+          <button
+            className={`review-tab${tab === 'current' ? ' active' : ''}`}
+            onClick={() => setTab('current')}
+          >
+            {t('review.tabAll', { count: requests.length })}
+          </button>
+          <button
+            className={`review-tab${tab === 'changes' ? ' active' : ''}`}
+            onClick={() => setTab('changes')}
+          >
+            {t('review.tabChanges')} {changedIds.size > 0 && <span className="review-tab-badge">{changedIds.size}</span>}
+          </button>
+        </div>
+
+        <div className="req-table-wrap" ref={tableWrapRef}>
+          <RequestsTable
+            ref={tableRef}
+            requests={displayRequests}
+            leadColumns={leadColumns}
+            trailColumns={trailColumns}
+            showId
+            showTimestamp={false}
+            rowClassName={(r) => changedIds.has(r.id) ? 'review-row-changed' : undefined}
+            emptyText={changesTab ? t('review.emptyChanges') : t('review.emptyQueue')}
+            pageSize={50}
+            initialPage="last"
+            onPageChange={handlePageChange}
+          />
+        </div>
+      </>)}
+
+      <div className="modal-footer">
+        {pageInfo.totalPages > 1 && (
+          <div className="req-table-pagination">
+            <button className="btn btn-ghost btn-small" onClick={() => tableRef.current?.setPage(pageInfo.page - 1)} disabled={pageInfo.page === 0}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 18l-6-6 6-6" /></svg>
+            </button>
+            <span className="req-table-page-info">{pageInfo.page + 1} / {pageInfo.totalPages}</span>
+            <button className="btn btn-ghost btn-small" onClick={() => tableRef.current?.setPage(pageInfo.page + 1)} disabled={pageInfo.page >= pageInfo.totalPages - 1}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 18l6-6-6-6" /></svg>
+            </button>
+          </div>
+        )}
+        <div style={{ flex: 1 }} />
+        <button className="btn btn-ghost" onClick={handleClose}>{t('review.cancel')}</button>
+        <button
+          className="btn btn-ghost"
+          onClick={markAllDone}
+          disabled={undoneCount === 0}
+          title={t('review.markAllDone')}
+        >
+          {undoneCount > 0 ? t('review.markAllDoneCount', { count: undoneCount }) : t('review.markAllDone')}
+        </button>
+        <button
+          className="btn btn-primary"
+          onClick={handleApply}
+          disabled={changedIds.size === 0}
+        >
+          {changedIds.size > 0 ? t('review.applyChanges', { count: changedIds.size }) : ''}
+        </button>
+      </div>
+    </Dialog>
   );
 }

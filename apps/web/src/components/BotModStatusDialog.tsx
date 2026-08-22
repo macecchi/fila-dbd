@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Dialog } from './Dialog';
 import { fetchBotModStatus, type BotModStatus } from '../services/api';
 import { useTranslation } from '../i18n';
 
@@ -31,7 +32,6 @@ export function BotModStatusDialog({ isOpen, mode, onVerified, onCancel, onTurnO
     }
   }, [isOpen]);
 
-  if (!isOpen) return null;
 
   const verify = async () => {
     setVerifying(true);
@@ -69,47 +69,45 @@ export function BotModStatusDialog({ isOpen, mode, onVerified, onCancel, onTurnO
     : t('chatConfirm.dialog.lostMod.body');
 
   return (
-    <div className="modal-overlay open" onClick={dismissAction.onClick}>
-      <div className="bot-mod-dialog" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <div className="modal-title">{title}</div>
-          <button className="modal-close" onClick={dismissAction.onClick} aria-label="Close">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="dialog-help-text">
-          {body}
-
-          <div className="bot-mod-command">
-            <code>{t('chatConfirm.dialog.command')}</code>
-          </div>
-          <p className="dialog-help-text bot-mod-command-hint">
-            {t('chatConfirm.dialog.commandHint')}
-          </p>
-        </div>
-
-        {feedback?.kind === 'still-not-modded' && (
-          <p className="bot-mod-feedback warn">{t('chatConfirm.dialog.stillNotModded')}</p>
-        )}
-        {feedback?.kind === 'error' && (
-          <p className="bot-mod-feedback warn">{t('chatConfirm.dialog.errorChecking')}</p>
-        )}
-        {feedback?.kind === 'no-bot-token' && (
-          <p className="bot-mod-feedback warn">{t('chatConfirm.dialog.noBotToken')}</p>
-        )}
-
-        <div className="modal-footer">
-          <button className="btn btn-ghost" onClick={dismissAction.onClick} disabled={verifying}>
-            {dismissAction.label}
-          </button>
-          <button className="btn btn-primary" onClick={() => void verify()} disabled={verifying}>
-            {verifying ? t('chatConfirm.dialog.verifying') : t('chatConfirm.dialog.verifyAgain')}
-          </button>
-        </div>
+    <Dialog isOpen={isOpen} onClose={dismissAction.onClick} className="bot-mod-dialog">
+      <div className="modal-header">
+        <div className="modal-title">{title}</div>
+        <button className="modal-close" onClick={dismissAction.onClick} aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
       </div>
-    </div>
+
+      <div className="dialog-help-text">
+        {body}
+
+        <div className="bot-mod-command">
+          <code>{t('chatConfirm.dialog.command')}</code>
+        </div>
+        <p className="dialog-help-text bot-mod-command-hint">
+          {t('chatConfirm.dialog.commandHint')}
+        </p>
+      </div>
+
+      {feedback?.kind === 'still-not-modded' && (
+        <p className="bot-mod-feedback warn">{t('chatConfirm.dialog.stillNotModded')}</p>
+      )}
+      {feedback?.kind === 'error' && (
+        <p className="bot-mod-feedback warn">{t('chatConfirm.dialog.errorChecking')}</p>
+      )}
+      {feedback?.kind === 'no-bot-token' && (
+        <p className="bot-mod-feedback warn">{t('chatConfirm.dialog.noBotToken')}</p>
+      )}
+
+      <div className="modal-footer">
+        <button className="btn btn-ghost" onClick={dismissAction.onClick} disabled={verifying}>
+          {dismissAction.label}
+        </button>
+        <button className="btn btn-primary" onClick={() => void verify()} disabled={verifying}>
+          {verifying ? t('chatConfirm.dialog.verifying') : t('chatConfirm.dialog.verifyAgain')}
+        </button>
+      </div>
+    </Dialog>
   );
 }

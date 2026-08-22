@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { Dialog } from './Dialog';
 import type { Request } from '../types';
 import { RequestsTable, type RequestsTableColumn } from './RequestsTable';
 import { useTranslation } from '../i18n';
@@ -58,8 +59,6 @@ export function ImportRequestsDialog({ isOpen, requests, isLoading, loadingStatu
     if (req) toggle(req.id);
   }, [requests, toggle]);
 
-  if (!isOpen) return null;
-
   const allSelected = selected.size === requests.length && requests.length > 0;
   const noneSelected = selected.size === 0;
   const selectedCount = selected.size;
@@ -88,78 +87,76 @@ export function ImportRequestsDialog({ isOpen, requests, isLoading, loadingStatu
   ];
 
   return (
-    <div className="modal-overlay open" onClick={onClose}>
-      <div className="recovery-dialog recovery-dialog-wide" onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <div className="modal-title">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10" />
-              <polyline points="12,6 12,12 16,14" />
-            </svg>
-            {t('import.title')}
-          </div>
-          <button className="modal-close" onClick={onClose}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
+    <Dialog isOpen={isOpen} onClose={onClose} className="recovery-dialog recovery-dialog-wide">
+      <div className="modal-header">
+        <div className="modal-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" />
+            <polyline points="12,6 12,12 16,14" />
+          </svg>
+          {t('import.title')}
         </div>
-
-        {!isLoading && requests.length === 0 ? (
-          <div className="dialog-empty">
-            <span>{emptyText || t('import.emptyDefault')}</span>
-            <button className="btn btn-ghost" onClick={onClose}>{t('import.close')}</button>
-          </div>
-        ) : (
-          <>
-            <div className="recovery-subtitle">
-              {isLoading ? (
-                <>
-                  <span className="recovery-spinner-inline" />
-                  {loadingStatus || loadingText || t('import.analyzing')}
-                </>
-              ) : (
-                <>{doneText || t('import.found')} <strong>{requests.length}</strong> {t('import.request', { count: requests.length })}</>
-              )}
-            </div>
-            <div className="recovery-actions">
-              <button
-                className="btn btn-ghost btn-small"
-                onClick={() => toggleAll(!allSelected)}
-                disabled={requests.length === 0}
-              >
-                {allSelected ? t('import.deselectAll') : t('import.selectAll')}
-              </button>
-              <span className="recovery-count">
-                {t('import.selectedCount', { selected: selectedCount, total: requests.length, count: selectedCount })}
-              </span>
-            </div>
-            <div className="req-table-wrap">
-              <RequestsTable
-                requests={requests}
-                leadColumns={leadColumns}
-                onRowClick={handleRowClick}
-                emptyText=""
-              />
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-ghost" onClick={onBack ?? onClose}>
-                {onBack ? t('import.back') : t('import.ignore')}
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={handleConfirm}
-                disabled={noneSelected || isLoading}
-              >
-                {isLoading
-                  ? <span className="recovery-spinner-inline" />
-                  : t('import.addRequests', { count: selectedCount || '' })
-                }
-              </button>
-            </div>
-          </>
-        )}
+        <button className="modal-close" onClick={onClose}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
       </div>
-    </div>
+
+      {!isLoading && requests.length === 0 ? (
+        <div className="dialog-empty">
+          <span>{emptyText || t('import.emptyDefault')}</span>
+          <button className="btn btn-ghost" onClick={onClose}>{t('import.close')}</button>
+        </div>
+      ) : (
+        <>
+          <div className="recovery-subtitle">
+            {isLoading ? (
+              <>
+                <span className="recovery-spinner-inline" />
+                {loadingStatus || loadingText || t('import.analyzing')}
+              </>
+            ) : (
+              <>{doneText || t('import.found')} <strong>{requests.length}</strong> {t('import.request', { count: requests.length })}</>
+            )}
+          </div>
+          <div className="recovery-actions">
+            <button
+              className="btn btn-ghost btn-small"
+              onClick={() => toggleAll(!allSelected)}
+              disabled={requests.length === 0}
+            >
+              {allSelected ? t('import.deselectAll') : t('import.selectAll')}
+            </button>
+            <span className="recovery-count">
+              {t('import.selectedCount', { selected: selectedCount, total: requests.length, count: selectedCount })}
+            </span>
+          </div>
+          <div className="req-table-wrap">
+            <RequestsTable
+              requests={requests}
+              leadColumns={leadColumns}
+              onRowClick={handleRowClick}
+              emptyText=""
+            />
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-ghost" onClick={onBack ?? onClose}>
+              {onBack ? t('import.back') : t('import.ignore')}
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={handleConfirm}
+              disabled={noneSelected || isLoading}
+            >
+              {isLoading
+                ? <span className="recovery-spinner-inline" />
+                : t('import.addRequests', { count: selectedCount || '' })
+              }
+            </button>
+          </div>
+        </>
+      )}
+    </Dialog>
   );
 }

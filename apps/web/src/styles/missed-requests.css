@@ -10,7 +10,6 @@
   display: flex;
   flex-direction: column;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-  animation: slideUp 0.2s ease;
 }
 
 .recovery-dialog-wide {
@@ -20,11 +19,33 @@
 }
 
 .recovery-subtitle {
-  padding: 0.75rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 2.5rem;
+  padding: 0.5rem 1.25rem;
   font-size: var(--text-sm);
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+}
+
+.recovery-subtitle-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Interrupts an in-flight scan; whatever was found so far stays selectable. */
+.recovery-stop {
+  flex-shrink: 0;
+  gap: 0.35rem;
+}
+
+.recovery-stop svg {
+  opacity: 0.75;
 }
 
 .recovery-subtitle strong {

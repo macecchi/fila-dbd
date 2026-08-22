@@ -1,16 +1,13 @@
-import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { lazyWithReload } from '../utils/lazyWithReload';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { identifyCharacter } from '../services';
 import { eligibleExtras } from '../services/extras';
 import { CharacterRequestCard } from './CharacterRequestCard';
 import { ContextMenu } from './ContextMenu';
+import { ManualEntry } from './ManualEntry';
 import { ContextMenuProvider } from '../context/ContextMenuContext';
 import { useChannel } from '../store';
+import type { Request } from '../types';
 import { useTranslation } from '../i18n';
-
-// Off the first-paint path — loaded on the first edit click. Same dialog as the
-// "+" manual add, in edit mode.
-const ManualEntry = lazyWithReload(() => import('./ManualEntry').then((m) => ({ default: m.ManualEntry })));
 
 export function CharacterRequestList() {
   const { useRequests, useSources, useChannelInfo, isOwnChannel, canControlConnection } = useChannel();
@@ -125,6 +122,9 @@ export function CharacterRequestList() {
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const editingRequest = editingId !== null ? requests.find(r => r.id === editingId) : undefined;
+  // Kept so the dialog stays mounted through its exit transition.
+  const lastEdited = useRef<Request | undefined>(undefined);
+  if (editingRequest) lastEdited.current = editingRequest;
 
   const handleEdit = useCallback((id: number) => {
     if (readOnly) return;
@@ -276,15 +276,13 @@ export function CharacterRequestList() {
           onEdit={handleEdit}
         />
       )}
-      {!readOnly && editingRequest && (
-        <Suspense fallback={null}>
-          <ManualEntry
-            isOpen
-            editRequest={editingRequest}
-            onClose={() => setEditingId(null)}
-            onSave={(updates) => update(editingRequest.id, updates)}
-          />
-        </Suspense>
+      {!readOnly && lastEdited.current && (
+        <ManualEntry
+          isOpen={!!editingRequest}
+          editRequest={editingRequest ?? lastEdited.current}
+          onClose={() => setEditingId(null)}
+          onSave={(updates) => update(lastEdited.current!.id, updates)}
+        />
       )}
     </ContextMenuProvider>
   );

@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useId } from 'react';
+import { Dialog } from './Dialog';
 import { useChannel } from '../store';
 import { CharacterAvatar } from './CharacterAvatar';
 import { useTranslation } from '../i18n';
@@ -28,6 +29,8 @@ export function ManualEntry({ isOpen, onClose, editRequest, onSave }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const allChars = useRef<CharacterOption[]>([]);
   const isEdit = !!editRequest;
+  const charFieldId = useId();
+  const noteFieldId = useId();
 
   useEffect(() => {
     allChars.current = getAllCharacterNames();
@@ -117,18 +120,19 @@ export function ManualEntry({ isOpen, onClose, editRequest, onSave }: Props) {
     }
   };
 
-  if (!isOpen) return null;
 
   return (
-    <div className="manual-entry-overlay" onClick={onClose}>
-      <div className="manual-entry-popup" onClick={e => e.stopPropagation()}>
-        <div className="manual-entry-header">
-          <span>{isEdit ? t('edit.title') : t('manual.title')}</span>
-          <button className="manual-entry-close" onClick={onClose}>×</button>
-        </div>
-        <div className="manual-entry-body">
+    <Dialog isOpen={isOpen} onClose={onClose} className="manual-entry-popup">
+      <div className="manual-entry-header">
+        <span>{isEdit ? t('edit.title') : t('manual.title')}</span>
+        <button className="manual-entry-close" onClick={onClose}>×</button>
+      </div>
+      <div className="manual-entry-body">
+        <div className="modal-field">
+          <label htmlFor={charFieldId}>{t('manual.characterLabel')}</label>
           <div className="manual-input-wrapper">
             <input
+              id={charFieldId}
               ref={inputRef}
               type="text"
               value={input}
@@ -152,7 +156,11 @@ export function ManualEntry({ isOpen, onClose, editRequest, onSave }: Props) {
               </div>
             )}
           </div>
+        </div>
+        <div className="modal-field">
+          <label htmlFor={noteFieldId}>{isEdit ? t('edit.messageLabel') : t('manual.noteLabel')}</label>
           <input
+            id={noteFieldId}
             className="manual-entry-note"
             type="text"
             value={note}
@@ -167,6 +175,6 @@ export function ManualEntry({ isOpen, onClose, editRequest, onSave }: Props) {
           />
         </div>
       </div>
-    </div>
+    </Dialog>
   );
 }
