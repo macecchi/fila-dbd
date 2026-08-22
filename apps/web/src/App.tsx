@@ -93,54 +93,6 @@ function useAutoIdentify(
   }, [requests, update, readOnly, useSources]);
 }
 
-// One-shot migration: re-runs the local matcher on existing non-manual requests
-// stuck on "Lich" (the previous regex incorrectly preferred the "Vecna" alias
-// of Lich over the longer "Vecna Novo"/"Vecna Stranger Things" aliases of
-// The First). Narrow on purpose to avoid clobbering manual edits.
-function useFixVecnaRegression(requests: Request[], update: (id: number, updates: Partial<Request>) => void, readOnly: boolean) {
-  const fixed = useRef(new Set<number>());
-  useEffect(() => {
-    if (readOnly) return;
-    for (const req of requests) {
-      if (fixed.current.has(req.id)) continue;
-      if (req.source === 'manual') continue;
-      if (req.character !== 'Lich') continue;
-      const rematch = tryLocalMatch(req.message);
-      if (rematch && rematch.character === 'The First') {
-        fixed.current.add(req.id);
-        update(req.id, { character: rematch.character, type: rematch.type, matchedTerm: rematch.matchedTerm });
-      }
-    }
-  }, [requests, update, readOnly]);
-}
-
-// One-shot migration: repairs requests an LLM/network outage left stuck on the
-// old "Erro na API" / "Erro" sentinel (now removed — errors no longer overwrite
-// the local guess). These rendered as "unidentified" while the message still
-// highlighted the matched character. Re-run the local matcher to restore the
-// identification; if nothing matches locally, clear the sentinel to a clean
-// blank state. The sentinel is never a valid character, so this can't clobber a
-// real edit.
-function useFixApiErrorSentinel(requests: Request[], update: (id: number, updates: Partial<Request>) => void, readOnly: boolean) {
-  const fixed = useRef(new Set<number>());
-  useEffect(() => {
-    if (readOnly) return;
-    for (const req of requests) {
-      if (fixed.current.has(req.id)) continue;
-      if (req.character !== 'Erro na API' && req.character !== 'Erro') continue;
-      fixed.current.add(req.id);
-      const rematch = tryLocalMatch(req.message);
-      if (rematch) {
-        update(req.id, { character: rematch.character, type: rematch.type, matchedTerm: rematch.matchedTerm });
-      } else {
-        // Clear matchedTerm to '' (not undefined — a broadcast drops undefined keys,
-        // leaving a stale highlight) so the card renders cleanly as "unidentified".
-        update(req.id, { character: '', type: 'unknown', matchedTerm: '' });
-      }
-    }
-  }, [requests, update, readOnly]);
-}
-
 function useRequestToasts(requests: Request[], update: (id: number, updates: Partial<Request>) => void, hideNonRequests: boolean, readOnly: boolean) {
   const shownToasts = useRef(new Set<number>());
   const isFirstLoad = useRef(true);
@@ -367,8 +319,6 @@ function ChannelApp() {
   const hideNonRequests = useSources((s) => s.hideNonRequests);
 
   useAutoIdentify(requests, update, readOnly, useSources);
-  useFixVecnaRegression(requests, update, readOnly);
-  useFixApiErrorSentinel(requests, update, readOnly);
   useRequestToasts(requests, update, hideNonRequests, readOnly);
   useWhatsNew(canControlConnection);
 
