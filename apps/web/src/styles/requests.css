@@ -331,12 +331,81 @@
   font-style: italic;
 }
 
-.validating-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--yellow);
-  animation: pulse 1s infinite;
+/* transitions.dev "shimmer text" — a gradient band swept across the glyphs of a
+   character name while it's still being identified (no spinner, no layout cost).
+   The ::before layer duplicates the string via data-text so the gradient can be
+   clipped to it. */
+.t-shimmer {
+  --shimmer-dur: 2000ms;
+  --shimmer-base: var(--text-muted);
+  --shimmer-highlight: var(--text);
+  --shimmer-band: 400%;
+  position: relative;
+  display: inline-block;
+  color: var(--shimmer-base);
+}
+
+.t-shimmer::before {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 40%,
+    var(--shimmer-highlight) 50%,
+    transparent 60%,
+    transparent 100%
+  );
+  background-size: var(--shimmer-band) 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: t-shimmer var(--shimmer-dur) linear infinite;
+}
+
+@keyframes t-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: 0% 0; }
+}
+
+/* transitions.dev "text states swap" — the identified character replacing the
+   placeholder: old text exits up with a blur, new text enters from below.
+   Sequenced by components/SwapText.tsx, which reads --text-swap-dur off the
+   element to time the phases — this rule is the single source for the timing. */
+.t-text-swap {
+  --text-swap-dur: 150ms;
+  --text-swap-translate-y: 4px;
+  --text-swap-blur: 2px;
+  display: inline-block;
+  transform: translateY(0);
+  filter: blur(0);
+  opacity: 1;
+  transition:
+    transform var(--text-swap-dur) ease-in-out,
+    filter var(--text-swap-dur) ease-in-out,
+    opacity var(--text-swap-dur) ease-in-out;
+}
+
+.t-text-swap.is-exit {
+  transform: translateY(calc(var(--text-swap-translate-y) * -1));
+  filter: blur(var(--text-swap-blur));
+  opacity: 0;
+}
+
+.t-text-swap.is-enter-start {
+  transform: translateY(var(--text-swap-translate-y));
+  filter: blur(var(--text-swap-blur));
+  opacity: 0;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-shimmer::before { animation: none !important; }
+  .t-text-swap { transition: none !important; }
 }
 
 .char-portrait-wrapper {

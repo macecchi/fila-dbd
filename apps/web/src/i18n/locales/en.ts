@@ -130,7 +130,6 @@ const en: TranslationKeys = {
   // Character card
   'card.identifying': 'Identifying...',
   'card.unidentified': 'Unidentified',
-  'card.validatingAI': 'Validating with AI...',
   'card.truncated': 'Message cut off by LivePix — the request may be in the missing part. Check the full message in your LivePix dashboard.',
   'card.edit': 'Edit request',
   'card.markDone': 'Mark as done',

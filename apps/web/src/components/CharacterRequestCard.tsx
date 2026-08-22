@@ -3,6 +3,7 @@ import type { Request } from '../types';
 import { useContextMenu } from '../context/ContextMenuContext';
 import { getKillerPortrait, tryLocalMatch } from '../data/characters';
 import { CharacterAvatar } from './CharacterAvatar';
+import { SwapText } from './SwapText';
 import { useTranslation } from '../i18n';
 import { getLocale } from '../i18n';
 import { formatRelativeTime, highlightTerms, isLikelyTruncatedDonation } from '../utils/helpers';
@@ -145,7 +146,7 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
         onTouchStart: handleTouchStart,
       })}
     >
-      <div className="request-card-content" onClick={handleClick}>
+      <div className="request-card-content">
         <span className="request-position">{position ? String(position).padStart(2, '0') : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
           <polyline points="20 6 9 17 4 12"></polyline>
         </svg>}</span>
@@ -157,10 +158,11 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
               alt=""
               className="char-type-icon"
             />
-            <span className={`char-name${isIdentifying ? ' identifying' : ''}${!r.character && r.type !== 'unknown' ? ' type-only' : ''}`}>
-              {charDisplay}
-            </span>
-            {isValidating && <span className="validating-dot" title={t('card.validatingAI')} />}
+            <SwapText
+              text={charDisplay}
+              shimmer={isIdentifying || isValidating}
+              className={`char-name${isIdentifying ? ' identifying' : ''}${!r.character && r.type !== 'unknown' ? ' type-only' : ''}`}
+            />
           </div>
           <div className="request-card-body">
             <span className="donor-name">
