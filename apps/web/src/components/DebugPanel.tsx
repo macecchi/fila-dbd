@@ -80,11 +80,6 @@ export function DebugPanel() {
 
     const message = simMessage;
 
-    // Push the request through the real donate IRC pipeline so it gets source='donation',
-    // a random user as donor, and goes through the normal LLM identification + chat
-    // confirmation flow — same path the simulated donate buttons use.
-    window.dbdDebug.donate(randomDonor(), minDonation + 10, message);
-
     setResult({ text: t('card.identifying'), show: true });
 
     const formatResult = (res: { character: string; type: string }, isLocal: boolean, llmSuffix = '') => {
@@ -94,8 +89,8 @@ export function DebugPanel() {
       return `<span style="color:var(--text-muted)">${prefix}</span> <span style="color:${color}">${res.type}</span> → <strong>${display}</strong>${llmSuffix}`;
     };
 
-    // Diagnostic-only call: shows local vs LLM extraction inline. The queued request (if any)
-    // gets identified independently by App.tsx via the needsIdentification flag.
+    // Diagnostic only: shows local vs LLM extraction inline. Nothing is added to the queue —
+    // use "Send simulated event" for that.
     const res = await testExtraction(
       message,
       (msg) => showToast(msg, t('debug.errorLlm'), 'red'),
