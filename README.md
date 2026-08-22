@@ -136,6 +136,8 @@ dbdDebug.chat('User', 'msg', { sub: false })      // chat non-sub
 dbdDebug.donate('Donor', 50, 'msg')               // donate R$50 (LivePix format)
 dbdDebug.resub('User', 'msg')                     // resub
 dbdDebug.raw('@tags... PRIVMSG #ch :msg')         // raw IRC
+dbdDebug.newVersion()                             // "new version" toast + auto-update countdown
+dbdDebug.newVersion({ mismatch: true })           // server version_mismatch warning variant
 ```
 
 To test StreamElements format:

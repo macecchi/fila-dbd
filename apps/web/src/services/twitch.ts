@@ -7,6 +7,8 @@ import type { ChannelStores } from '../store/channel';
 import { computeEntitlement, buildDonationRequests } from './donation';
 import { identifyMultiple } from './llm';
 import { eligibleExtras } from './extras';
+import { showNewVersionToast } from '../components/UpdateToast';
+import { t } from '../i18n';
 
 export { DONATE_BOT_NAMES, isDonateBot } from '../utils/helpers';
 
@@ -346,6 +348,7 @@ declare global {
       resub: (user: string, message: string, opts?: { tier?: number }) => void;
       raw: (ircLine: string) => void;
       review: () => void;
+      newVersion: (opts?: { mismatch?: boolean }) => void;
     };
   }
 }
@@ -387,4 +390,10 @@ window.dbdDebug = {
     else if (ircLine.includes('PRIVMSG')) handleMessage(ircLine);
   },
   review: () => window.dispatchEvent(new CustomEvent('dbd:open-review')),
+  // Shows the "new version" toast with the inactivity auto-update countdown.
+  // { mismatch: true } shows the server version_mismatch warning variant.
+  newVersion: (opts?: { mismatch?: boolean }) =>
+    opts?.mismatch
+      ? showNewVersionToast({ description: t('toast.newVersionUpdate'), warning: true })
+      : showNewVersionToast(),
 };
