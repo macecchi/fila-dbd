@@ -12,7 +12,8 @@ interface Props {
   // Edit mode: same interface, but picking a character updates this request
   // instead of adding a new one. The note field edits the request's message —
   // useful for completing LivePix donates truncated at 250 chars. Pressing
-  // Enter on the note saves a message-only edit (character unchanged).
+  // Enter on the note saves a message-only edit (character unchanged);
+  // Shift+Enter adds a line break.
   editRequest?: Request;
   onSave?: (updates: Partial<Request>) => void;
 }
@@ -27,6 +28,7 @@ export function ManualEntry({ isOpen, onClose, editRequest, onSave }: Props) {
   const [autocompleteItems, setAutocompleteItems] = useState<CharacterOption[]>([]);
   const [autocompleteIndex, setAutocompleteIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
+  const noteRef = useRef<HTMLTextAreaElement>(null);
   const allChars = useRef<CharacterOption[]>([]);
   const isEdit = !!editRequest;
   const charFieldId = useId();
@@ -35,6 +37,17 @@ export function ManualEntry({ isOpen, onClose, editRequest, onSave }: Props) {
   useEffect(() => {
     allChars.current = getAllCharacterNames();
   }, []);
+
+  // The note is a textarea so long messages (e.g. a LivePix donate truncated at
+  // 250 chars being completed by hand) stay fully visible instead of scrolling
+  // inside a one-line input. Grow it to fit its content, capped by CSS max-height.
+  useEffect(() => {
+    const el = noteRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    // border-box: scrollHeight excludes the border, height includes it.
+    el.style.height = `${el.scrollHeight + (el.offsetHeight - el.clientHeight)}px`;
+  }, [note, isOpen]);
 
   useEffect(() => {
     if (isOpen) {
@@ -159,18 +172,23 @@ export function ManualEntry({ isOpen, onClose, editRequest, onSave }: Props) {
         </div>
         <div className="modal-field">
           <label htmlFor={noteFieldId}>{isEdit ? t('edit.messageLabel') : t('manual.noteLabel')}</label>
-          <input
+          <textarea
             id={noteFieldId}
+            ref={noteRef}
             className="manual-entry-note"
-            type="text"
+            rows={1}
             value={note}
             placeholder={isEdit ? t('edit.messagePlaceholder') : t('manual.notePlaceholder')}
             autoComplete="off"
             onChange={e => setNote(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Escape') onClose();
-              // Edit mode: Enter on the note saves a message-only correction.
-              if (e.key === 'Enter' && isEdit) finishEdit(null);
+              // Edit mode: Enter on the note saves a message-only correction;
+              // Shift+Enter inserts a line break instead.
+              if (e.key === 'Enter' && !e.shiftKey && isEdit) {
+                e.preventDefault();
+                finishEdit(null);
+              }
             }}
           />
         </div>

@@ -45,7 +45,8 @@
   gap: var(--space-md);
 }
 
-.manual-entry-body input {
+.manual-entry-body input,
+.manual-entry-body textarea {
   width: 100%;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -55,7 +56,8 @@
   color: var(--text);
 }
 
-.manual-entry-body input:focus {
+.manual-entry-body input:focus,
+.manual-entry-body textarea:focus {
   outline: none;
   border-color: var(--accent);
 }
@@ -73,6 +75,14 @@
 .manual-entry-note {
   font-size: var(--text-base) !important;
   color: var(--text-muted);
+  /* Auto-grown in JS to fit the message; cap the growth so a long donate
+     scrolls inside the field instead of pushing the dialog off-screen. */
+  display: block;
+  resize: none;
+  overflow-y: auto;
+  max-height: 8.5rem;
+  line-height: 1.4;
+  font-family: inherit;
 }
 
 .manual-entry-note:focus {
@@ -81,7 +91,8 @@
 
 /* Mobile */
 @media (max-width: 480px) {
-  .manual-entry-body input {
+  .manual-entry-body input,
+  .manual-entry-body textarea {
     font-size: 16px; /* Prevent iOS zoom */
   }
 }
