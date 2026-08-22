@@ -97,34 +97,37 @@ function LiveChannels() {
   } else {
     content = (
       <div className={`landing-channels-grid${rooms.length === 1 ? ' single' : ''}`}>
-        {rooms.map(room => (
-          <a key={room.id} className="landing-channel-card" href={`/${room.channel_login}`} onClick={handleLinkClick}>
-            <div className="landing-channel-thumb">
-              {channelThumbSrc(room) ? (
-                <img src={channelThumbSrc(room)!} alt={room.channel_login} />
-              ) : (
-                <img className="landing-channel-thumb-placeholder" src={`${import.meta.env.BASE_URL}images/Dead-by-Daylight-Emblem.webp`} alt="" />
-              )}
-              {room.is_live && !loading && <span className="landing-channel-live">{t('landing.live')}</span>}
-            </div>
-            <div className="landing-channel-info">
-              <div className="landing-channel-card-header">
-                {room.avatar_url && <img className="landing-channel-avatar" src={room.avatar_url} alt="" />}
-                <span className="landing-channel-name">{room.channel_login}</span>
-                {room.status !== 'offline' && <span className="landing-channel-status">{t('landing.queueOpen')}</span>}
+        {rooms.map(room => {
+          const displayName = room.display_name || room.channel_login;
+          return (
+            <a key={room.id} className="landing-channel-card" href={`/${room.channel_login}`} onClick={handleLinkClick}>
+              <div className="landing-channel-thumb">
+                {channelThumbSrc(room) ? (
+                  <img src={channelThumbSrc(room)!} alt={displayName} />
+                ) : (
+                  <img className="landing-channel-thumb-placeholder" src={`${import.meta.env.BASE_URL}images/Dead-by-Daylight-Emblem.webp`} alt="" />
+                )}
+                {room.is_live && !loading && <span className="landing-channel-live">{t('landing.live')}</span>}
               </div>
-              <div className="landing-channel-stats">
-                <span className="landing-channel-pending">
-                  {t('landing.requestCount', { count: room.pending_count })}
-                </span>
-                <span className="landing-channel-meta">
-                  {room.viewer_count != null && <span>{room.viewer_count} viewers</span>}
-                  <span>{formatRelativeTime(new Date(room.updated_at + 'Z'))}</span>
-                </span>
+              <div className="landing-channel-info">
+                <div className="landing-channel-card-header">
+                  {room.avatar_url && <img className="landing-channel-avatar" src={room.avatar_url} alt="" />}
+                  <span className="landing-channel-name">{displayName}</span>
+                  {room.status !== 'offline' && <span className="landing-channel-status">{t('landing.queueOpen')}</span>}
+                </div>
+                <div className="landing-channel-stats">
+                  <span className="landing-channel-pending">
+                    {t('landing.requestCount', { count: room.pending_count })}
+                  </span>
+                  <span className="landing-channel-meta">
+                    {room.viewer_count != null && <span>{room.viewer_count} viewers</span>}
+                    <span>{formatRelativeTime(new Date(room.updated_at + 'Z'))}</span>
+                  </span>
+                </div>
               </div>
-            </div>
-          </a>
-        ))}
+            </a>
+          );
+        })}
       </div>
     );
   }

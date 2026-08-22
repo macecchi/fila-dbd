@@ -10,6 +10,9 @@ const KEY = `fila-dbd-channels-v${VERSION}`;
 export interface ActiveRoom {
   id: string;
   channel_login: string;
+  // Twitch's cased name (e.g. "MandyMess"). Optional: entries cached before this
+  // field existed won't have it, and callers fall back to `channel_login`.
+  display_name?: string | null;
   request_count: number;
   pending_count: number;
   updated_at: string;
