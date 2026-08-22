@@ -3,6 +3,12 @@ import type { Request, SourcesEnabled, RequestExtra, RoomExtras } from './types'
 // Bump on non-backwards-compatible changes to PartyMessage formats or connection logic
 export const PROTOCOL_VERSION = 1;
 export const MAX_PENDING_REQUESTS = 99;
+// Done requests are pruned from DO storage once they reach D1 — all but the newest
+// few, which stay in the room state so the header's "recently played" strip survives
+// a reload instead of only living in the tab that clicked the ✓. DO retention is the
+// only source: D1 can't tell a completed request from a deleted one (see the internal
+// recovery endpoint), so a storage loss leaves the strip empty rather than wrong.
+export const RECENT_DONE_KEPT = 5;
 
 export interface SourcesSettings {
   enabled: SourcesEnabled;

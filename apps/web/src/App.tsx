@@ -105,7 +105,10 @@ function useRequestToasts(requests: Request[], update: (id: number, updates: Par
   const shownToasts = useRef(new Set<number>());
   const isFirstLoad = useRef(true);
   useEffect(() => {
-    const ready = requests.filter(r => !shownToasts.current.has(r.id) && !r.needsIdentification);
+    // `!r.done` matters: the room keeps the newest done requests in sync-full, and a
+    // stale localStorage cache can flip `isFirstLoad` before that arrives — without
+    // this guard those land as "new request" toasts for something already finished.
+    const ready = requests.filter(r => !shownToasts.current.has(r.id) && !r.needsIdentification && !r.done);
     for (const req of ready) {
       shownToasts.current.add(req.id);
       if (isFirstLoad.current || readOnly) continue;

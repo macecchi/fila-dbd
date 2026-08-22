@@ -363,21 +363,21 @@ internal.put("/rooms/:roomId/requests", async (c) => {
       // No incoming → mark all pending as done
       statements.push(
         c.env.DB.prepare(
-          "UPDATE requests SET done = 1, done_at = datetime('now') WHERE room_id = ? AND done = 0"
+          "UPDATE requests SET done = 1, done_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE room_id = ? AND done = 0"
         ).bind(roomId)
       );
     } else if (incomingIds.length <= 99) {
       // Fits in one NOT IN clause (99 IDs + 1 roomId = 100 bound params)
       statements.push(
         c.env.DB.prepare(
-          `UPDATE requests SET done = 1, done_at = datetime('now') WHERE room_id = ? AND done = 0 AND id NOT IN (${incomingIds.map(() => '?').join(',')})`
+          `UPDATE requests SET done = 1, done_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE room_id = ? AND done = 0 AND id NOT IN (${incomingIds.map(() => '?').join(',')})`
         ).bind(roomId, ...incomingIds)
       );
     } else {
       // >99 IDs: mark ALL pending as done, then un-done the incoming ones in chunks
       statements.push(
         c.env.DB.prepare(
-          "UPDATE requests SET done = 1, done_at = datetime('now') WHERE room_id = ? AND done = 0"
+          "UPDATE requests SET done = 1, done_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE room_id = ? AND done = 0"
         ).bind(roomId)
       );
       const CHUNK = 99;
@@ -507,7 +507,16 @@ internal.post("/chat/send", async (c) => {
   return c.json(result, result.ok ? 200 : 502);
 });
 
-// GET /internal/rooms/:roomId/requests — return pending requests for D1 recovery
+// GET /internal/rooms/:roomId/requests — return pending requests for D1 recovery.
+//
+// Pending only, deliberately: a request the streamer DELETED is not recorded as
+// deleted anywhere (`deleted_at` is never written — see the full-sync sweep below,
+// which marks anything missing from the DO as `done`, a conflation the tests pin
+// down). So "newest done rows" in D1 also means "most recently deleted", and
+// recovering them here would resurrect a deleted request into the header's
+// "recently played" strip, undo button and all. The strip is fed from DO retention
+// instead (`RECENT_DONE_KEPT` in party.ts); after a storage loss it simply starts
+// empty again.
 internal.get("/rooms/:roomId/requests", async (c) => {
   const roomId = c.req.param("roomId");
   const { results } = await c.env.DB.prepare(

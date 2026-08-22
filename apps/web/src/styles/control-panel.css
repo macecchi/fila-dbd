@@ -153,12 +153,22 @@
 
 .channel-header-share {
   color: var(--text-muted);
+  position: relative;
 }
 
+/* Out of flow on purpose: revealing the hint used to widen the profile column,
+   which shoved everything to its right (the recently-played strip) sideways on
+   every hover. */
 .channel-header-share-hint {
-  display: none;
+  position: absolute;
+  left: 100%;
+  top: 0;
   margin-left: 0.4rem;
+  white-space: nowrap;
   color: var(--text-muted);
+  opacity: 0;
+  transition: opacity var(--duration-fast);
+  pointer-events: none;
 }
 
 .channel-header-share:hover {
@@ -167,7 +177,211 @@
 }
 
 .channel-header-share:hover .channel-header-share-hint {
-  display: inline;
+  opacity: 1;
+}
+
+/* Recently played — done requests leave the queue entirely, so this strip is the
+   only place they stay visible: confirmation for the streamer that the ✓ landed,
+   and "what are they playing right now" for a viewer. Renders nothing until the
+   first request is marked done. */
+.recent-plays {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  flex: 1;
+  min-width: 0;
+}
+
+.recent-plays-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.recent-plays-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* One entry is expanded at a time — the newest by default, whichever is hovered
+   otherwise. Everything else collapses to its portrait, so the strip stays the
+   width of roughly one entry no matter how many plays it holds. */
+.recent-play {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  /* Only the open entry gives ground when the strip runs out of room — its text
+     ellipsizes. Left shrinkable, the collapsed squares lose their padding first and
+     the chip closes in on the portrait. */
+  flex-shrink: 0;
+  /* Padding is constant so only the surface changes — the entry itself must not
+     jump a few pixels the moment it becomes the active one. */
+  padding: var(--space-sm);
+  border-radius: var(--radius-lg);
+  /* Every entry is a chip; the active one is the raised one. Dimmed along with the
+     rest of the entry by the opacity below, so it stays a whisper. */
+  background: var(--muted-bg);
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity var(--duration-normal) var(--ease-out),
+              background-color var(--duration-normal) var(--ease-out),
+              box-shadow var(--duration-normal) var(--ease-out);
+  /* Keyed on the request id, so a new ✓ fades its entry in. */
+  animation: recentPlayIn var(--duration-slow) var(--ease-out);
+}
+
+/* The raised chip is what makes the hover target unambiguous once several entries
+   sit side by side. Same treatment as `.elevated-surface` (base.css) — the app's
+   own language for a lifted surface — inlined because it has to transition. */
+.recent-play.active {
+  opacity: 1;
+  flex-shrink: 1;
+  background: var(--bg-elevated);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 1px 0 0 rgba(255, 255, 255, 0.025),
+    inset -1px 0 0 rgba(255, 255, 255, 0.025),
+    0 1px 0 rgba(0, 0, 0, 0.5);
+  cursor: default;
+}
+
+/* No `opacity` in the `to` frame on purpose: an animation outranks normal
+   declarations, so ending at 1 would light every mounting chip — collapsed ones
+   included — for the full duration and then snap them back to 0.45. Omitted, the
+   100% frame takes the cascaded value, so each entry fades in to its own. */
+@keyframes recentPlayIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { transform: none; }
+}
+
+/* One size for every entry — squared off against the three stacked lines the open
+   one sits beside, so only the text reveals and the portraits hold still.
+   Compound selector on purpose: it has to outrank `.char-portrait-wrapper.char-portrait-sm`
+   in requests.css, which sets the same variable. */
+.recent-play .char-portrait-wrapper.char-portrait-sm {
+  --defaultCharPortraitDimensions: 60px;
+}
+
+/* `auto` widths don't animate; a 0fr → 1fr grid track does, and it measures the
+   text itself, so entries with longer names still open to exactly their width. */
+.recent-play-reveal {
+  display: grid;
+  grid-template-columns: 0fr;
+  transition: grid-template-columns var(--duration-normal) var(--ease-out);
+}
+
+.recent-play.active .recent-play-reveal {
+  grid-template-columns: 1fr;
+}
+
+.recent-play-reveal-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity var(--duration-normal) var(--ease-out);
+}
+
+.recent-play.active .recent-play-reveal-inner {
+  opacity: 1;
+}
+
+.recent-play-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  /* The gap after the portrait lives here, inside the clipped box: on the reveal
+     wrapper it would survive the collapse as an 8px sliver of track and push the
+     portrait off-centre in its chip. */
+  padding-left: var(--space-sm);
+}
+
+.recent-play-name {
+  font-size: var(--text-md);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-play-donor {
+  font-size: var(--text-xs);
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-play-time {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Undo: done items are otherwise only recoverable from the review dialog, and a
+   mis-clicked ✓ is the most likely reason the streamer looks here at all. */
+.recent-play-undo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  margin-left: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--duration-fast), color var(--duration-fast), border-color var(--duration-fast);
+}
+
+.recent-play-undo svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* No hover gate: on the collapsed entries the whole reveal is clipped away, so the
+   only place this can show is the active entry — where it should always be offered. */
+.recent-play.active .recent-play-undo,
+.recent-play-undo:focus-visible {
+  opacity: 1;
+}
+
+.recent-play-undo:hover {
+  color: var(--text);
+  border-color: var(--border-light);
+}
+
+
+@media (prefers-reduced-motion: reduce) {
+  .recent-play,
+  .recent-play .char-portrait-wrapper,
+  .recent-play-reveal,
+  .recent-play-reveal-inner,
+  .recent-play-undo {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* Between the profile and the stats there is only so much room: the collapsed
+   entries are the first thing to go, so the open one never gets squeezed to an
+   ellipsis. */
+@media (max-width: 1100px) {
+  .recent-play:not(.active) {
+    display: none;
+  }
 }
 
 /* Right side: stats + actions */
@@ -216,6 +430,13 @@
 
   .channel-header-name {
     font-size: 1.15rem;
+  }
+
+  /* The column layout has no free space to center in — line the strip up with
+     everything else in the stack instead. */
+  .recent-plays {
+    flex: 0 0 auto;
+    align-items: flex-start;
   }
 
   /* Mobile is the viewer experience. Drop the stats counters — they carry

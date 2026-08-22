@@ -5,6 +5,7 @@ import { useQueueStatus } from '../hooks/useQueueStatus';
 import { useTranslation } from '../i18n';
 import { formatRelativeTime } from '../utils/helpers';
 import { Stats } from './Stats';
+import { RecentPlays } from './RecentPlays';
 import { Panel } from './Panel';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
@@ -105,6 +106,8 @@ export function ChannelHeader() {
           </span>
         </div>
       </div>
+
+      <RecentPlays />
 
       <div className="channel-header-right">
         <Stats />

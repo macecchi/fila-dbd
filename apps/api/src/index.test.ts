@@ -658,6 +658,9 @@ describe('Hono API', () => {
       expect(markDoneSql!.sql).toContain('NOT IN');
       expect(markDoneSql!.sql).toContain('done_at');
       expect(markDoneSql!.sql).not.toContain('deleted_at');
+      // ISO with Z, not bare datetime('now') — the naive form parses as local time
+      // client-side and sorts below ISO values.
+      expect(markDoneSql!.sql).toContain("strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
       expect(markDoneSql!.bindings).toContain('r1');
       expect(markDoneSql!.bindings).toContain('r2');
     });

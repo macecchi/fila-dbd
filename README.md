@@ -43,6 +43,7 @@ You need to keep the site open to receive requests.
 #### Request queue
 
 - Click the ✓ button on a request to mark it as done
+- Done requests leave the queue and appear in the **Recently played** strip in the header: the latest one open, the previous few collapsed to their portraits. Hover a portrait to expand it (the open one collapses) and, if you're the streamer, undo the ✓ from there
 - Drag to reorder manually
 - Select request ordering by arrival order or by priority
 - **+** button adds a manual request
@@ -209,6 +210,7 @@ Use o nosso [Discord](https://discord.gg/hXsAgk5KnX) ou o próprio GitHub para m
 #### Fila de pedidos
 
 - Clique no botão ✓ do pedido para marcar como feito
+- Pedidos feitos saem da fila e aparecem em **Jogados recentemente**, no topo da página: o último aberto e os anteriores reduzidos ao retrato. Passe o mouse num retrato para expandi-lo (o que estava aberto encolhe) e, se você é o streamer, desfaça o ✓ por ali
 - Arraste para reordenar manualmente
 - Selecione a ordenação de pedidos por fila de chegada ou por prioridade
 - Botão **+** adiciona pedido manual

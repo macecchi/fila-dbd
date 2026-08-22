@@ -176,6 +176,7 @@ const en: TranslationKeys = {
   'header.openQueue': 'Open queue',
   'header.closeQueue': 'Close queue',
   'header.disconnectTwitch': 'Disconnect Twitch',
+  'header.recentPlays': 'Recently played',
 
   // App header menu
   'menu.label': 'Menu',

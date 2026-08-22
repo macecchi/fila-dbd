@@ -784,6 +784,19 @@ describe('PartyServer', () => {
         'order', expect.not.arrayContaining([2])
       );
     });
+
+    it('keeps a freshly done request in DO instead of dropping its key', async () => {
+      server.requests = [createTestRequest({ id: 1, done: false })];
+
+      await server.onMessage(JSON.stringify({ type: 'toggle-done', id: 1, done: true }), ownerConn as any);
+
+      // Written, not deleted: the strip has to survive a reload, and D1 is only
+      // reached on the debounced sync.
+      expect(mockRoom.storage.put).toHaveBeenCalledWith(
+        expect.objectContaining({ 'req:1': expect.objectContaining({ id: 1, done: true }) })
+      );
+      expect(mockRoom.storage.delete).not.toHaveBeenCalledWith(['req:1']);
+    });
   });
 
   describe('add-request — pending cap', () => {
@@ -880,20 +893,23 @@ describe('PartyServer', () => {
       vi.unstubAllGlobals();
     });
 
-    it('prunes done from memory after successful D1 sync', async () => {
+    it('keeps the newest done in memory after D1 sync and prunes the rest', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
 
-      server.requests = [
-        createTestRequest({ id: 1, done: false }),
-        createTestRequest({ id: 2, done: true }),
-        createTestRequest({ id: 3, done: false }),
-        createTestRequest({ id: 4, done: true }),
-      ];
+      // Eight done requests, oldest first — only the newest RECENT_DONE_KEPT of them
+      // stay behind for the header's "recently played" strip.
+      const done = Array.from({ length: 8 }, (_, i) => createTestRequest({
+        id: 100 + i,
+        done: true,
+        doneAt: new Date(Date.UTC(2026, 0, 1, i)).toISOString(),
+      }));
+      server.requests = [createTestRequest({ id: 1, done: false }), ...done];
 
       await (server as any).syncRequestsToD1();
 
-      expect(server.requests).toHaveLength(2);
-      expect(server.requests.every(r => !r.done)).toBe(true);
+      expect(server.requests.filter(r => !r.done).map(r => r.id)).toEqual([1]);
+      expect(server.requests.filter(r => r.done).map(r => r.id).sort((a, b) => a - b))
+        .toEqual([103, 104, 105, 106, 107]);
     });
 
     it('sends server-error after 3 consecutive D1 failures', async () => {
@@ -915,26 +931,27 @@ describe('PartyServer', () => {
       expect(errors).toHaveLength(1);
     });
 
-    it('deletes done request keys from DO after D1 sync', async () => {
+    it('deletes the keys of done requests past the kept window after D1 sync', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
 
-      server.requests = [
-        createTestRequest({ id: 1, done: false }),
-        createTestRequest({ id: 2, done: true }),
-        createTestRequest({ id: 3, done: false }),
-        createTestRequest({ id: 4, done: true }),
-      ];
+      const done = Array.from({ length: 7 }, (_, i) => createTestRequest({
+        id: 100 + i,
+        done: true,
+        doneAt: new Date(Date.UTC(2026, 0, 1, i)).toISOString(),
+      }));
+      server.requests = [createTestRequest({ id: 1, done: false }), ...done];
       // Simulate per-key storage
-      mockRoom.storage._store.set('req:1', server.requests[0]);
-      mockRoom.storage._store.set('req:2', server.requests[1]);
-      mockRoom.storage._store.set('req:3', server.requests[2]);
-      mockRoom.storage._store.set('req:4', server.requests[3]);
+      for (const r of server.requests) mockRoom.storage._store.set(`req:${r.id}`, r);
 
       await (server as any).syncRequestsToD1();
 
-      expect(mockRoom.storage.delete).toHaveBeenCalledWith(['req:2', 'req:4']);
-      expect(mockRoom.storage._store.has('req:2')).toBe(false);
-      expect(mockRoom.storage._store.has('req:4')).toBe(false);
+      // The two oldest go; the newest five stay put alongside the pending one.
+      expect(mockRoom.storage.delete).toHaveBeenCalledWith(['req:100', 'req:101']);
+      expect(mockRoom.storage._store.has('req:100')).toBe(false);
+      expect(mockRoom.storage._store.has('req:101')).toBe(false);
+      expect(mockRoom.storage._store.has('req:102')).toBe(true);
+      expect(mockRoom.storage._store.has('req:106')).toBe(true);
+      expect(mockRoom.storage._store.has('req:1')).toBe(true);
     });
 
     it('restores dirty IDs on sync failure', async () => {
@@ -993,12 +1010,11 @@ describe('PartyServer', () => {
 
       await (server as any).syncRequestsToD1(true);
 
-      // Only pending non-none requests remain
-      expect(server.requests).toHaveLength(2);
-      expect(server.requests.map(r => r.id)).toEqual([1, 5]);
+      // Only pending non-none requests remain, plus the recently-done id 3, which is
+      // inside the kept window and still feeds the header strip.
+      expect(server.requests.map(r => r.id)).toEqual([1, 3, 5]);
       // Pruned keys removed from DO
       expect(mockRoom.storage._store.has('req:2')).toBe(false);
-      expect(mockRoom.storage._store.has('req:3')).toBe(false);
       expect(mockRoom.storage._store.has('req:4')).toBe(false);
       // Kept keys still in DO
       expect(mockRoom.storage._store.has('req:1')).toBe(true);

@@ -127,11 +127,32 @@ the low bits of the hash away. Ordering comes from `position`, never from the ID
 - Requests stored as individual keys (`req:${id}`) with ordering in `order` key
 - Sources settings per room
 - Write-through to D1 via async HTTP calls to Hono API
+- ⚠️ **Done requests are pruned once they reach D1 — all but the newest
+  `RECENT_DONE_KEPT` (`packages/shared/src/party.ts`).** Those few stay in DO storage
+  and in `sync-full`, which is what makes the header's "recently played" strip
+  (`components/RecentPlays.tsx`) identical in every window and able to survive a
+  reload. They are excluded from `order` and from the pending cap, and every list that
+  renders the queue filters `!r.done` — so don't "fix" a done request showing up in the
+  room state, and DO add that filter to anything new that consumes the requests store
+  (`useRequestToasts` in `App.tsx` needs it). Raising the constant grows DO storage and
+  the full-sync statement (see the 100-param D1 limit).
+- ⚠️ **D1 cannot tell a completed request from a deleted one, and the recovery
+  endpoint must stay pending-only because of it.** `deleted_at` exists in the schema
+  but is never written; deleting drops the request from the DO, and the next full
+  sync's sweep marks anything missing as `done` (deliberate — `index.test.ts` pins it).
+  So "the newest done rows in D1" also means "the most recently deleted", and serving
+  them would resurrect a deleted request into the strip. The strip is fed from DO
+  retention only; after a storage loss it starts empty.
 
 **D1 database (persistent store):**
 - `rooms` table — flattened sources settings, Twitch profile cache (`avatar_url`, `banner_url`), room `status`
 - `requests` table — one row per request with `position` for ordering
 - Debounced sync (10s) for requests, immediate for sources and status
+- ⚠️ Timestamps are written as ISO-8601 with `Z`. Use `strftime('%Y-%m-%dT%H:%M:%fZ','now')`,
+  never bare `datetime('now')` — that yields `YYYY-MM-DD HH:MM:SS`, which `new Date()`
+  parses as **local** time (hours off) and which sorts below ISO values because
+  `' ' < 'T'`. Rows written by older deploys still hold the naive form; `rooms.updated_at`
+  is one, which is why `ChannelHeader` reads it as `new Date(updated_at + 'Z')`.
 - Internal auth via `INTERNAL_API_SECRET` shared between Worker and PartyKit
 - ⚠️ **100 bound params per statement** — D1 free plan limit. Full sync's `NOT IN` clause fails at ≥100 requests. See Known Issues below.
 

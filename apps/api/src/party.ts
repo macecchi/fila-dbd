@@ -1,6 +1,6 @@
 import type * as Party from 'partykit/server';
 import { verifyJwt, type JwtPayload } from './jwt';
-import { MAX_PENDING_REQUESTS, PROTOCOL_VERSION, normalizeSourcesSettings, compareRequests } from '@filadbd/shared';
+import { MAX_PENDING_REQUESTS, PROTOCOL_VERSION, RECENT_DONE_KEPT, normalizeSourcesSettings, compareRequests } from '@filadbd/shared';
 import type { SerializedRequest, SourcesSettings, ChannelState, PartyMessage } from '@filadbd/shared';
 
 const SOURCES_DEFAULTS: SourcesSettings = {
@@ -454,18 +454,36 @@ export default class PartyServer implements Party.Server {
     }
   }
 
+  /**
+   * The newest done requests, which the header's "recently played" strip reads
+   * straight off the room state. They are kept in DO storage instead of being
+   * pruned the moment they reach D1, so the strip survives a reload and shows the
+   * same thing in every window. Everything older is still pruned.
+   */
+  private recentDoneIds(): Set<number> {
+    const rank = (r: SerializedRequest) => new Date(r.doneAt ?? r.timestamp).getTime();
+    return new Set(
+      this.requests
+        .filter(r => r.done)
+        .sort((a, b) => rank(b) - rank(a))
+        .slice(0, RECENT_DONE_KEPT)
+        .map(r => r.id)
+    );
+  }
+
   private async persist(reorderOnly?: boolean) {
     try {
       if (reorderOnly) {
         await this.room.storage.put('order', this.requests.filter(r => !r.done).map(r => r.id));
       } else {
         const pending = this.requests.filter(r => !r.done);
+        const keepDone = this.recentDoneIds();
         const entries: Record<string, SerializedRequest> = {};
         const doneKeys: string[] = [];
         for (const id of this.dirtyRequestIds) {
           const req = this.requests.find(r => r.id === id);
           if (!req) continue;
-          if (req.done) {
+          if (req.done && !keepDone.has(req.id)) {
             doneKeys.push(`req:${id}`);
           } else {
             entries[`req:${id}`] = req;
@@ -521,9 +539,11 @@ export default class PartyServer implements Party.Server {
       });
       if (res.ok) {
         this.d1SyncFailCount = 0;
-        // Delete done (and optionally type='none') request keys from DO (unless re-dirtied during sync)
+        // Delete done (and optionally type='none') request keys from DO (unless
+        // re-dirtied during sync, or among the newest done the strip still shows)
+        const keepDone = this.recentDoneIds();
         const shouldPrune = (r: SerializedRequest) =>
-          r.done || (pruneDiscarded && r.type === 'none');
+          (r.done && !keepDone.has(r.id)) || (pruneDiscarded && r.type === 'none');
         const pruneKeys = this.requests
           .filter(r => shouldPrune(r) && !this.dirtyRequestIds.has(r.id))
           .map(r => `req:${r.id}`);

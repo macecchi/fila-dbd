@@ -174,6 +174,7 @@ const ptBR = {
   'header.openQueue': 'Abrir fila',
   'header.closeQueue': 'Fechar fila',
   'header.disconnectTwitch': 'Desconectar Twitch',
+  'header.recentPlays': 'Jogados recentemente',
 
   // App header menu
   'menu.label': 'Menu',
