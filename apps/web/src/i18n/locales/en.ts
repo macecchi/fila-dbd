@@ -165,16 +165,7 @@ const en: TranslationKeys = {
   'control.logout': 'Log out',
 
   // Connection status
-  'status.twitchError': 'Twitch error',
-  'status.serverError': 'Server error',
   'status.connecting': 'Connecting...',
-  'status.connectingShort': 'Connecting',
-  'status.connectedOtherWindow': 'Connected in another window',
-  'status.waitingToStart': 'Waiting to start',
-  'status.connected': 'Connected',
-  'status.disconnected': 'Disconnected',
-  'status.waitingStreamer': 'Waiting for {name}',
-  'status.streamerOffline': 'Streamer offline',
   'status.queueOpen': 'Queue open',
   'status.queueClosed': 'Queue closed',
 
@@ -236,8 +227,6 @@ const en: TranslationKeys = {
   'toast.newRequestFromAmount': 'New request from {donor} ({amount})',
   'toast.undo': 'Undo',
   'toast.close': 'Close',
-  'toast.channelAlreadyOpen': 'Channel already open',
-  'toast.channelAlreadyOpenDesc': 'Another tab is already managing this channel. This tab is in read-only mode.',
   'toast.notificationsBlocked': 'Notifications blocked',
   'toast.notificationsBlockedDesc': 'Enable browser notifications to be alerted if the connection drops.',
   'toast.newVersionAvailable': 'Update available',
@@ -252,6 +241,7 @@ const en: TranslationKeys = {
   'toast.twitchIrc': 'Twitch IRC',
   'toast.server': 'Server',
   'toast.serverError': 'Server error',
+  'toast.chatBot': 'Chat bot',
   'toast.recoveredRequests': 'Recovered requests',
   'toast.added': '{count} added',
   'toast.added_plural': '{count} added',

@@ -258,19 +258,26 @@ export default class PartyServer implements Party.Server {
         console.log(`${this.tag} Denied ownership to ${connInfo?.user?.login ?? sender.id}: not room owner`);
         return;
       }
+      // Another window of the same streamer holds the lock: hand it over rather than
+      // refuse, so whichever window they act in becomes the one driving the channel. The
+      // old holder gets ownership-denied, which clears its lock and makes it drop IRC.
       if (this.activeOwnerConnId && this.activeOwnerConnId !== sender.id) {
-        const owner = this.connections.get(this.activeOwnerConnId);
-        const denyMsg: PartyMessage = { type: 'ownership-denied', currentOwner: owner?.user?.login || 'unknown' };
-        sender.send(JSON.stringify(denyMsg));
-        console.log(`${this.tag} Denied ownership to ${connInfo?.user?.login}: ${owner?.user?.login} holds the lock`);
-        return;
+        const previous = this.connections.get(this.activeOwnerConnId);
+        for (const conn of this.room.getConnections()) {
+          if (conn.id === this.activeOwnerConnId) {
+            conn.send(JSON.stringify({ type: 'ownership-denied', currentOwner: connInfo?.user?.login ?? 'dev' } as PartyMessage));
+            break;
+          }
+        }
+        console.log(`${this.tag} Transferred ownership from ${previous?.user?.login ?? this.activeOwnerConnId} to ${connInfo?.user?.login ?? sender.id}`);
       }
       // Grant ownership
       this.activeOwnerConnId = sender.id;
       const login = connInfo?.user?.login ?? 'dev';
       this.channel = {
         status: 'online',
-        owner: { login, displayName: connInfo?.user?.display_name ?? login, avatar: connInfo?.user?.profile_image_url ?? '' }
+        owner: { login, displayName: connInfo?.user?.display_name ?? login, avatar: connInfo?.user?.profile_image_url ?? '' },
+        closedByOwner: false,
       };
       const grantMsg: PartyMessage = { type: 'ownership-granted' };
       sender.send(JSON.stringify(grantMsg));
@@ -286,7 +293,9 @@ export default class PartyServer implements Party.Server {
     if (msg.type === 'release-ownership') {
       if (isLockHolder) {
         this.activeOwnerConnId = null;
-        this.channel = { status: 'offline', owner: null };
+        // Deliberate, unlike the onClose path: no other session should quietly take the
+        // room back and reopen the queue behind the streamer.
+        this.channel = { status: 'offline', owner: null, closedByOwner: true };
         this.flushAndSyncOffline();
         console.log(`${this.tag} ${connInfo?.user?.login} released ownership`);
       }

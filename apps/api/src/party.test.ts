@@ -393,9 +393,8 @@ describe('PartyServer', () => {
       expect(denyMsg?.type).toBe('ownership-denied');
     });
 
-    it('denies ownership when another owner holds the lock', async () => {
-      // viewerConn trying to claim when ownerConn has the lock won't work since they're not room owner
-      // Let's create a scenario with two room owner connections
+    it('hands the lock to another window of the same streamer instead of denying it', async () => {
+      // Two connections authenticated as the room owner: a second browser window.
 
       const freshRoom = createMockRoom();
       const freshServer = new PartyServer(freshRoom as any);
@@ -420,14 +419,16 @@ describe('PartyServer', () => {
       await freshServer.onMessage(JSON.stringify({ type: 'claim-ownership' }), conn1 as any);
       expect(freshServer.activeOwnerConnId).toBe('conn1');
 
+      conn1.messages = [];
       conn2.messages = [];
 
-      // conn2 tries to claim - should be denied
+      // conn2 claims: the lock moves, and conn1 is told it no longer holds it so it
+      // drops IRC and stops driving the channel.
       await freshServer.onMessage(JSON.stringify({ type: 'claim-ownership' }), conn2 as any);
 
-      expect(freshServer.activeOwnerConnId).toBe('conn1'); // Still conn1
-      const denyMsg = conn2.getLastMessage();
-      expect(denyMsg?.type).toBe('ownership-denied');
+      expect(freshServer.activeOwnerConnId).toBe('conn2');
+      expect(conn2.getAllMessages().some(m => m.type === 'ownership-granted')).toBe(true);
+      expect(conn1.getAllMessages().some(m => m.type === 'ownership-denied')).toBe(true);
     });
 
     it('rejects messages from non-owner', async () => {
@@ -1445,5 +1446,54 @@ describe('PartyServer', () => {
       expect(viewer1.messages).toHaveLength(1);
       expect(viewer2.messages).toHaveLength(1);
     });
+  });
+});
+
+describe('PartyServer — closing the queue vs losing a socket', () => {
+  async function ownedRoom() {
+    const room = createMockRoom();
+    const server = new PartyServer(room as any);
+    vi.mocked(verifyJwt).mockResolvedValue({
+      sub: '123',
+      login: 'testchannel',
+      display_name: 'TestChannel',
+      profile_image_url: 'https://example.com/avatar.png',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const conn = new MockConnection('conn1');
+    room._connections.set('conn1', conn);
+    await server.onConnect(conn as any, createMockContext('token') as any);
+    await server.onMessage(JSON.stringify({ type: 'claim-ownership' }), conn as any);
+    conn.messages = [];
+    return { server, conn };
+  }
+
+  it('marks a released room as closed by the owner, so no window reclaims it', async () => {
+    const { server, conn } = await ownedRoom();
+
+    await server.onMessage(JSON.stringify({ type: 'release-ownership' }), conn as any);
+
+    expect(server.channel.status).toBe('offline');
+    expect(server.channel.owner).toBeNull();
+    expect(server.channel.closedByOwner).toBe(true);
+  });
+
+  it('leaves a room whose socket merely died reclaimable', async () => {
+    const { server, conn } = await ownedRoom();
+
+    server.onClose(conn as any);
+
+    expect(server.channel.owner).toBeNull();
+    expect(server.channel.closedByOwner).toBeFalsy();
+  });
+
+  it('clears the closed mark when the streamer opens the queue again', async () => {
+    const { server, conn } = await ownedRoom();
+    await server.onMessage(JSON.stringify({ type: 'release-ownership' }), conn as any);
+    expect(server.channel.closedByOwner).toBe(true);
+
+    await server.onMessage(JSON.stringify({ type: 'claim-ownership' }), conn as any);
+
+    expect(server.channel.closedByOwner).toBe(false);
   });
 });

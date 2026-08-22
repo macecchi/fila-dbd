@@ -15,9 +15,9 @@ const Chevron = () => (
 
 export function ActionsSection({ onReview, onRecover }: ActionsSectionProps) {
   const { t } = useTranslation();
-  const { canControlConnection } = useChannel();
+  const { canEditQueue } = useChannel();
 
-  if (!canControlConnection) return null;
+  if (!canEditQueue) return null;
   if (!onReview && !onRecover) return null;
 
   return (

@@ -25,6 +25,12 @@ export type ChannelStatus = 'offline' | 'online' | 'live';
 export interface ChannelState {
   status: ChannelStatus;
   owner: { login: string; displayName: string; avatar: string } | null;
+  /**
+   * The room is ownerless because the streamer closed the queue, not because a socket
+   * died. Sessions auto-reclaim a room that merely went quiet; they leave this one alone
+   * until the streamer opens it again. Optional: older clients simply ignore it.
+   */
+  closedByOwner?: boolean;
 }
 
 export interface SerializedRequest {

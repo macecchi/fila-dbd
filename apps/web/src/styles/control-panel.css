@@ -26,22 +26,14 @@
   transition: background var(--duration-slow) var(--ease-in-out), box-shadow var(--duration-slow) var(--ease-in-out);
 }
 
-.channel-header-avatar-ring.ring-connected {
+.channel-header-avatar-ring.ring-open {
   background: var(--green);
   box-shadow: 0 0 8px rgba(34, 197, 94, 0.15);
-}
-
-.channel-header-avatar-ring.ring-partial {
-  background: var(--yellow);
 }
 
 .channel-header-avatar-ring.ring-connecting {
   background: var(--accent);
   animation: ringPulse 1.5s ease-in-out infinite;
-}
-
-.channel-header-avatar-ring.ring-error {
-  background: var(--red);
 }
 
 @keyframes ringPulse {
@@ -136,7 +128,7 @@
   background: var(--text-muted);
 }
 
-.channel-header-badge.state-connected .dot {
+.channel-header-badge.state-open .dot {
   background: var(--green);
 }
 
@@ -145,17 +137,8 @@
   animation: pulse 1s infinite;
 }
 
-.channel-header-badge.state-partial .dot {
-  background: var(--yellow);
-  animation: pulse 1s infinite;
-}
-
-.channel-header-badge.state-disconnected .dot {
+.channel-header-badge.state-closed .dot {
   background: var(--text-muted);
-}
-
-.channel-header-badge.state-error .dot {
-  background: var(--red);
 }
 
 @keyframes pulse {

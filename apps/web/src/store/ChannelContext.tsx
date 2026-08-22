@@ -1,10 +1,11 @@
 // apps/web/src/store/ChannelContext.tsx
-import { createContext, useContext, useMemo, useEffect, useRef } from 'react';
+import { createContext, useContext, useMemo, useEffect, useRef, useCallback } from 'react';
 import { createRoomStores, type ChannelStores } from './channel';
 import { setActiveStores, connect as connectIrc, disconnect as disconnectIrc } from '../services/twitch';
-import { connectParty, disconnectParty, broadcastIrcStatus, claimOwnership } from '../services/party';
+import { connectParty, disconnectParty, broadcastIrcStatus, claimOwnership, releaseOwnership } from '../services/party';
 import { useAuth } from './auth';
 import { toast } from 'sonner';
+import { MAX_PENDING_REQUESTS } from '@filadbd/shared';
 import { t } from '../i18n';
 import { showNewVersionToast } from '../components/UpdateToast';
 
@@ -40,7 +41,11 @@ function sendPushNotification(title: string, body: string) {
 interface ChannelContextValue extends ChannelStores {
   channel: string;
   isOwnChannel: boolean;
-  canControlConnection: boolean;
+  canEditQueue: boolean;
+  /** Start taking requests here, taking the lock from another window if it has it. */
+  openQueue: () => void;
+  /** Stop taking requests, wherever the session driving the channel happens to be. */
+  closeQueue: () => void;
 }
 
 const ChannelContext = createContext<ChannelContextValue | null>(null);
@@ -65,7 +70,9 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
   const owner = stores.useChannelInfo((s) => s.owner);
   const localIrcState = stores.useChannelInfo((s) => s.localIrcConnectionState);
   const partyConnected = stores.useChannelInfo((s) => s.localPartyConnectionState) === 'connected';
-  // Derive: someone else is managing (we're room owner but don't have the lock)
+  const partySynced = stores.useChannelInfo((s) => s.partySynced);
+  const closedByOwner = stores.useChannelInfo((s) => s.closedByOwner);
+  // Another window of ours is driving the channel, so this one must not also join IRC.
   const someoneElseIsOwner = isOwnChannel && !hasLock && owner !== null;
 
   // Last broadcast sources signature — used to skip the "queue settings updated"
@@ -73,20 +80,44 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
   // blurs an EditableField without editing, which still re-dispatches the value).
   const lastSourcesSignature = useRef<string | null>(null);
 
-  // Auto-claim ownership once on initial connect if no one owns the channel
-  const hasTriedAutoClaim = useRef(false);
-  useEffect(() => {
-    if (isOwnChannel && partyConnected && !hasTriedAutoClaim.current) {
-      hasTriedAutoClaim.current = true;
-      if (!owner && !hasLock) {
-        claimOwnership();
-      }
-    }
-  }, [isOwnChannel, partyConnected, owner, hasLock]);
+  // What the streamer last asked for in this window. Without it a deliberate close would
+  // be undone: the claim below would take the freed room back, and the IRC effect would
+  // reopen the queue on the new lock.
+  const queueIntent = useRef<'open' | 'closed'>('open');
 
-  // Auto-connect to IRC once when ownership is first granted
+  // Take the room back whenever it's free and ours: first sync, after a reconnect (the
+  // server drops ownership when our socket closes, which used to leave the tab demoted
+  // until reload), or when another session goes away. Gated on partySynced so `owner` is
+  // the server's current answer, and re-armed only when ownership changes hands, so a
+  // refusal can't spin.
+  const hasTriedAutoClaim = useRef(false);
+  const prevOwnerLogin = useRef<string | null>(null);
+  useEffect(() => {
+    const ownerLogin = owner?.login ?? null;
+    if (ownerLogin !== prevOwnerLogin.current) {
+      prevOwnerLogin.current = ownerLogin;
+      if (ownerLogin === null) hasTriedAutoClaim.current = false;
+    }
+    if (!partySynced) {
+      hasTriedAutoClaim.current = false;
+      return;
+    }
+    if (!isOwnChannel || hasLock || owner || hasTriedAutoClaim.current) return;
+    // A queue the streamer closed stays closed: only openQueue() reopens it.
+    if (closedByOwner || queueIntent.current === 'closed') return;
+    hasTriedAutoClaim.current = true;
+    claimOwnership();
+  }, [isOwnChannel, partySynced, owner, hasLock, closedByOwner]);
+
+  // Auto-connect to IRC once when ownership is first granted — unless the lock was taken
+  // for the express purpose of closing the queue in whichever window still drives it.
   const hasAutoConnectedIrc = useRef(false);
   useEffect(() => {
+    if (hasLock && queueIntent.current === 'closed') {
+      disconnectIrc();
+      releaseOwnership();
+      return;
+    }
     if (hasLock && !hasAutoConnectedIrc.current) {
       hasAutoConnectedIrc.current = true;
       if (localIrcState === 'disconnected') {
@@ -105,18 +136,6 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
       disconnectIrc();
     }
     return () => disconnectIrc();
-  }, [someoneElseIsOwner]);
-
-  // Show toast when someone else takes ownership
-  const prevSomeoneElseIsOwner = useRef(false);
-  useEffect(() => {
-    if (someoneElseIsOwner && !prevSomeoneElseIsOwner.current) {
-      toast.warning(t('toast.channelAlreadyOpen'), {
-        description: t('toast.channelAlreadyOpenDesc'),
-        duration: 10000,
-      });
-    }
-    prevSomeoneElseIsOwner.current = someoneElseIsOwner;
   }, [someoneElseIsOwner]);
 
   // Request notification permission + show toast if denied (reactive to permission changes)
@@ -184,6 +203,22 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
   const partyPushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const PARTY_PUSH_DELAY = 30_000; // only push after 30s disconnected
 
+  // Both sockets recover on their own within a second or two, so warning on the drop
+  // itself turns every blip into warn-then-success churn. Say nothing until an outage
+  // outlives the grace window, and only confirm a recovery we warned about.
+  const RECONNECT_GRACE = 5_000;
+  const ircWarnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const partyWarnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ircWarned = useRef(false);
+  const partyWarned = useRef(false);
+
+  const clearTimer = (ref: React.MutableRefObject<ReturnType<typeof setTimeout> | null>) => {
+    if (ref.current) {
+      clearTimeout(ref.current);
+      ref.current = null;
+    }
+  };
+
   useEffect(() => {
     if (!isOwnChannel) {
       prevIrcState.current = localIrcState;
@@ -194,12 +229,18 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
     const wasIrcConnected = prevIrcState.current === 'connected';
 
     // IRC: connected → connecting (auto-reconnecting)
-    if (wasIrcConnected && localIrcState === 'connecting') {
-      toast.warning(t('toast.twitchIrc'), { id: 'irc-status', description: t('toast.ircReconnecting') });
+    if (wasIrcConnected && localIrcState === 'connecting' && !ircWarnTimer.current) {
+      ircWarnTimer.current = setTimeout(() => {
+        ircWarnTimer.current = null;
+        ircWarned.current = true;
+        toast.warning(t('toast.twitchIrc'), { id: 'irc-status', description: t('toast.ircReconnecting') });
+      }, RECONNECT_GRACE);
     }
 
-    // IRC: connected/connecting → error (retries exhausted)
+    // IRC: connected/connecting → error (retries exhausted). Terminal, so no grace window.
     if (wasIrcConnected && localIrcState === 'error') {
+      clearTimer(ircWarnTimer);
+      ircWarned.current = true;
       toast.error(t('toast.twitchIrc'), { id: 'irc-status', description: t('toast.ircLost'), duration: Infinity });
       sendPushNotification(
         t('push.connectionLost'),
@@ -209,13 +250,23 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
 
     // IRC: reconnected successfully (not initial connect)
     if (prevIrcState.current === 'connecting' && localIrcState === 'connected' && ircEverConnected.current) {
-      toast.success(t('toast.twitchIrc'), { id: 'irc-status', description: t('toast.ircReconnected') });
+      clearTimer(ircWarnTimer);
+      if (ircWarned.current) {
+        toast.success(t('toast.twitchIrc'), { id: 'irc-status', description: t('toast.ircReconnected') });
+        ircWarned.current = false;
+      }
     }
     if (localIrcState === 'connected') ircEverConnected.current = true;
 
-    // PartyKit: disconnected — toast immediately, push after delay
+    // PartyKit: disconnected — toast after the grace window, push after the longer delay
     if (prevPartyState.current && !partyConnected) {
-      toast.warning(t('toast.server'), { id: 'party-status', description: t('toast.serverReconnecting') });
+      if (!partyWarnTimer.current) {
+        partyWarnTimer.current = setTimeout(() => {
+          partyWarnTimer.current = null;
+          partyWarned.current = true;
+          toast.warning(t('toast.server'), { id: 'party-status', description: t('toast.serverReconnecting') });
+        }, RECONNECT_GRACE);
+      }
       if (!partyPushTimer.current) {
         partyPushTimer.current = setTimeout(() => {
           partyPushTimer.current = null;
@@ -227,15 +278,14 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
       }
     }
 
-    // PartyKit: reconnected — cancel pending push, show toast (not initial connect)
+    // PartyKit: reconnected — cancel the pending warning and push
     if (!prevPartyState.current && partyConnected) {
-      if (partyPushTimer.current) {
-        clearTimeout(partyPushTimer.current);
-        partyPushTimer.current = null;
-      }
-      if (partyEverConnected.current) {
+      clearTimer(partyPushTimer);
+      clearTimer(partyWarnTimer);
+      if (partyEverConnected.current && partyWarned.current) {
         toast.success(t('toast.server'), { id: 'party-status', description: t('toast.serverReconnected') });
       }
+      partyWarned.current = false;
     }
     if (partyConnected) partyEverConnected.current = true;
 
@@ -243,13 +293,12 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
     prevPartyState.current = partyConnected;
   }, [localIrcState, partyConnected, isOwnChannel]);
 
-  // Cleanup party push timer on unmount
+  // Cleanup connection timers on unmount
   useEffect(() => {
     return () => {
-      if (partyPushTimer.current) {
-        clearTimeout(partyPushTimer.current);
-        partyPushTimer.current = null;
-      }
+      clearTimer(partyPushTimer);
+      clearTimer(partyWarnTimer);
+      clearTimer(ircWarnTimer);
     };
   }, []);
 
@@ -281,8 +330,33 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
               sendPushNotification(t('push.newVersionTitle'), t('push.newVersion'));
               return;
             }
+            // Authority rejections mean another session holds the lock, or ours went
+            // stale across a reconnect — not something to alarm the streamer with. The
+            // claim effect takes the room back once it's free; just nudge it.
+            if (msg.code === 'not_room_owner' || msg.code === 'not_lock_holder') {
+              if (isOwnChannel && !stores.useChannelInfo.getState().owner) {
+                claimOwnership();
+              }
+              return;
+            }
+            if (msg.code === 'pending_cap') {
+              // The store already rolled the optimistic add back; this is the race where
+              // two sessions filled the last slot at once.
+              toast.warning(t('toast.queueFull', { max: String(MAX_PENDING_REQUESTS) }), {
+                id: 'queue-full',
+                description: t('toast.queueFullDesc'),
+                duration: 10000,
+              });
+              return;
+            }
+            if (msg.code === 'chat_send_not_mod') {
+              toast.warning(t('toast.chatBot'), { id: 'chat-bot', description: msg.message, duration: 10000 });
+              return;
+            }
+            // Real failures (DO/D1 persistence) stay up, under their own id so they
+            // don't stomp the connection toasts.
             toast.error(t('toast.serverError'), {
-              id: 'party-status',
+              id: 'server-error',
               description: msg.message,
               duration: Infinity,
             });
@@ -356,12 +430,36 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
     };
   }, [channel, isOwnChannel, stores, getAccessToken]);
 
-  // canControlConnection: own channel + no other tab holds the lock
-  const canControlConnection = isOwnChannel && !someoneElseIsOwner;
+  // Every session of the streamer manages the queue: the server authorizes mutations per
+  // room owner, not per lock holder, so no window needs a read-only mode.
+  const canEditQueue = isOwnChannel;
+
+  // Opening and closing are channel-level, so they work from any window. Without the lock
+  // we claim first — the server hands it over — and the effect above then connects IRC, or
+  // shuts the channel down when we're closing.
+  const openQueue = useCallback(() => {
+    queueIntent.current = 'open';
+    hasAutoConnectedIrc.current = false;
+    if (hasLock) {
+      if (localIrcState !== 'connected') connectIrc(channel);
+    } else {
+      claimOwnership();
+    }
+  }, [hasLock, localIrcState, channel]);
+
+  const closeQueue = useCallback(() => {
+    queueIntent.current = 'closed';
+    if (hasLock) {
+      disconnectIrc();
+      releaseOwnership();
+    } else {
+      claimOwnership();
+    }
+  }, [hasLock]);
 
   const value = useMemo(
-    () => ({ channel, isOwnChannel, canControlConnection, ...stores }),
-    [channel, isOwnChannel, canControlConnection, stores]
+    () => ({ channel, isOwnChannel, canEditQueue, openQueue, closeQueue, ...stores }),
+    [channel, isOwnChannel, canEditQueue, openQueue, closeQueue, stores]
   );
 
   return (

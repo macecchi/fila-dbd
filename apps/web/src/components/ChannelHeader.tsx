@@ -1,9 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useChannel } from '../store';
-import { connect, disconnect } from '../services/twitch';
-import { claimOwnership, releaseOwnership } from '../services/party';
-import { useConnectionStatus } from '../hooks/useConnectionStatus';
+import { useQueueStatus } from '../hooks/useQueueStatus';
 import { useTranslation } from '../i18n';
 import { formatRelativeTime } from '../utils/helpers';
 import { Stats } from './Stats';
@@ -18,12 +16,13 @@ interface RoomInfo {
 }
 
 export function ChannelHeader() {
-  const { channel, canControlConnection, useChannelInfo } = useChannel();
+  const { channel, canEditQueue, openQueue, closeQueue, useChannelInfo } = useChannel();
   const { t } = useTranslation();
   const owner = useChannelInfo((s) => s.owner);
+  const channelStatus = useChannelInfo((s) => s.status);
   const hasLock = useChannelInfo((s) => s.hasLock);
   const twitchStatus = useChannelInfo((s) => s.localIrcConnectionState);
-  const { connection, queue } = useConnectionStatus();
+  const queue = useQueueStatus();
 
   const [roomInfo, setRoomInfo] = useState<RoomInfo | null>(null);
 
@@ -54,24 +53,19 @@ export function ChannelHeader() {
       .catch(() => toast.error(t('toast.error')));
   }, [shareUrl, t]);
 
-  const isConnected = twitchStatus === 'connected';
-  const isConnecting = twitchStatus === 'connecting';
+  // Read off the channel, not this window's socket, so both windows show the same button.
+  const isConnected = channelStatus === 'live';
+  const isConnecting = hasLock && twitchStatus === 'connecting';
 
   const handleToggle = () => {
-    if (isConnected) {
-      disconnect();
-      releaseOwnership();
-    } else if (hasLock) {
-      connect(channel);
-    } else {
-      claimOwnership();
-    }
+    if (isConnected) closeQueue();
+    else openQueue();
   };
 
   return (
     <section className="channel-header">
       <div className="channel-header-profile">
-        <div className={`channel-header-avatar-ring ring-${connection.state}`}>
+        <div className={`channel-header-avatar-ring ring-${queue.state}`}>
           {avatarUrl ? (
             <img className="channel-header-avatar" src={avatarUrl} alt={channel} />
           ) : (
@@ -95,17 +89,13 @@ export function ChannelHeader() {
             </a>
           </div>
           <div className="channel-header-meta">
-            <span className={`channel-header-badge state-${connection.state}`}>
-              <span className="dot" />
-              {connection.text}
-            </span>
             <span className={`channel-header-badge state-${queue.state}`}>
               <span className="dot" />
               {queue.text}
             </span>
           </div>
           <span className="channel-header-sub">
-            {lastActive && connection.state === 'disconnected'
+            {lastActive && queue.state === 'closed'
               ? t('header.lastUsed', { time: formatRelativeTime(lastActive) })
               : <a href={shareUrl} className="channel-header-share" onClick={handleCopyLink}>
                 {new URL(shareUrl).href.replace(/https?:\/\//, '')}
@@ -118,7 +108,7 @@ export function ChannelHeader() {
 
       <div className="channel-header-right">
         <Stats />
-        {canControlConnection && (
+        {canEditQueue && (
           <div className="channel-header-actions">
             <button
               className={`btn ${isConnected ? 'btn-ghost' : 'btn-primary'} ${!isConnected && !isConnecting ? 'btn-pulse' : ''}`.trim()}

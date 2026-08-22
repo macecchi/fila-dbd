@@ -7,7 +7,7 @@ import { SOURCE_ICONS, SOURCE_LABEL_KEYS, type SourceType } from './source-icons
 
 export function OrderSection() {
   const { t } = useTranslation();
-  const { useSources, canControlConnection } = useChannel();
+  const { useSources, canEditQueue } = useChannel();
   const {
     priority,
     sortMode,
@@ -18,7 +18,7 @@ export function OrderSection() {
     setPrioritizeTiers,
     setPrioritizeDonations,
   } = useSources();
-  const readOnly = !canControlConnection;
+  const readOnly = !canEditQueue;
 
   const [draggedItem, setDraggedItem] = useState<SourceType | null>(null);
   const filteredPriority = priority.filter((s): s is SourceType => s !== 'manual');

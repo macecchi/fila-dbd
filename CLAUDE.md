@@ -74,6 +74,53 @@ bun run deploy:party # Deploy PartyKit
 - `identifyCharacter()` - Local match first, then LLM fallback
 - `loadAndReplayVOD()` - VOD chat replay via GQL
 
+## Sessions & ownership
+
+One PartyKit connection at a time holds the room lock (`activeOwnerConnId`), and the server
+drops it whenever that socket closes — a wifi blip, a sleeping tab, a deploy. Ownership is
+internal bookkeeping and must never surface as a mode the streamer has to notice or fix:
+
+- **The client re-claims on its own** (`store/ChannelContext.tsx`): whenever the room is
+  ownerless and ours to take — first sync, after a reconnect, when another session closes.
+  Gated on `partySynced` so `owner` reflects the current server state, and re-armed only when
+  ownership changes hands, so a refusal can't spin. Never make this one-shot again: that is
+  exactly how a tab used to end up silently demoted until reload.
+- **`canEditQueue` (= own channel) gates the whole owner UI**, because the server authorizes
+  mutations per *room owner*, not per lock holder — every window of the streamer is a full
+  editor, including the queue toggle.
+- **One status, read off the channel** (`hooks/useQueueStatus.ts`): open / connecting /
+  closed, the same for streamer and viewer, derived from `channelStatus` rather than this
+  window's own sockets — so every window says the same thing. Sockets and the lock are
+  internal; failures surface as toasts, not as a badge. Don't reintroduce a second
+  connection indicator.
+- **The lock transfers, it never refuses** (`party.ts` `claim-ownership`): a claim from
+  another window of the same streamer hands the lock over and sends the old holder
+  `ownership-denied` (which clears its lock and drops its IRC). So Open/Close the queue works
+  from any window — `openQueue()` / `closeQueue()` in the context claim first when needed.
+- **A deliberate close sticks.** `release-ownership` marks the channel `closedByOwner` (an
+  additive, optional field on `ChannelState`); sessions skip the auto-reclaim while it's set,
+  so nothing reopens a queue the streamer just closed. A socket that merely died leaves it
+  unset, which is what makes the recovery above safe. A claim clears it.
+- **Single-writer work follows `hasLock`**, not the UI capability: LLM identification and the
+  VOD recovery scan, so a second tab never duplicates requests or burns a second round of
+  tokens.
+- **Authority `server-error` codes are not failures.** `not_room_owner` / `not_lock_holder`
+  mean another session holds the lock or ours went stale; log and nudge a re-claim, never
+  raise an error toast. Only `persist_failed` / `d1_sync_failed` are real server failures
+  (toast id `server-error`, `duration: Infinity`); `pending_cap` and `chat_send_not_mod` are
+  finite warnings under their own ids. Connection toasts own `party-status` / `irc-status` —
+  don't reuse those ids for anything else.
+- **Reconnects are quiet for the first 5s** (`RECONNECT_GRACE`): both sockets recover on their
+  own within a second or two, so a warning is scheduled, not shown, and the "reconnected"
+  toast only follows a warning that was actually displayed.
+
+**Idempotency:** request IDs are a hash of the Twitch message ID alone — no time component
+(`generateRequestId` in `services/twitch.ts`, `makeId` in `services/donation.ts`). Whoever
+processes a message (a second tab, a session that just took the lock, a VOD replay) derives
+the same ID, and the server's `add-request` dedupe collapses it to one row. Adding any
+time-dependent term back re-introduces duplicates and, past `Number.MAX_SAFE_INTEGER`, rounds
+the low bits of the hash away. Ordering comes from `position`, never from the ID.
+
 ## Data
 
 **Primary (real-time):** PartyKit room storage (Durable Objects)

@@ -20,12 +20,12 @@ const SOURCES: SourceType[] = ['donation', 'chat', 'resub'];
 
 export function SourcesSection() {
   const { t } = useTranslation();
-  const { useSources, canControlConnection } = useChannel();
+  const { useSources, canEditQueue } = useChannel();
   const {
     enabled, chatCommand, chatTiers, minDonation, extrasConfig,
     setEnabled, setChatCommand, setChatTiers, setMinDonation, setExtrasConfig,
   } = useSources();
-  const readOnly = !canControlConnection;
+  const readOnly = !canEditQueue;
 
   const getMinTier = (): 1 | 2 | 3 => {
     const min = chatTiers.length === 0 ? 1 : Math.min(...chatTiers);

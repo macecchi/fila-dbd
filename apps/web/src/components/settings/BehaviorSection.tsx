@@ -8,9 +8,9 @@ import { Toggle } from './Toggle';
 
 export function BehaviorSection() {
   const { t } = useTranslation();
-  const { useSources, canControlConnection } = useChannel();
+  const { useSources, canEditQueue } = useChannel();
   const { hideNonRequests, confirmInChat, setHideNonRequests, setConfirmInChat } = useSources();
-  const readOnly = !canControlConnection;
+  const readOnly = !canEditQueue;
 
   const [dialogMode, setDialogMode] = useState<BotModDialogMode | null>(null);
   const [togglePending, setTogglePending] = useState(false);

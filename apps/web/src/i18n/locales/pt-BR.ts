@@ -163,16 +163,7 @@ const ptBR = {
   'control.logout': 'Sair',
 
   // Connection status
-  'status.twitchError': 'Erro Twitch',
-  'status.serverError': 'Erro servidor',
   'status.connecting': 'Conectando...',
-  'status.connectingShort': 'Conectando',
-  'status.connectedOtherWindow': 'Conectado em outra janela',
-  'status.waitingToStart': 'Aguardando iniciar',
-  'status.connected': 'Conectado',
-  'status.disconnected': 'Desconectado',
-  'status.waitingStreamer': 'Aguardando {name}',
-  'status.streamerOffline': 'Streamer offline',
   'status.queueOpen': 'Fila aberta',
   'status.queueClosed': 'Fila fechada',
 
@@ -234,8 +225,6 @@ const ptBR = {
   'toast.newRequestFromAmount': 'Novo pedido de {donor} ({amount})',
   'toast.undo': 'Desfazer',
   'toast.close': 'Fechar',
-  'toast.channelAlreadyOpen': 'Canal já aberto',
-  'toast.channelAlreadyOpenDesc': 'Outra aba já está gerenciando este canal. Esta aba está em modo somente leitura.',
   'toast.notificationsBlocked': 'Notificações bloqueadas',
   'toast.notificationsBlockedDesc': 'Ative as notificações do navegador para ser alertado se a conexão cair.',
   'toast.newVersionAvailable': 'Atualização disponível',
@@ -250,6 +239,7 @@ const ptBR = {
   'toast.twitchIrc': 'Twitch IRC',
   'toast.server': 'Servidor',
   'toast.serverError': 'Erro no servidor',
+  'toast.chatBot': 'Bot do chat',
   'toast.recoveredRequests': 'Pedidos recuperados',
   'toast.added': '{count} adicionado',
   'toast.added_plural': '{count} adicionados',

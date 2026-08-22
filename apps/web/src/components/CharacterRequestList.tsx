@@ -10,7 +10,7 @@ import type { Request } from '../types';
 import { useTranslation } from '../i18n';
 
 export function CharacterRequestList() {
-  const { useRequests, useSources, useChannelInfo, isOwnChannel, canControlConnection } = useChannel();
+  const { useRequests, useSources, useChannelInfo, isOwnChannel, canEditQueue } = useChannel();
   const { requests, toggleDone, update, reorder } = useRequests();
   const hideNonRequests = useSources((s) => s.hideNonRequests);
   const sourcesEnabled = useSources((s) => s.enabled);
@@ -19,7 +19,7 @@ export function CharacterRequestList() {
   const channelStatus = useChannelInfo((s) => s.status);
   const [draggedId, setDraggedId] = useState<number | null>(null);
   const [dragOverId, setDragOverId] = useState<number | null>(null);
-  const readOnly = !canControlConnection;
+  const readOnly = !canEditQueue;
 
   const groupMap = useMemo(() => {
     const groups = new Map<string, number[]>();

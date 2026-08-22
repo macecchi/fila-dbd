@@ -383,6 +383,8 @@ interface ChannelOwner {
 interface ChannelInfoStore {
   status: ChannelStatus;
   owner: ChannelOwner | null;
+  /** The room is free because the streamer closed the queue, not because a socket died. */
+  closedByOwner: boolean;
   hasLock: boolean;
   partySynced: boolean;
   localIrcConnectionState: ConnectionState;
@@ -399,6 +401,7 @@ export function createChannelInfoStore() {
   return create<ChannelInfoStore>()((set, get) => ({
     status: 'offline',
     owner: null,
+    closedByOwner: false,
     hasLock: false,
     partySynced: false,
     localIrcConnectionState: 'disconnected',
@@ -431,6 +434,7 @@ export function createChannelInfoStore() {
         const updates: Partial<ChannelInfoStore> = {
           status: msg.channel.status,
           owner: msg.channel.owner,
+          closedByOwner: msg.channel.closedByOwner ?? false,
         };
         // Reset hasLock when channel has no owner (released or disconnected)
         if (!msg.channel.owner) {

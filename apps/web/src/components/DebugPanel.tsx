@@ -12,11 +12,11 @@ import { useTranslation } from '../i18n';
 import { Panel, PanelHeader } from './Panel';
 
 export function DebugPanel() {
-  const { useRequests, useSources, canControlConnection } = useChannel();
+  const { useRequests, useSources, canEditQueue } = useChannel();
   const { requests, update, setAll: setRequests, add: addRequest } = useRequests();
   const { isAuthenticated } = useAuth();
   const { enabled: sourcesEnabled, chatTiers, chatCommand, minDonation, extrasConfig } = useSources();
-  const readOnly = !canControlConnection;
+  const readOnly = !canEditQueue;
   const showToast = (msg: string, title: string, _color?: string) => toast.error(title, { description: msg });
   const { t } = useTranslation();
 

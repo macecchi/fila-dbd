@@ -135,7 +135,7 @@ function useRequestToasts(requests: Request[], update: (id: number, updates: Par
 
 function ChannelApp() {
   const { t, locale, setLocale } = useTranslation();
-  const { channel, useRequests, useSources, useChannelInfo, canControlConnection } = useChannel();
+  const { channel, useRequests, useSources, useChannelInfo, canEditQueue } = useChannel();
   const requests = useRequests((s) => s.requests);
   const update = useRequests((s) => s.update);
   const setAll = useRequests((s) => s.setAll);
@@ -147,11 +147,14 @@ function ChannelApp() {
     window.addEventListener('dbd:open-review', open);
     return () => window.removeEventListener('dbd:open-review', open);
   }, []);
-  const readOnly = !canControlConnection;
+  const readOnly = !canEditQueue;
 
   // Missed requests recovery state
   const ircState = useChannelInfo((s) => s.localIrcConnectionState);
   const partySynced = useChannelInfo((s) => s.partySynced);
+  // Work that must happen exactly once (identification, VOD scan) follows the lock,
+  // so a second tab can still be a full editor.
+  const hasLock = useChannelInfo((s) => s.hasLock);
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [recoveryLoading, setRecoveryLoading] = useState(false);
   const [recoveryStatus, setRecoveryStatus] = useState('');
@@ -170,7 +173,7 @@ function ChannelApp() {
   // Trigger recovery when IRC connects
   const recoveryResultRef = useRef<{ vodId: string; lastOffset: number } | null>(null);
   useEffect(() => {
-    if (!partySynced || !canControlConnection || hasTriedRecovery.current) return;
+    if (!partySynced || !hasLock || hasTriedRecovery.current) return;
     hasTriedRecovery.current = true;
 
     const sourcesState = useSources.getState();
@@ -215,7 +218,7 @@ function ChannelApp() {
       });
 
     return () => controller.abort();
-  }, [ircState, partySynced, canControlConnection, channel]);
+  }, [ircState, partySynced, hasLock, channel]);
 
   // Reset recovery state when IRC disconnects
   useEffect(() => {
@@ -341,9 +344,9 @@ function ChannelApp() {
 
   const hideNonRequests = useSources((s) => s.hideNonRequests);
 
-  useAutoIdentify(requests, update, readOnly, useSources);
+  useAutoIdentify(requests, update, !hasLock, useSources);
   useRequestToasts(requests, update, hideNonRequests, readOnly);
-  useWhatsNew(canControlConnection);
+  useWhatsNew(canEditQueue);
 
   const pendingCount = requests.filter(d => !d.done && (!hideNonRequests || d.type !== 'none')).length;
 
