@@ -232,6 +232,24 @@ a:hover {
   animation: syncSweep 1.1s linear infinite;
 }
 
+.twitch-chat-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.15em;
+  height: 1.15em;
+  margin-right: 0.3em;
+  vertical-align: -0.24em;
+}
+
+.twitch-chat-badge svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .sync-sweep.is-active {
     animation: none;

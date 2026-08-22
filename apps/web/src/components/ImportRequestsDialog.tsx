@@ -12,12 +12,14 @@ interface Props {
   onConfirm: (selected: Request[]) => void;
   onClose: () => void;
   onBack?: () => void;
+  /** When set, a Stop button interrupts the scan and keeps whatever was found so far. */
+  onStop?: () => void;
   emptyText?: string;
   loadingText?: string;
   doneText?: string;
 }
 
-export function ImportRequestsDialog({ isOpen, requests, isLoading, loadingStatus, onConfirm, onClose, onBack, emptyText, loadingText, doneText }: Props) {
+export function ImportRequestsDialog({ isOpen, requests, isLoading, loadingStatus, onConfirm, onClose, onBack, onStop, emptyText, loadingText, doneText }: Props) {
   const { t } = useTranslation();
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const seenIds = useRef<Set<number>>(new Set());
@@ -58,6 +60,7 @@ export function ImportRequestsDialog({ isOpen, requests, isLoading, loadingStatu
     const req = requests[idx];
     if (req) toggle(req.id);
   }, [requests, toggle]);
+
 
   const allSelected = selected.size === requests.length && requests.length > 0;
   const noneSelected = selected.size === 0;
@@ -113,11 +116,23 @@ export function ImportRequestsDialog({ isOpen, requests, isLoading, loadingStatu
           <div className="recovery-subtitle">
             {isLoading ? (
               <>
-                <span className="recovery-spinner-inline" />
-                {loadingStatus || loadingText || t('import.analyzing')}
+                <span className="recovery-subtitle-text">
+                  <span className="recovery-spinner-inline" />
+                  {loadingStatus || loadingText || t('import.analyzing')}
+                </span>
+                {onStop && (
+                  <button className="btn btn-ghost btn-small recovery-stop" onClick={onStop}>
+                    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                      <rect width="10" height="10" rx="1.5" fill="currentColor" />
+                    </svg>
+                    {t('import.stopScan')}
+                  </button>
+                )}
               </>
             ) : (
-              <>{doneText || t('import.found')} <strong>{requests.length}</strong> {t('import.request', { count: requests.length })}</>
+              <span className="recovery-subtitle-text">
+                {doneText || t('import.found')} <strong>{requests.length}</strong> {t('import.request', { count: requests.length })}
+              </span>
             )}
           </div>
           <div className="recovery-actions">

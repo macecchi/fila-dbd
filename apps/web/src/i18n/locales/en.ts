@@ -303,6 +303,7 @@ const en: TranslationKeys = {
   'import.close': 'Close',
   'import.analyzing': 'Analyzing stream...',
   'import.analyzingVods': 'Analyzing VODs...',
+  'import.stopScan': 'Stop',
   'import.found': 'Found',
   'import.request': 'request',
   'import.request_plural': 'requests',

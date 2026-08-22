@@ -18,6 +18,11 @@ const SOURCES_DEFAULTS: SourcesSettings = {
 
 const CHAT_NOT_MOD_NOTIFY_INTERVAL_MS = 5 * 60 * 1000;
 
+// DO storage takes at most 128 pairs per put() and 128 keys per delete(); over
+// that it throws. Queue-wide writes (set-all from an import, a full prune) run
+// past it on a busy room, so every multi-key write goes through these.
+const STORAGE_BATCH = 128;
+
 interface ConnectionInfo {
   user: JwtPayload | null;
 }
@@ -37,6 +42,21 @@ export default class PartyServer implements Party.Server {
   private static readonly D1_SYNC_FAIL_NOTIFY = 3;
 
   constructor(public room: Party.Room) { }
+
+  private async putRequestKeys(entries: Record<string, SerializedRequest>) {
+    const keys = Object.keys(entries);
+    for (let i = 0; i < keys.length; i += STORAGE_BATCH) {
+      const batch: Record<string, SerializedRequest> = {};
+      for (const key of keys.slice(i, i + STORAGE_BATCH)) batch[key] = entries[key];
+      await this.room.storage.put(batch);
+    }
+  }
+
+  private async deleteRequestKeys(keys: string[]) {
+    for (let i = 0; i < keys.length; i += STORAGE_BATCH) {
+      await this.room.storage.delete(keys.slice(i, i + STORAGE_BATCH));
+    }
+  }
 
   async onStart() {
     console.log(`${this.tag} Starting`);
@@ -72,7 +92,7 @@ export default class PartyServer implements Party.Server {
     const pending = legacy.filter(r => !r.done);
     const entries: Record<string, SerializedRequest> = {};
     for (const r of pending) entries[`req:${r.id}`] = r;
-    await this.room.storage.put(entries);
+    await this.putRequestKeys(entries);
     await this.room.storage.put('order', pending.map(r => r.id));
     this.requests = pending;
     console.log(`${this.tag} Migrated ${pending.length} requests to per-key storage`);
@@ -109,7 +129,7 @@ export default class PartyServer implements Party.Server {
   private async persistAll() {
     const entries: Record<string, SerializedRequest> = {};
     for (const r of this.requests) entries[`req:${r.id}`] = r;
-    await this.room.storage.put(entries);
+    await this.putRequestKeys(entries);
     await this.room.storage.put('order', this.requests.map(r => r.id));
   }
 
@@ -124,7 +144,7 @@ export default class PartyServer implements Party.Server {
       if (body.action === 'recover-from-d1') {
         const existing = await this.room.storage.list({ prefix: 'req:' });
         if (existing.size > 0) {
-          await this.room.storage.delete([...existing.keys()]);
+          await this.deleteRequestKeys([...existing.keys()]);
         }
         await this.room.storage.delete('order');
         const recovered = await this.recoverFromD1();
@@ -387,10 +407,18 @@ export default class PartyServer implements Party.Server {
       }
       case 'set-all': {
         const oldKeys = this.requests.map(r => `req:${r.id}`);
-        if (oldKeys.length > 0) await this.room.storage.delete(oldKeys);
         this.requests = msg.requests;
         this.needsFullSync = true;
-        await this.persistAll();
+        // Storage must never hold back the echo: clients (and the importer that
+        // just replaced the queue) need the new state either way, and a failed
+        // write falls back to the D1 sync below, as persist() does.
+        try {
+          if (oldKeys.length > 0) await this.deleteRequestKeys(oldKeys);
+          await this.persistAll();
+        } catch (e) {
+          console.error(`${this.tag} SET-ALL PERSIST FAILED (${this.requests.length} requests):`, e);
+          this.sendError('persist_failed', 'Erro ao salvar dados localmente. Tentando sincronizar com o banco de dados.');
+        }
         this.scheduleSyncRequests();
         this.broadcast(message);
         console.log(`${this.tag} ${user}: set-all (${msg.requests.length} requests)`);
@@ -435,10 +463,10 @@ export default class PartyServer implements Party.Server {
           }
         }
         if (Object.keys(entries).length > 0) {
-          await this.room.storage.put(entries);
+          await this.putRequestKeys(entries);
         }
         if (doneKeys.length > 0) {
-          await this.room.storage.delete(doneKeys);
+          await this.deleteRequestKeys(doneKeys);
         }
         await this.room.storage.put('order', pending.map(r => r.id));
       }
@@ -491,7 +519,7 @@ export default class PartyServer implements Party.Server {
           .filter(r => shouldPrune(r) && !this.dirtyRequestIds.has(r.id))
           .map(r => `req:${r.id}`);
         if (pruneKeys.length > 0) {
-          await this.room.storage.delete(pruneKeys);
+          await this.deleteRequestKeys(pruneKeys);
         }
         const before = this.requests.length;
         this.requests = this.requests.filter(r => !shouldPrune(r) || this.dirtyRequestIds.has(r.id));

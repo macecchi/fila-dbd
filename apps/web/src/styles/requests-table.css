@@ -84,6 +84,17 @@
 
 .req-col-donor {
   max-width: 100px;
+}
+
+.req-donor-wrap {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  width: 100%;
+  line-height: 1.4;
+}
+
+.req-donor-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -133,6 +144,6 @@
   }
 
   .req-col-donor {
-    max-width: 70px;
+    max-width: 90px;
   }
 }

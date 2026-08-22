@@ -157,6 +157,7 @@ function ChannelApp() {
   const [recoveryStatus, setRecoveryStatus] = useState('');
   const [recoveredRequests, setRecoveredRequests] = useState<Request[]>([]);
   const hasTriedRecovery = useRef(false);
+  const recoveryAbort = useRef<AbortController | null>(null);
 
   // VOD recovery (past VODs) state
   const [vodSelectOpen, setVodSelectOpen] = useState(false);
@@ -182,6 +183,7 @@ function ChannelApp() {
     setRecoveryLoading(true);
 
     const controller = new AbortController();
+    recoveryAbort.current = controller;
     const currentRequests = useRequests.getState().requests;
     console.log('[recovery] starting scan', { channel, config, existingCount: currentRequests.length });
     import('./services/vod')
@@ -253,6 +255,13 @@ function ChannelApp() {
     toast.success(t('toast.recoveredRequests'), { description: parts.join('\n') });
   }, [useRequests, useSources, setAll, saveRecoveryCheckpoint]);
 
+  // Interrupts the scan but keeps the dialog (and everything found so far) open.
+  const handleRecoveryStop = useCallback(() => {
+    recoveryAbort.current?.abort();
+    recoveryAbort.current = null;
+    setRecoveryLoading(false);
+  }, []);
+
   const handleRecoveryClose = useCallback(() => {
     saveRecoveryCheckpoint();
     setRecoveryOpen(false);
@@ -318,6 +327,12 @@ function ChannelApp() {
     if (skipped > 0) parts.push(t('toast.alreadyInQueue', { count: skipped }));
     toast.success(t('toast.recoveredRequests'), { description: parts.join(' | ') });
   }, [useRequests, useSources, setAll]);
+
+  const handleVodRecoveryStop = useCallback(() => {
+    vodRecoveryAbort.current?.abort();
+    vodRecoveryAbort.current = null;
+    setVodRecoveryLoading(false);
+  }, []);
 
   const handleVodRecoveryClose = useCallback(() => {
     vodRecoveryAbort.current?.abort();
@@ -434,6 +449,7 @@ function ChannelApp() {
             loadingStatus={recoveryStatus}
             onConfirm={handleRecoveryConfirm}
             onClose={handleRecoveryClose}
+            onStop={handleRecoveryStop}
           />
         )}
         {showVodSelect && (
@@ -452,6 +468,7 @@ function ChannelApp() {
             loadingStatus={vodRecoveryStatus}
             onConfirm={handleVodRecoveryConfirm}
             onClose={handleVodRecoveryClose}
+            onStop={handleVodRecoveryStop}
             onBack={() => { handleVodRecoveryClose(); setVodSelectOpen(true); }}
             emptyText={t('import.emptyVod')}
             loadingText={t('import.analyzingVods')}

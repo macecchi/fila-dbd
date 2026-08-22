@@ -20,16 +20,25 @@ function createMockRoom(id: string = 'testchannel') {
     env: { JWT_SECRET: 'test-secret' },
     storage: {
       get: vi.fn((key: string) => Promise.resolve(store.get(key) ?? null)),
+      // DO storage rejects more than 128 pairs/keys per call — mirrored here so a
+      // bulk write that would throw in production fails the test too.
       put: vi.fn((keyOrEntries: string | Record<string, unknown>, value?: unknown) => {
         if (typeof keyOrEntries === 'string') {
           store.set(keyOrEntries, value);
         } else {
-          for (const [k, v] of Object.entries(keyOrEntries)) store.set(k, v);
+          const pairs = Object.entries(keyOrEntries);
+          if (pairs.length > 128) {
+            return Promise.reject(new RangeError('Maximum number of pairs is 128.'));
+          }
+          for (const [k, v] of pairs) store.set(k, v);
         }
         return Promise.resolve();
       }),
       delete: vi.fn((keyOrKeys: string | string[]) => {
         const keys = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
+        if (Array.isArray(keyOrKeys) && keyOrKeys.length > 128) {
+          return Promise.reject(new RangeError('Maximum number of keys is 128.'));
+        }
         for (const k of keys) store.delete(k);
         return Promise.resolve();
       }),
@@ -547,6 +556,40 @@ describe('PartyServer', () => {
       const viewerMsg = viewerConn.getLastMessage();
       expect(viewerMsg?.type).toBe('set-all');
       expect((viewerMsg as any).requests).toHaveLength(1);
+    });
+
+    // A VOD import replaces the whole queue in one set-all; large rooms blow past
+    // DO storage's 128-pairs-per-call cap, which used to throw before the echo and
+    // leave the client showing "added" for requests that never landed.
+    it('persists and echoes a set-all larger than the DO storage batch limit', async () => {
+      server.requests = Array.from({ length: 140 }, (_, i) => createTestRequest({ id: i + 1 }));
+      const incoming = Array.from({ length: 300 }, (_, i) => createTestRequest({ id: 1000 + i }));
+
+      await server.onMessage(JSON.stringify({ type: 'set-all', requests: incoming }), ownerConn as any);
+
+      expect(server.requests).toHaveLength(300);
+      const stored = [...mockRoom.storage._store.keys()].filter(k => k.startsWith('req:'));
+      expect(stored).toHaveLength(300);
+      expect(mockRoom.storage._store.get('order')).toHaveLength(300);
+      // Keys from the replaced queue are gone.
+      expect(stored.includes('req:1')).toBe(false);
+
+      const viewerMsg = viewerConn.getLastMessage();
+      expect(viewerMsg?.type).toBe('set-all');
+      expect((viewerMsg as any).requests).toHaveLength(300);
+    });
+
+    it('prunes more done requests than one delete() call accepts', async () => {
+      server.requests = Array.from({ length: 200 }, (_, i) => createTestRequest({ id: i + 1, done: true }));
+      await server.onMessage(
+        JSON.stringify({ type: 'set-all', requests: server.requests.map(r => ({ ...r })) }),
+        ownerConn as any
+      );
+      expect([...mockRoom.storage._store.keys()].filter(k => k.startsWith('req:'))).toHaveLength(200);
+
+      await server.onMessage(JSON.stringify({ type: 'set-all', requests: [] }), ownerConn as any);
+
+      expect([...mockRoom.storage._store.keys()].filter(k => k.startsWith('req:'))).toHaveLength(0);
     });
 
     it('handles update-sources', async () => {
