@@ -42,7 +42,7 @@ You need to keep the site open to receive requests.
 
 #### Request queue
 
-- Click a request to mark it as done
+- Click the ✓ button on a request to mark it as done
 - Drag to reorder manually
 - Select request ordering by arrival order or by priority
 - **+** button adds a manual request
@@ -208,7 +208,7 @@ Use o nosso [Discord](https://discord.gg/hXsAgk5KnX) ou o próprio GitHub para m
 
 #### Fila de pedidos
 
-- Clique em um pedido para marcar como feito
+- Clique no botão ✓ do pedido para marcar como feito
 - Arraste para reordenar manualmente
 - Selecione a ordenação de pedidos por fila de chegada ou por prioridade
 - Botão **+** adiciona pedido manual
