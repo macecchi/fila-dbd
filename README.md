@@ -147,6 +147,24 @@ To test StreamElements format:
 dbdDebug.raw('@display-name=StreamElements :streamelements!streamelements@streamelements.tmi.twitch.tv PRIVMSG #ch :Donor mandou 5.00 e disse: Huntress')
 ```
 
+### Signing in as the channel owner (local only)
+
+Owner-only paths (opening the queue, ✓ / undo, editing sources) need a JWT the party server
+verifies, which normally means a full Twitch OAuth round trip. For local testing, mint one
+directly:
+
+```bash
+cd apps/api && bun run dev:login <channel>
+```
+
+Pass the channel you're testing as the login, so the server's `user.login === room.id` check
+passes for real and you exercise the production path rather than the `DEV_MODE` bypass. The
+script prints a `localStorage.setItem('dbd-auth', …)` snippet to paste into the DevTools
+console on `localhost:5173`; the reload comes back signed in.
+
+The token is signed with the `JWT_SECRET` in `apps/api/.env` — your local dev secret — so it
+is only ever valid against `wrangler dev` / `partykit dev`, never production.
+
 ### LLM extraction evals
 
 Live evals against the real Gemini API live in `apps/api/src/gemini.eval.test.ts`. They are skipped by the default test suite (and by CI) and run on demand:

@@ -62,6 +62,38 @@ bun run deploy:party # Deploy PartyKit
 > **Note:** Use `bun run test`, not `bun test`. The project uses Vitest for testing,
 > but `bun test` invokes Bun's native test runner which is incompatible with this project.
 
+## Testing owner paths locally
+
+Every owner-only path — opening the queue, ✓ / undo, editing sources — is gated on a JWT
+the party server verifies against `JWT_SECRET`, so without a Twitch OAuth round trip half
+the app is unreachable. **Don't conclude the owner flow is untestable; mint a local token:**
+
+```bash
+cd apps/api && bun run dev:login <channel>   # e.g. bun run dev:login meriw_
+```
+
+It signs the same payload `/auth/token` signs after Twitch confirms identity, using the
+`JWT_SECRET` from `apps/api/.env` (which `wrangler dev` and `partykit dev` both read via
+dotenv). It prints a one-line `localStorage.setItem('dbd-auth', …)` snippet — paste it into
+the DevTools console on `localhost:5173`, and the reload comes back signed in with the owner
+UI live and mutations accepted.
+
+- **Pass the channel you are testing as the login.** The server's owner check is
+  `user.login === room.id`, so a matching login makes `isRoomOwner` true and the `DEV_MODE`
+  bypass is never taken — you exercise the production path. A mismatched login still works in
+  dev, but only via `isDev && connInfo?.user`, i.e. a branch that does not exist in prod.
+- The token is signed with the **local** secret and is worthless against production. Nothing
+  in the repo can mint a token for the deployed app — deliberately.
+- ⚠️ **Never fake the auth state client-side instead** (writing a made-up token into
+  `dbd-auth`). `isOwnChannel` only checks `isAuthenticated && user`, so the owner UI lights
+  up — but `verifyJwt` fails server-side, both dev gates require `connInfo?.user`, and
+  `not_room_owner` is logged rather than toasted while `toggleDone` is optimistic. The ✓
+  appears to land and nothing persists: a silently-passing test, worse than no test.
+- Sign out with `localStorage.removeItem('dbd-auth'); location.reload()`.
+
+To verify something actually reached the server rather than the optimistic store, clear the
+queue cache before reloading: `Object.keys(localStorage).filter(k => k.startsWith('fila-dbd-queue')).forEach(k => localStorage.removeItem(k))`.
+
 ## Key functions
 
 - `connect()` - Twitch IRC WebSocket
