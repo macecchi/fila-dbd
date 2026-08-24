@@ -69,8 +69,9 @@
 }
 
 .channel-header-name-row {
-  /* display: flex; */
-  /* align-items: center; */
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
 }
 
 .channel-header-name {
