@@ -736,6 +736,12 @@
   .landing-channels-grid:not(.single) .landing-channel-card {
     max-width: calc(50% - 0.5rem);
   }
+
+  /* A lone card must not stretch edge-to-edge — its 16:9 thumbnail would fill
+     the whole viewport. Cap and center it instead. */
+  .landing-channels-grid.single .landing-channel-card {
+    max-width: 420px;
+  }
 }
 
 @media (max-width: 600px) {
