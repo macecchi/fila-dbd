@@ -181,7 +181,10 @@ type Featured =
   | { active: true; room: ActiveRoom }
   | { active: false; room: RecentRoom };
 
-const FEATURED_MAX = 6;
+// The editorial grid always renders exactly this many slots — a 2×2 hero plus
+// four small cards — so the section keeps a stable size no matter how many
+// channels are around. Missing channels become "your queue here" CTA slots.
+const FEATURED_SLOTS = 5;
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -192,13 +195,13 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-function FeaturedCard({ item, loading }: { item: Featured; loading: boolean }) {
+function FeaturedCard({ item, hero, loading }: { item: Featured; hero: boolean; loading: boolean }) {
   const { t } = useTranslation();
   const { room, active } = item;
   const displayName = room.display_name || room.channel_login;
   const thumb = channelThumbSrc(room);
   return (
-    <a className="landing-channel-card" href={`/${room.channel_login}`} onClick={handleLinkClick}>
+    <a className={`landing-channel-card${hero ? ' hero' : ''}`} href={`/${room.channel_login}`} onClick={handleLinkClick}>
       <div className="landing-channel-thumb">
         {thumb ? (
           <img src={thumb} alt={displayName} />
@@ -227,6 +230,24 @@ function FeaturedCard({ item, loading }: { item: Featured; loading: boolean }) {
       </div>
     </a>
   );
+}
+
+// Fills an empty featured slot: a quiet CTA card that keeps the grid's shape.
+function SlotCard({ hero }: { hero: boolean }) {
+  const { isAuthenticated, user, login } = useAuth();
+  const { t } = useTranslation();
+  const className = `landing-channel-card landing-slot${hero ? ' hero' : ''}`;
+  const inner = (
+    <>
+      <img className="landing-slot-emblem" src={`${import.meta.env.BASE_URL}images/Dead-by-Daylight-Emblem.webp`} alt="" />
+      <span className="landing-slot-title">{t('landing.slotTitle')}</span>
+      <span className="landing-slot-desc">{t('landing.slotDesc')}</span>
+    </>
+  );
+  if (isAuthenticated && user) {
+    return <a className={className} href={`/${user.login.toLowerCase()}`} onClick={handleLinkClick}>{inner}</a>;
+  }
+  return <button className={className} onClick={login}>{inner}</button>;
 }
 
 function LiveChannels() {
@@ -263,42 +284,38 @@ function LiveChannels() {
   const featured = useMemo<Featured[]>(() => {
     const activeItems: Featured[] = rooms.map(room => ({ active: true, room }));
     const recentItems: Featured[] = shuffle(recent).map(room => ({ active: false, room }));
-    return [...activeItems, ...recentItems].slice(0, FEATURED_MAX);
+    return [...activeItems, ...recentItems].slice(0, FEATURED_SLOTS);
   }, [rooms, recent]);
 
   let content;
   if (loading && cache === null) {
+    // Skeletons mirror the real grid exactly (hero + smalls), so nothing shifts
+    // when the response lands.
     content = (
-      <div className="landing-channels-grid">
-        {[1, 2].map(i => (
-          <div key={i} className="landing-channel-card skeleton">
+      <div className="landing-featured-grid">
+        {Array.from({ length: FEATURED_SLOTS }, (_, i) => (
+          <div key={i} className={`landing-channel-card skeleton${i === 0 ? ' hero' : ''}`}>
             <div className="landing-channel-thumb" />
             <div className="landing-channel-info">
               <div className="landing-channel-card-header">
                 <div className="skeleton-circle" />
                 <div className="skeleton-line" />
               </div>
-              <div className="landing-channel-stats">
-                <div className="skeleton-line short" />
-              </div>
             </div>
           </div>
         ))}
       </div>
     );
-  } else if (featured.length === 0) {
-    content = (
-      <div className="landing-channels-empty">
-        <p className="landing-channels-empty-title">{t('landing.noActiveChannels')}</p>
-        <p className="landing-channels-empty-cta">{t('landing.noActiveChannelsCta')}</p>
-      </div>
-    );
   } else {
+    // Always exactly FEATURED_SLOTS cells: real channels first (hero = top pick),
+    // CTA slots pad the rest, so the section never changes shape.
     content = (
-      <div className={`landing-channels-grid${featured.length === 1 ? ' single' : ''}`}>
-        {featured.map(item => (
-          <FeaturedCard key={item.room.id} item={item} loading={loading} />
-        ))}
+      <div className="landing-featured-grid">
+        {Array.from({ length: FEATURED_SLOTS }, (_, i) => {
+          const item = featured[i];
+          if (!item) return <SlotCard key={`slot-${i}`} hero={i === 0} />;
+          return <FeaturedCard key={item.room.id} item={item} hero={i === 0} loading={loading} />;
+        })}
       </div>
     );
   }
