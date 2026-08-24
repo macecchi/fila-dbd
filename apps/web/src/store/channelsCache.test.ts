@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { loadCachedChannels, saveCachedChannels, type ActiveRoom, type RecentRoom } from './channelsCache';
 
-const KEY = 'fila-dbd-channels-v2';
+const KEY = 'fila-dbd-channels-v3';
 
 function sampleRoom(overrides: Partial<ActiveRoom> = {}): ActiveRoom {
   return {
@@ -51,11 +51,16 @@ describe('channelsCache', () => {
     vi.unstubAllGlobals();
   });
 
-  it('round-trips rooms and recent through save/load', () => {
+  it('round-trips rooms, recent, and total through save/load', () => {
     const rooms = [sampleRoom(), sampleRoom({ id: 'room2', channel_login: 'streamer2' })];
     const recent = [sampleRecent()];
-    saveCachedChannels(rooms, recent);
-    expect(loadCachedChannels()).toEqual({ rooms, recent });
+    saveCachedChannels(rooms, recent, 42);
+    expect(loadCachedChannels()).toEqual({ rooms, recent, totalChannels: 42 });
+  });
+
+  it('leaves totalChannels undefined when it was not saved', () => {
+    saveCachedChannels([sampleRoom()], []);
+    expect(loadCachedChannels()?.totalChannels).toBeUndefined();
   });
 
   it('returns null when nothing is cached', () => {
@@ -78,12 +83,12 @@ describe('channelsCache', () => {
   });
 
   it('returns null when rooms is not an array', () => {
-    localStorage.setItem(KEY, JSON.stringify({ v: 2, rooms: 'nope' }));
+    localStorage.setItem(KEY, JSON.stringify({ v: 3, rooms: 'nope' }));
     expect(loadCachedChannels()).toBeNull();
   });
 
   it('defaults recent to an empty array when the envelope lacks it', () => {
-    localStorage.setItem(KEY, JSON.stringify({ v: 2, rooms: [sampleRoom()] }));
+    localStorage.setItem(KEY, JSON.stringify({ v: 3, rooms: [sampleRoom()] }));
     expect(loadCachedChannels()?.recent).toEqual([]);
   });
 

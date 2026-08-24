@@ -563,12 +563,16 @@ interface RoomRow {
 }
 
 app.get("/rooms/active", async (c) => {
-  // v2: response also carries `recent` (recently-active-but-closed rooms) so the
-  // landing page has something to show when no queue is open. Additive — old
-  // clients keep reading `rooms` — but the cache key is versioned so a v1 cached
-  // body can't be served without the new field.
-  const cached = await c.env.CACHE.get("rooms_active_v2", "json");
+  // v3: besides `rooms`, the response carries `recent` (recently-active-but-closed
+  // rooms, so the landing page always has channels to feature) and `total_channels`
+  // (all-time room count — a vanity stat, 60s-stale by design via the KV cache).
+  // Additive — old clients keep reading `rooms` — but the cache key is versioned so
+  // an older cached body can't be served without the new fields.
+  const cached = await c.env.CACHE.get("rooms_active_v3", "json");
   if (cached) return c.json(cached);
+
+  const totalRow = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM rooms").first<{ n: number }>();
+  const totalChannels = totalRow?.n ?? 0;
 
   // 7-day window: rooms past it fall off the landing page entirely; rooms inside
   // it but with a closed queue and no pending requests feed the `recent` strip.
@@ -587,10 +591,10 @@ app.get("/rooms/active", async (c) => {
      LIMIT 30`
   ).all<RoomRow>();
 
-  if (results.length === 0) return c.json({ rooms: [], recent: [] });
+  if (results.length === 0) return c.json({ rooms: [], recent: [], total_channels: totalChannels });
 
   const token = await getAppToken(c.env);
-  if (!token) return c.json({ rooms: results, recent: [] });
+  if (!token) return c.json({ rooms: results, recent: [], total_channels: totalChannels });
 
   const logins = results.map((r) => r.channel_login);
 
@@ -698,20 +702,22 @@ app.get("/rooms/active", async (c) => {
       channel_login: r.channel_login,
       display_name: r.display_name,
       avatar_url: r.avatar_url,
+      banner_url: r.banner_url,
       request_count: r.request_count ?? 0,
       updated_at: r.updated_at,
       is_live: r.is_live,
+      thumbnail_url: r.thumbnail_url,
       viewer_count: r.viewer_count,
     }));
 
-  const response = { rooms, recent };
+  const response = { rooms, recent, total_channels: totalChannels };
 
   try {
     c.executionCtx.waitUntil(
-      c.env.CACHE.put("rooms_active_v2", JSON.stringify(response), { expirationTtl: 60 })
+      c.env.CACHE.put("rooms_active_v3", JSON.stringify(response), { expirationTtl: 60 })
     );
   } catch {
-    await c.env.CACHE.put("rooms_active_v2", JSON.stringify(response), { expirationTtl: 60 });
+    await c.env.CACHE.put("rooms_active_v3", JSON.stringify(response), { expirationTtl: 60 });
   }
 
   return c.json(response);

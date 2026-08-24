@@ -4,7 +4,7 @@
 // Versioned + defensive reads, so a corrupt/old cache can't break a newer client
 // (bump VERSION to invalidate). Never authoritative — the API is the source of truth.
 
-const VERSION = 2;
+const VERSION = 3;
 const KEY = `fila-dbd-channels-v${VERSION}`;
 
 export interface ActiveRoom {
@@ -24,28 +24,35 @@ export interface ActiveRoom {
   viewer_count: number | null;
 }
 
-// Slim room shape for the "recently active" strip — a channel that used the app
-// in the last few days but has no open queue or pending requests right now.
+// Slim room shape for recently-active channels — used the app in the last few
+// days but no open queue or pending requests right now. They fill out the
+// featured grid so it's never empty between streams.
 export interface RecentRoom {
   id: string;
   channel_login: string;
   display_name?: string | null;
   avatar_url: string | null;
+  banner_url?: string | null;
   request_count: number;
   updated_at: string;
   is_live?: boolean;
+  thumbnail_url?: string | null;
   viewer_count?: number | null;
 }
 
 export interface CachedChannels {
   rooms: ActiveRoom[];
   recent: RecentRoom[];
+  // All-time channel count (vanity stat). Absent on caches written against an
+  // older API response.
+  totalChannels?: number;
 }
 
 interface ChannelsCacheEnvelope {
   v: number;
   rooms: ActiveRoom[];
   recent?: RecentRoom[];
+  totalChannels?: number;
 }
 
 // Returns null on a cache miss (nothing stored, corrupt, or stale version) so a
@@ -58,16 +65,20 @@ export function loadCachedChannels(): CachedChannels | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as ChannelsCacheEnvelope | null;
     if (!parsed || parsed.v !== VERSION || !Array.isArray(parsed.rooms)) return null;
-    return { rooms: parsed.rooms, recent: Array.isArray(parsed.recent) ? parsed.recent : [] };
+    return {
+      rooms: parsed.rooms,
+      recent: Array.isArray(parsed.recent) ? parsed.recent : [],
+      totalChannels: typeof parsed.totalChannels === 'number' ? parsed.totalChannels : undefined,
+    };
   } catch {
     return null;
   }
 }
 
-export function saveCachedChannels(rooms: ActiveRoom[], recent: RecentRoom[]): void {
+export function saveCachedChannels(rooms: ActiveRoom[], recent: RecentRoom[], totalChannels?: number): void {
   if (typeof localStorage === 'undefined') return;
   try {
-    const envelope: ChannelsCacheEnvelope = { v: VERSION, rooms, recent };
+    const envelope: ChannelsCacheEnvelope = { v: VERSION, rooms, recent, totalChannels };
     localStorage.setItem(KEY, JSON.stringify(envelope));
   } catch {
     // ignore quota / serialization / storage-unavailable errors — the cache is
