@@ -4,7 +4,7 @@
 // Versioned + defensive reads, so a corrupt/old cache can't break a newer client
 // (bump VERSION to invalidate). Never authoritative — the API is the source of truth.
 
-const VERSION = 1;
+const VERSION = 2;
 const KEY = `fila-dbd-channels-v${VERSION}`;
 
 export interface ActiveRoom {
@@ -24,31 +24,50 @@ export interface ActiveRoom {
   viewer_count: number | null;
 }
 
+// Slim room shape for the "recently active" strip — a channel that used the app
+// in the last few days but has no open queue or pending requests right now.
+export interface RecentRoom {
+  id: string;
+  channel_login: string;
+  display_name?: string | null;
+  avatar_url: string | null;
+  request_count: number;
+  updated_at: string;
+  is_live?: boolean;
+  viewer_count?: number | null;
+}
+
+export interface CachedChannels {
+  rooms: ActiveRoom[];
+  recent: RecentRoom[];
+}
+
 interface ChannelsCacheEnvelope {
   v: number;
   rooms: ActiveRoom[];
+  recent?: RecentRoom[];
 }
 
 // Returns null on a cache miss (nothing stored, corrupt, or stale version) so a
 // caller can tell "never cached" from a cached-but-empty list — a real response
 // can legitimately be empty, and that's still a hit worth painting.
-export function loadCachedChannels(): ActiveRoom[] | null {
+export function loadCachedChannels(): CachedChannels | null {
   if (typeof localStorage === 'undefined') return null;
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as ChannelsCacheEnvelope | null;
     if (!parsed || parsed.v !== VERSION || !Array.isArray(parsed.rooms)) return null;
-    return parsed.rooms;
+    return { rooms: parsed.rooms, recent: Array.isArray(parsed.recent) ? parsed.recent : [] };
   } catch {
     return null;
   }
 }
 
-export function saveCachedChannels(rooms: ActiveRoom[]): void {
+export function saveCachedChannels(rooms: ActiveRoom[], recent: RecentRoom[]): void {
   if (typeof localStorage === 'undefined') return;
   try {
-    const envelope: ChannelsCacheEnvelope = { v: VERSION, rooms };
+    const envelope: ChannelsCacheEnvelope = { v: VERSION, rooms, recent };
     localStorage.setItem(KEY, JSON.stringify(envelope));
   } catch {
     // ignore quota / serialization / storage-unavailable errors — the cache is

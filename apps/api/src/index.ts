@@ -563,9 +563,15 @@ interface RoomRow {
 }
 
 app.get("/rooms/active", async (c) => {
-  const cached = await c.env.CACHE.get("rooms_active", "json");
+  // v2: response also carries `recent` (recently-active-but-closed rooms) so the
+  // landing page has something to show when no queue is open. Additive — old
+  // clients keep reading `rooms` — but the cache key is versioned so a v1 cached
+  // body can't be served without the new field.
+  const cached = await c.env.CACHE.get("rooms_active_v2", "json");
   if (cached) return c.json(cached);
 
+  // 7-day window: rooms past it fall off the landing page entirely; rooms inside
+  // it but with a closed queue and no pending requests feed the `recent` strip.
   const { results } = await c.env.DB.prepare(
     `SELECT r.id, r.channel_login, r.display_name, r.avatar_url, r.banner_url, r.status,
             COUNT(req.id) AS request_count,
@@ -573,18 +579,18 @@ app.get("/rooms/active", async (c) => {
             r.updated_at
      FROM rooms r
      LEFT JOIN requests req ON req.room_id = r.id AND req.deleted_at IS NULL
-     WHERE r.updated_at > datetime('now', '-24 hours')
+     WHERE r.updated_at > datetime('now', '-7 days')
      GROUP BY r.id
      ORDER BY CASE WHEN r.status != 'offline' THEN 0 ELSE 1 END,
               SUM(CASE WHEN req.done = 0 AND COALESCE(req.type, '') != 'none' THEN 1 ELSE 0 END) DESC,
               r.updated_at DESC
-     LIMIT 20`
+     LIMIT 30`
   ).all<RoomRow>();
 
-  if (results.length === 0) return c.json({ rooms: [] });
+  if (results.length === 0) return c.json({ rooms: [], recent: [] });
 
   const token = await getAppToken(c.env);
-  if (!token) return c.json({ rooms: results });
+  if (!token) return c.json({ rooms: results, recent: [] });
 
   const logins = results.map((r) => r.channel_login);
 
@@ -677,17 +683,59 @@ app.get("/rooms/active", async (c) => {
     return (b.pending_count ?? 0) - (a.pending_count ?? 0);
   });
 
-  const response = { rooms: active.slice(0, 10) };
+  const rooms = active.slice(0, 10);
+
+  // Everything else in the window is "recently active": closed queue, nothing
+  // pending, but used within the last 7 days. Newest activity first. Kept slim —
+  // the strip only needs identity + a couple of stats.
+  const activeIds = new Set(rooms.map((r) => r.id));
+  const recent = enriched
+    .filter((r) => !activeIds.has(r.id))
+    .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
+    .slice(0, 12)
+    .map((r) => ({
+      id: r.id,
+      channel_login: r.channel_login,
+      display_name: r.display_name,
+      avatar_url: r.avatar_url,
+      request_count: r.request_count ?? 0,
+      updated_at: r.updated_at,
+      is_live: r.is_live,
+      viewer_count: r.viewer_count,
+    }));
+
+  const response = { rooms, recent };
 
   try {
     c.executionCtx.waitUntil(
-      c.env.CACHE.put("rooms_active", JSON.stringify(response), { expirationTtl: 60 })
+      c.env.CACHE.put("rooms_active_v2", JSON.stringify(response), { expirationTtl: 60 })
     );
   } catch {
-    await c.env.CACHE.put("rooms_active", JSON.stringify(response), { expirationTtl: 60 });
+    await c.env.CACHE.put("rooms_active_v2", JSON.stringify(response), { expirationTtl: 60 });
   }
 
   return c.json(response);
+});
+
+// GET /rooms/search?q= — channel discovery for the landing page. Substring match
+// against login and display name over every room that ever opened a queue (the
+// `rooms` table only gains rows via the owner flow, so this can't be used to
+// enumerate arbitrary Twitch channels). LIKE wildcards in the query are escaped.
+app.get("/rooms/search", async (c) => {
+  const q = (c.req.query("q") ?? "").trim().toLowerCase();
+  if (q.length < 2 || q.length > 30) return c.json({ rooms: [] });
+
+  const escaped = q.replace(/[\\%_]/g, (m) => `\\${m}`);
+  const { results } = await c.env.DB.prepare(
+    `SELECT r.id, r.channel_login, r.display_name, r.avatar_url, r.updated_at,
+            (SELECT COUNT(*) FROM requests req WHERE req.room_id = r.id AND req.deleted_at IS NULL) AS request_count
+     FROM rooms r
+     WHERE r.channel_login LIKE ? ESCAPE '\\' OR LOWER(COALESCE(r.display_name, '')) LIKE ? ESCAPE '\\'
+     ORDER BY CASE WHEN r.channel_login = ? THEN 0 ELSE 1 END, r.updated_at DESC
+     LIMIT 8`
+  ).bind(`%${escaped}%`, `%${escaped}%`, q).all<RoomRow>();
+
+  return c.json({ rooms: results ?? [] });
 });
 
 app.get("/rooms/:roomId", async (c) => {

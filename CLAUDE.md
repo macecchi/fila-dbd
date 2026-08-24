@@ -206,7 +206,10 @@ the low bits of the hash away. Ordering comes from `position`, never from the ID
 - `fila-dbd-notif-toast-dismissed-v1` - set to `'1'` once the streamer dismisses the
   "notifications blocked" warning toast; suppresses it permanently on that browser
   (`store/ChannelContext.tsx`). Absent = show it.
-- `fila-dbd-channels-v{N}` - landing-page active-channels cache (stale-while-revalidate).
-  Hydrated into `LiveChannels` on mount so the list paints before `/rooms/active` returns; the
-  response wins. Versioned + defensively parsed (`store/channelsCache.ts`). `/rooms/active` is
-  already KV-cached server-side (60s); this hides round-trip/cold-start latency from the user.
+- `fila-dbd-channels-v{N}` - landing-page channels cache (stale-while-revalidate): both the
+  active list and the "recently active" strip (7-day window, closed queues) from
+  `/rooms/active`. Hydrated into `LiveChannels` on mount so the section paints before the
+  request returns; the response wins. Versioned + defensively parsed (`store/channelsCache.ts`).
+  `/rooms/active` is already KV-cached server-side (60s, key `rooms_active_v2`); this hides
+  round-trip/cold-start latency from the user. Channel search (`/rooms/search`) is live-only —
+  debounced in `ChannelSearch`, no cache.

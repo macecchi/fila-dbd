@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { loadCachedChannels, saveCachedChannels, type ActiveRoom } from './channelsCache';
+import { loadCachedChannels, saveCachedChannels, type ActiveRoom, type RecentRoom } from './channelsCache';
 
-const KEY = 'fila-dbd-channels-v1';
+const KEY = 'fila-dbd-channels-v2';
 
 function sampleRoom(overrides: Partial<ActiveRoom> = {}): ActiveRoom {
   return {
@@ -16,6 +16,18 @@ function sampleRoom(overrides: Partial<ActiveRoom> = {}): ActiveRoom {
     is_live: true,
     thumbnail_url: 'https://example.com/thumb.png',
     viewer_count: 100,
+    ...overrides,
+  };
+}
+
+function sampleRecent(overrides: Partial<RecentRoom> = {}): RecentRoom {
+  return {
+    id: 'room9',
+    channel_login: 'streamer9',
+    display_name: 'Streamer9',
+    avatar_url: null,
+    request_count: 42,
+    updated_at: '2026-05-22 12:00:00',
     ...overrides,
   };
 }
@@ -39,10 +51,11 @@ describe('channelsCache', () => {
     vi.unstubAllGlobals();
   });
 
-  it('round-trips rooms through save/load', () => {
+  it('round-trips rooms and recent through save/load', () => {
     const rooms = [sampleRoom(), sampleRoom({ id: 'room2', channel_login: 'streamer2' })];
-    saveCachedChannels(rooms);
-    expect(loadCachedChannels()).toEqual(rooms);
+    const recent = [sampleRecent()];
+    saveCachedChannels(rooms, recent);
+    expect(loadCachedChannels()).toEqual({ rooms, recent });
   });
 
   it('returns null when nothing is cached', () => {
@@ -65,21 +78,26 @@ describe('channelsCache', () => {
   });
 
   it('returns null when rooms is not an array', () => {
-    localStorage.setItem(KEY, JSON.stringify({ v: 1, rooms: 'nope' }));
+    localStorage.setItem(KEY, JSON.stringify({ v: 2, rooms: 'nope' }));
     expect(loadCachedChannels()).toBeNull();
   });
 
-  it('overwrites the previous cache on save', () => {
-    saveCachedChannels([sampleRoom({ id: 'old' })]);
-    saveCachedChannels([sampleRoom({ id: 'new' })]);
-    const loaded = loadCachedChannels();
-    expect(loaded).toHaveLength(1);
-    expect(loaded?.[0].id).toBe('new');
+  it('defaults recent to an empty array when the envelope lacks it', () => {
+    localStorage.setItem(KEY, JSON.stringify({ v: 2, rooms: [sampleRoom()] }));
+    expect(loadCachedChannels()?.recent).toEqual([]);
   });
 
-  it('returns an empty array (not null) for a cached-but-empty list, so a real empty response is distinguishable from a cold cache', () => {
-    saveCachedChannels([sampleRoom()]);
-    saveCachedChannels([]);
-    expect(loadCachedChannels()).toEqual([]);
+  it('overwrites the previous cache on save', () => {
+    saveCachedChannels([sampleRoom({ id: 'old' })], []);
+    saveCachedChannels([sampleRoom({ id: 'new' })], []);
+    const loaded = loadCachedChannels();
+    expect(loaded?.rooms).toHaveLength(1);
+    expect(loaded?.rooms[0].id).toBe('new');
+  });
+
+  it('returns empty arrays (not null) for a cached-but-empty list, so a real empty response is distinguishable from a cold cache', () => {
+    saveCachedChannels([sampleRoom()], [sampleRecent()]);
+    saveCachedChannels([], []);
+    expect(loadCachedChannels()).toEqual({ rooms: [], recent: [] });
   });
 });

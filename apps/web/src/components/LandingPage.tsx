@@ -2,11 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../store';
 import { useTranslation } from '../i18n';
 import type { TranslationKeys } from '../i18n/locales/pt-BR';
-import { formatRelativeTime, handleLinkClick } from '../utils/helpers';
+import { formatRelativeTime, handleLinkClick, navigate } from '../utils/helpers';
 import { getKillerPortrait } from '../data/characters';
 import { CharacterAvatar } from './CharacterAvatar';
 import { SyncSweep } from './SyncSweep';
-import { loadCachedChannels, saveCachedChannels, type ActiveRoom } from '../store/channelsCache';
+import { loadCachedChannels, saveCachedChannels, type ActiveRoom, type RecentRoom } from '../store/channelsCache';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
 
@@ -44,6 +44,170 @@ function ConnectButton() {
   );
 }
 
+// Anything that could be a Twitch login — used to offer a direct "go to channel"
+// entry for names the search index doesn't know about (any channel page works as
+// a viewer, even before its first queue).
+const TWITCH_LOGIN_RE = /^[a-zA-Z0-9_]{3,25}$/;
+
+interface SearchRoom {
+  id: string;
+  channel_login: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  request_count: number;
+  updated_at: string;
+}
+
+function ChannelSearch() {
+  const { t } = useTranslation();
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<SearchRoom[] | null>(null);
+  const [focused, setFocused] = useState(false);
+  const seq = useRef(0);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const query = q.trim();
+
+  // Debounced search against /rooms/search; a stale response never overwrites a
+  // newer one (seq guard). Under 2 chars the API won't search, so don't ask.
+  useEffect(() => {
+    const id = ++seq.current;
+    if (query.length < 2) { setResults(null); return; }
+    const tid = window.setTimeout(() => {
+      fetch(`${API_URL}/rooms/search?q=${encodeURIComponent(query)}`)
+        .then(r => r.json())
+        .then((data: { rooms: SearchRoom[] }) => { if (seq.current === id) setResults(data.rooms ?? []); })
+        .catch(() => { if (seq.current === id) setResults([]); });
+    }, 250);
+    return () => clearTimeout(tid);
+  }, [query]);
+
+  // Close on click/tap outside.
+  useEffect(() => {
+    const onPointerDown = (e: PointerEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setFocused(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, []);
+
+  // Direct escape hatch for channels the index doesn't know: only offered when
+  // the search came back empty, so it never adds noise under real matches.
+  const goToFallback = results?.length === 0 && TWITCH_LOGIN_RE.test(query);
+
+  const open = focused && query.length >= 2;
+
+  const go = (login: string) => {
+    setFocused(false);
+    setQ('');
+    navigate(`/${login.toLowerCase()}`);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') { setFocused(false); return; }
+    if (e.key === 'Enter') {
+      const first = results?.[0]?.channel_login ?? (TWITCH_LOGIN_RE.test(query) ? query : null);
+      if (first) go(first);
+    }
+  };
+
+  return (
+    <div className="landing-channel-search" ref={wrapRef}>
+      <svg className="landing-channel-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="7" />
+        <path d="M21 21l-4.35-4.35" />
+      </svg>
+      <input
+        type="search"
+        value={q}
+        placeholder={t('landing.searchPlaceholder')}
+        onChange={e => setQ(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onKeyDown={onKeyDown}
+        aria-label={t('landing.searchPlaceholder')}
+        autoComplete="off"
+        spellCheck={false}
+        maxLength={30}
+      />
+      {open && (
+        <div className="landing-channel-search-results">
+          {results === null ? (
+            <div className="landing-channel-search-hint">{t('landing.searchSearching')}</div>
+          ) : (
+            <>
+              {results.map(r => {
+                const name = r.display_name || r.channel_login;
+                return (
+                  <a
+                    key={r.id}
+                    className="landing-channel-search-result"
+                    href={`/${r.channel_login}`}
+                    onClick={e => { e.preventDefault(); go(r.channel_login); }}
+                  >
+                    {r.avatar_url
+                      ? <img className="landing-channel-search-avatar" src={r.avatar_url} alt="" />
+                      : <span className="landing-channel-search-avatar placeholder" />}
+                    <span className="landing-channel-search-name">{name}</span>
+                    <span className="landing-channel-search-meta">
+                      {t('landing.totalRequests', { count: r.request_count })}
+                    </span>
+                  </a>
+                );
+              })}
+              {results.length === 0 && !goToFallback && (
+                <div className="landing-channel-search-hint">{t('landing.searchNoResults')}</div>
+              )}
+              {goToFallback && (
+                <a
+                  className="landing-channel-search-result goto"
+                  href={`/${query.toLowerCase()}`}
+                  onClick={e => { e.preventDefault(); go(query); }}
+                >
+                  <span className="landing-channel-search-avatar placeholder">→</span>
+                  <span className="landing-channel-search-name">{t('landing.searchGoTo', { channel: query.toLowerCase() })}</span>
+                </a>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RecentChannelsStrip({ recent }: { recent: RecentRoom[] }) {
+  const { t } = useTranslation();
+  if (recent.length === 0) return null;
+  return (
+    <div className="landing-recent">
+      <h3 className="landing-recent-title">{t('landing.recentChannels')}</h3>
+      <div className="landing-recent-strip">
+        {recent.map(room => {
+          const name = room.display_name || room.channel_login;
+          return (
+            <a key={room.id} className="landing-recent-card" href={`/${room.channel_login}`} onClick={handleLinkClick}>
+              {room.avatar_url
+                ? <img className="landing-recent-avatar" src={room.avatar_url} alt="" />
+                : <span className="landing-recent-avatar placeholder" />}
+              <span className="landing-recent-info">
+                <span className="landing-recent-name">
+                  {name}
+                  {room.is_live && <span className="landing-recent-live" title={t('landing.live')} />}
+                </span>
+                <span className="landing-recent-meta">
+                  {formatRelativeTime(new Date(room.updated_at + 'Z'))}
+                  {' · '}
+                  {t('landing.totalRequests', { count: room.request_count })}
+                </span>
+              </span>
+            </a>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function LiveChannels() {
   const { t } = useTranslation();
   // Read the cache once (stale-while-revalidate): null = cold cache, so show
@@ -52,16 +216,19 @@ function LiveChannels() {
   // is the single in-flight flag: while it's set we show skeletons on a cold cache
   // or the refresh indicator on a warm one, then the response wins.
   const [cache] = useState(loadCachedChannels);
-  const [rooms, setRooms] = useState<ActiveRoom[]>(cache ?? []);
+  const [rooms, setRooms] = useState<ActiveRoom[]>(cache?.rooms ?? []);
+  const [recent, setRecent] = useState<RecentRoom[]>(cache?.recent ?? []);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetch(`${API_URL}/rooms/active`)
       .then(r => r.json())
-      .then((data: { rooms: ActiveRoom[] }) => {
+      .then((data: { rooms: ActiveRoom[]; recent?: RecentRoom[] }) => {
         const next = data.rooms.filter(r => r.channel_login !== 'meriw_');
+        const nextRecent = (data.recent ?? []).filter(r => r.channel_login !== 'meriw_');
         setRooms(next);
-        saveCachedChannels(next);
+        setRecent(nextRecent);
+        saveCachedChannels(next, nextRecent);
       })
       .catch(() => { })
       .finally(() => setLoading(false));
@@ -139,8 +306,10 @@ function LiveChannels() {
         {/* Shown while revalidating a warm cache; its slot is always reserved so
             toggling it never shifts the list below. */}
         <SyncSweep active={loading && cache !== null} />
+        <ChannelSearch />
       </div>
       {content}
+      <RecentChannelsStrip recent={recent} />
     </>
   );
 }
