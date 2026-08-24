@@ -141,6 +141,25 @@
   background: var(--text-muted);
 }
 
+/* Live-on-Twitch pill: independent of the queue badge — a streamer can be live
+   with the queue closed. Links to the Twitch channel. */
+.channel-header-live {
+  background: var(--red);
+  color: white;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  padding: 0.15rem 0.4rem;
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.03em;
+  text-decoration: none;
+  line-height: 1.2;
+}
+
+a.channel-header-live:hover {
+  text-decoration: none;
+  filter: brightness(1.15);
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }

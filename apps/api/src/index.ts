@@ -757,19 +757,38 @@ app.get("/rooms/:roomId", async (c) => {
   const registered = !!row;
   const room = row ?? { id: roomId, channel_login: roomId, display_name: null as string | null, avatar_url: null as string | null, banner_url: null, status: "offline", updated_at: null };
 
-  if (!room.avatar_url || !room.display_name) {
-    const token = await getAppToken(c.env);
-    if (token) {
-      const profiles = await fetchProfiles([roomId], token, c.env.TWITCH_CLIENT_ID);
-      if (profiles[0]) {
-        room.display_name = profiles[0].display_name;
-        room.avatar_url = profiles[0].avatar_url;
-        cacheProfiles(c.env.DB, profiles, c.executionCtx);
-      }
+  const token = await getAppToken(c.env);
+  if (token && (!room.avatar_url || !room.display_name)) {
+    const profiles = await fetchProfiles([roomId], token, c.env.TWITCH_CLIENT_ID);
+    if (profiles[0]) {
+      room.display_name = profiles[0].display_name;
+      room.avatar_url = profiles[0].avatar_url;
+      cacheProfiles(c.env.DB, profiles, c.executionCtx);
     }
   }
 
-  return c.json({ room: { ...room, registered } });
+  // Live-on-Twitch status, so the channel page can say the streamer is live even
+  // when the queue is closed. KV-cached per channel (60s) because this runs on
+  // every channel page view — same freshness the featured grid already has.
+  let isLive = false;
+  let viewerCount: number | null = null;
+  if (token) {
+    const liveKey = `room_live_${roomId}`;
+    const cachedLive = await c.env.CACHE.get<{ is_live: boolean; viewer_count: number | null }>(liveKey, "json");
+    if (cachedLive) {
+      isLive = cachedLive.is_live;
+      viewerCount = cachedLive.viewer_count;
+    } else {
+      const streams = await fetchStreams([roomId], token, c.env.TWITCH_CLIENT_ID);
+      isLive = !!streams[0];
+      viewerCount = streams[0]?.viewer_count ?? null;
+      c.executionCtx.waitUntil(
+        c.env.CACHE.put(liveKey, JSON.stringify({ is_live: isLive, viewer_count: viewerCount }), { expirationTtl: 60 })
+      );
+    }
+  }
+
+  return c.json({ room: { ...room, registered, is_live: isLive, viewer_count: viewerCount } });
 });
 
 export default app;

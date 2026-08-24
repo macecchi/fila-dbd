@@ -12,6 +12,9 @@ export interface RoomInfo {
   // Whether the channel ever used the app (has a D1 row). Optional: an older
   // API without the flag means "unknown" — treat as registered, never block.
   registered?: boolean;
+  // Live on Twitch right now (independent of the queue being open).
+  is_live?: boolean;
+  viewer_count?: number | null;
 }
 
 const cache = new Map<string, Promise<RoomInfo | null>>();

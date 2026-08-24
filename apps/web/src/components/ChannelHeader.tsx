@@ -85,6 +85,17 @@ export function ChannelHeader() {
               <span className="dot" />
               {queue.text}
             </span>
+            {roomInfo?.is_live && (
+              <a
+                className="channel-header-live"
+                href={`https://twitch.tv/${channel}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={roomInfo.viewer_count != null ? `${roomInfo.viewer_count} viewers` : undefined}
+              >
+                {t('landing.live')}
+              </a>
+            )}
           </div>
           <span className="channel-header-sub">
             {lastActive && queue.state === 'closed'
