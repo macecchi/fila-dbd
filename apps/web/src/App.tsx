@@ -4,6 +4,8 @@ import { HeaderMenu } from './components/HeaderMenu';
 import { CharacterRequestList } from './components/CharacterRequestList';
 import { LandingPage } from './components/LandingPage';
 import { ManualEntry } from './components/ManualEntry';
+import { UnregisteredChannel } from './components/UnregisteredChannel';
+import { fetchRoomInfo, type RoomInfo } from './services/roomInfo';
 import { SourcesBadges } from './components/SourcesBadges';
 import { SettingsPanel } from './components/SettingsPanel';
 import { Panel, PanelHeader } from './components/Panel';
@@ -578,7 +580,31 @@ export function App() {
 
   return (
     <ChannelProvider channel={channel}>
-      <ChannelApp />
+      <ChannelGate />
     </ChannelProvider>
   );
+}
+
+// Decides between the real channel app and the "not using Fila DBD yet" page.
+// Renders ChannelApp immediately (instant paint, exactly as before) and only
+// swaps once the room lookup CONFIRMS the channel never used the app — and
+// never for the streamer's own channel: their first visit is the onboarding
+// path that creates the room, so it must always get the full app.
+function ChannelGate() {
+  const { channel, canEditQueue } = useChannel();
+  const [room, setRoom] = useState<RoomInfo | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRoom(null);
+    fetchRoomInfo(channel).then((r) => { if (!cancelled) setRoom(r); });
+    return () => { cancelled = true; };
+  }, [channel]);
+
+  // `registered === false` only — a failed lookup or an older API without the
+  // flag must never block a real channel.
+  if (room?.registered === false && !canEditQueue) {
+    return <UnregisteredChannel channel={channel} room={room} />;
+  }
+  return <ChannelApp />;
 }

@@ -7,14 +7,7 @@ import { formatRelativeTime } from '../utils/helpers';
 import { Stats } from './Stats';
 import { RecentPlays } from './RecentPlays';
 import { Panel } from './Panel';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
-
-interface RoomInfo {
-  display_name: string | null;
-  avatar_url: string | null;
-  updated_at: string;
-}
+import { fetchRoomInfo, type RoomInfo } from '../services/roomInfo';
 
 export function ChannelHeader() {
   const { channel, canEditQueue, openQueue, closeQueue, useChannelInfo } = useChannel();
@@ -28,12 +21,10 @@ export function ChannelHeader() {
   const [roomInfo, setRoomInfo] = useState<RoomInfo | null>(null);
 
   useEffect(() => {
-    fetch(`${API_URL}/rooms/${channel}`)
-      .then(r => r.ok ? r.json() : null)
-      .then((data: { room: RoomInfo | null } | null) => {
-        if (data?.room) setRoomInfo(data.room);
-      })
-      .catch(() => { });
+    let cancelled = false;
+    // Shared, memoized lookup — the channel gate already fired the same request.
+    fetchRoomInfo(channel).then((room) => { if (!cancelled && room) setRoomInfo(room); });
+    return () => { cancelled = true; };
   }, [channel]);
 
   const avatarUrl = roomInfo?.avatar_url || owner?.avatar;

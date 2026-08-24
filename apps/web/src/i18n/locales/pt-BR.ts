@@ -177,6 +177,12 @@ const ptBR = {
 
   // Channel header
   'header.lastUsed': 'Último uso {time}',
+
+  // Unregistered channel page
+  'channel.notUsingTitle': 'Este canal ainda não usa a Fila DBD',
+  'channel.notUsingDesc': 'Quando o streamer criar a fila, os pedidos de personagens vão aparecer aqui.',
+  'channel.notUsingLearn': 'Conhecer a Fila DBD',
+  'channel.notUsingOwner': 'Sou o streamer — começar minha fila',
   'header.copied': 'Copiado!',
   'header.clickToCopy': 'Clique para copiar',
   'header.openQueue': 'Abrir fila',

@@ -179,6 +179,12 @@ const en: TranslationKeys = {
 
   // Channel header
   'header.lastUsed': 'Last used {time}',
+
+  // Unregistered channel page
+  'channel.notUsingTitle': "This channel isn't using Fila DBD yet",
+  'channel.notUsingDesc': 'Once the streamer starts their queue, character requests will show up here.',
+  'channel.notUsingLearn': 'Learn about Fila DBD',
+  'channel.notUsingOwner': "I'm the streamer — start my queue",
   'header.copied': 'Copied!',
   'header.clickToCopy': 'Click to copy',
   'header.openQueue': 'Open queue',

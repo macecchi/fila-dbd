@@ -750,6 +750,11 @@ app.get("/rooms/:roomId", async (c) => {
     "SELECT id, channel_login, display_name, avatar_url, status, updated_at FROM rooms WHERE id = ?"
   ).bind(roomId).first<RoomRow>();
 
+  // `registered` tells the client whether this channel ever used the app (has a
+  // D1 row) — without it an unknown Twitch login renders exactly like a real
+  // channel with a closed queue. The profile enrichment below still runs either
+  // way so the "not using Fila DBD yet" page can show the streamer's identity.
+  const registered = !!row;
   const room = row ?? { id: roomId, channel_login: roomId, display_name: null as string | null, avatar_url: null as string | null, banner_url: null, status: "offline", updated_at: null };
 
   if (!room.avatar_url || !room.display_name) {
@@ -764,7 +769,7 @@ app.get("/rooms/:roomId", async (c) => {
     }
   }
 
-  return c.json({ room });
+  return c.json({ room: { ...room, registered } });
 });
 
 export default app;
