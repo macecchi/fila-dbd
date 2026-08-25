@@ -29,7 +29,7 @@ Use our [Discord](https://discord.gg/hXsAgk5KnX) or GitHub to send feedback, sug
 
 You need to keep the site open to receive requests.
 
-**Notifications**: we only show a small notice on the page when a new request is received. Enable browser notifications to get alerts when there's an issue.
+**Notifications**: we only show a small notice on the page when a new request is received. Enable browser notifications to get alerts when there's an issue — and to get a push when your stream goes live reminding you to open your queue (works even with the site closed).
 
 #### Request sources
 
@@ -83,6 +83,8 @@ The service is designed to be deployed on [Cloudflare Workers](https://workers.c
 - `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` - Twitch app
 - `JWT_SECRET` - any secure string
 - `INTERNAL_API_SECRET` - shared secret between Worker and PartyKit
+- `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` - Web Push keys for the "you're live" notification (generate with `bun scripts/generate-vapid-keys.ts` from `apps/api/`). Optional — the feature stays off without them
+- `EVENTSUB_SECRET` - any secure string; signs Twitch EventSub webhooks (`stream.online`). Optional, required for the "you're live" notification
 
 **KV Namespace (via `wrangler kv namespace create CACHE`):**
 
@@ -214,7 +216,7 @@ Use o nosso [Discord](https://discord.gg/hXsAgk5KnX) ou o próprio GitHub para m
 
 É preciso estar com o site aberto para receber pedidos.
 
-**Notificações**: só mostramos um pequeno aviso na página quando um novo pedido é recebido. Ative as notificações do navegador para receber alertas quando houver algum problema.
+**Notificações**: só mostramos um pequeno aviso na página quando um novo pedido é recebido. Ative as notificações do navegador para receber alertas quando houver algum problema — e para receber um aviso quando sua live começar lembrando de abrir sua fila (funciona mesmo com o site fechado).
 
 #### Fontes de pedidos
 
