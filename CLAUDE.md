@@ -207,6 +207,10 @@ the low bits of the hash away. Ordering comes from `position`, never from the ID
 - `fila-dbd-notif-toast-dismissed-v1` - set to `'1'` once the streamer dismisses the
   "notifications blocked" warning toast; suppresses it permanently on that browser
   (`store/ChannelContext.tsx`). Absent = show it.
+- `fila-dbd-live-notif-disabled-v1` - set to `'1'` when the streamer turns off the
+  "Live notifications" toggle (Settings → Behavior); blocks the Web Push auto-subscribe in
+  `services/push.ts` on that browser (turning it off also unsubscribes locally + server-side).
+  Absent = enabled.
 - `fila-dbd-channels-v{N}` - landing-page featured-channels cache (stale-while-revalidate):
   the active list, the recently-active list (7-day window, closed queues) and the all-time
   channel count from `/rooms/active`. The landing merges them into one "featured" grid —

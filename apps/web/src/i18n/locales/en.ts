@@ -113,6 +113,8 @@ const en: TranslationKeys = {
   'settings.order.prioritizeDonationsDesc': 'Sort higher donation values first.',
   'chatConfirm.toggle': 'Confirm requests in chat',
   'chatConfirm.toggleDesc': '@FilaDBD replies in chat when a request lands.',
+  'liveNotif.toggle': 'Live notifications',
+  'liveNotif.toggleDesc': 'Notifies you in this browser when your stream goes live, reminding you to open the queue.',
   'chatConfirm.dialog.enabling.title': 'Add @FilaDBD as a moderator',
   'chatConfirm.dialog.enabling.body': 'To enable chat confirmations, the bot needs to be a moderator in your channel. Run the command below in your chat, then click "Verify again":',
   'chatConfirm.dialog.lostMod.title': '@FilaDBD is not a moderator in your channel',

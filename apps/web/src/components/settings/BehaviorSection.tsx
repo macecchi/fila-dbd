@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useChannel } from '../../store';
 import { fetchBotModStatus } from '../../services/api';
+import { isLivePushSupported, isLivePushDisabled, setLivePushEnabled } from '../../services/push';
 import { BotModStatusDialog, type BotModDialogMode } from '../BotModStatusDialog';
 import { useTranslation } from '../../i18n';
 import { SettingsSection } from './SettingsSection';
@@ -11,6 +12,23 @@ export function BehaviorSection() {
   const { useSources, canEditQueue } = useChannel();
   const { hideNonRequests, confirmInChat, setHideNonRequests, setConfirmInChat } = useSources();
   const readOnly = !canEditQueue;
+
+  // Per-browser preference (not synced sources state): tracks the localStorage
+  // opt-out flag in services/push.ts.
+  const [liveNotif, setLiveNotif] = useState(() => !isLivePushDisabled());
+  const [liveNotifPending, setLiveNotifPending] = useState(false);
+
+  const handleLiveNotifClick = async () => {
+    if (readOnly || liveNotifPending) return;
+    const next = !liveNotif;
+    setLiveNotif(next);
+    setLiveNotifPending(true);
+    try {
+      await setLivePushEnabled(next);
+    } finally {
+      setLiveNotifPending(false);
+    }
+  };
 
   const [dialogMode, setDialogMode] = useState<BotModDialogMode | null>(null);
   const [togglePending, setTogglePending] = useState(false);
@@ -70,6 +88,20 @@ export function BehaviorSection() {
           disabled={readOnly || togglePending}
         />
       </div>
+
+      {isLivePushSupported() && (
+        <div className="behavior-row">
+          <div className="behavior-row-label">
+            <div className="behavior-row-title">{t('liveNotif.toggle')}</div>
+            <div className="behavior-row-desc">{t('liveNotif.toggleDesc')}</div>
+          </div>
+          <Toggle
+            checked={liveNotif}
+            onClick={() => void handleLiveNotifClick()}
+            disabled={readOnly || liveNotifPending}
+          />
+        </div>
+      )}
 
       <BotModStatusDialog
         isOpen={dialogMode !== null}

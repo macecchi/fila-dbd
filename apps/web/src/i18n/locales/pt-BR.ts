@@ -111,6 +111,8 @@ const ptBR = {
   'settings.order.prioritizeDonationsDesc': 'Ordena valores de doações maiores primeiro.',
   'chatConfirm.toggle': 'Confirmar pedidos no chat',
   'chatConfirm.toggleDesc': '@FilaDBD responde no chat quando um pedido chega.',
+  'liveNotif.toggle': 'Notificações de live',
+  'liveNotif.toggleDesc': 'Avisa neste navegador quando sua live começar, lembrando de abrir a fila.',
   'chatConfirm.dialog.enabling.title': 'Adicione @FilaDBD como moderador',
   'chatConfirm.dialog.enabling.body': 'Para ativar as confirmações no chat, o bot precisa ser moderador do seu canal. Rode o comando abaixo no chat e clique em "Verificar novamente":',
   'chatConfirm.dialog.lostMod.title': '@FilaDBD não é moderador no seu canal',
