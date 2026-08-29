@@ -6,6 +6,7 @@
 // that it handles Web Push — the "your channel is live" notification.
 import { precacheAndRoute, createHandlerBoundToURL, cleanupOutdatedCaches } from 'workbox-precaching';
 import { NavigationRoute, registerRoute } from 'workbox-routing';
+import { pushCopy, normalizePushLocale } from './i18n/pushCopy';
 
 declare let self: ServiceWorkerGlobalScope;
 
@@ -17,16 +18,14 @@ self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
-// The app's language toggle lives in localStorage, which a SW can't read — the
-// browser language is the best signal available here.
-function isPortuguese(): boolean {
-  return (self.navigator.language || '').toLowerCase().startsWith('pt');
-}
-
+// The strings live in i18n/pushCopy.ts; the language comes with the payload,
+// since this worker can't read the app's language toggle (localStorage is off
+// limits here) and the browser language can contradict the UI.
 interface LivePushPayload {
   type?: string;
   channel?: string;
-  channelDisplayName?: string;
+  locale?: string;
+  pending?: number;
 }
 
 self.addEventListener('push', (event) => {
@@ -34,20 +33,16 @@ self.addEventListener('push', (event) => {
   try {
     payload = event.data?.json() ?? {};
   } catch {
-    // Not JSON (or empty) — fall through to the generic notification.
+    // Not JSON (or empty) — nothing we can render.
   }
 
   if (payload.type !== 'stream-online' || !payload.channel) return;
 
-  const name = payload.channelDisplayName || payload.channel;
-  const title = isPortuguese() ? `🔴 ${name} está ao vivo!` : `🔴 ${name} is live!`;
-  const body = isPortuguese()
-    ? 'Abra sua fila no Fila DBD para começar a receber pedidos.'
-    : 'Open your queue on Fila DBD to start taking requests.';
+  const copy = pushCopy[normalizePushLocale(payload.locale)];
 
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
+    self.registration.showNotification(copy.title(payload.pending ?? 0), {
+      body: copy.body,
       tag: 'dbd-stream-online',
       icon: '/images/Dead-by-Daylight-Emblem.webp',
       badge: '/images/Dead-by-Daylight-Emblem.webp',

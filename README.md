@@ -167,6 +167,60 @@ console on `localhost:5173`; the reload comes back signed in.
 The token is signed with the `JWT_SECRET` in `apps/api/.env` — your local dev secret — so it
 is only ever valid against `wrangler dev` / `partykit dev`, never production.
 
+### Testing the live notification locally
+
+The "your channel is live" push is the one flow the dev server cannot show you:
+`vite dev` registers no service worker, and Twitch cannot reach `localhost` to deliver
+the EventSub webhook. Both halves are replaceable locally.
+
+**1. Just the notification UI (30 seconds, no keys needed).** Build and preview, then
+use DevTools → Application → Service Workers → the *Push* box, and send:
+
+```json
+{"type":"stream-online","channel":"meriw_","locale":"pt-BR","pending":3}
+```
+
+That runs the real `push` / `notificationclick` handlers in `apps/web/src/sw.ts` — the
+notification copy, the icon and the click-through to the channel.
+
+**2. The whole chain (Worker → Web Push → your browser).**
+
+```bash
+# once: generate keys and add them to apps/api/.env
+cd apps/api && bun scripts/generate-vapid-keys.ts
+echo "EVENTSUB_SECRET=$(openssl rand -hex 32)" >> .env
+
+bun run dev                                   # from the repo root
+bun run --filter @filadbd/web preview         # production build — the SW only exists here
+```
+
+Open `http://localhost:4173/<your channel>/`, sign in with `bun run dev:login <channel>`,
+allow notifications, and confirm the subscription landed:
+
+```bash
+cd apps/api && wrangler d1 execute fila-dbd --local --command "SELECT room_id, locale, substr(endpoint,1,40) FROM push_subscriptions"
+```
+
+Then fire a fake `stream.online`:
+
+```bash
+cd apps/api && bun run dev:live <channel>
+```
+
+The script signs the webhook exactly as Twitch does, so the Worker runs its real
+verification, dedupe, cooldown and push path — and the push goes out to the real push
+service, which delivers it to your browser even with the site closed.
+
+Nothing arriving is usually one of: the queue is already open (pushes are deliberately
+skipped then), or no `VAPID_*` keys (the feature stays off — `/push/vapid-public-key`
+returns an empty key). The `wrangler dev` log tells you which.
+
+The notification is written in whichever language the streamer has the site set to: each
+subscription stores that language, the Worker sends it back with the push, and the service
+worker renders the strings from `apps/web/src/i18n/pushCopy.ts` (the SW can't read the
+app's language toggle itself). Switching the language re-registers the subscription, so
+the next push follows.
+
 ### LLM extraction evals
 
 Live evals against the real Gemini API live in `apps/api/src/gemini.eval.test.ts`. They are skipped by the default test suite (and by CI) and run on demand:

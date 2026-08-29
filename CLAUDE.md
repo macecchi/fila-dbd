@@ -91,6 +91,24 @@ UI live and mutations accepted.
   appears to land and nothing persists: a silently-passing test, worse than no test.
 - Sign out with `localStorage.removeItem('dbd-auth'); location.reload()`.
 
+## Testing the live notification locally
+
+`vite dev` registers no service worker and Twitch cannot reach `localhost`, so this one
+feature needs the production preview plus a fake webhook — **it is not untestable**:
+
+```bash
+bun run --filter @filadbd/web preview   # :4173, the only build with a real SW
+cd apps/api && bun run dev:live <channel>   # signed stream.online → local Worker
+```
+
+`scripts/dev-stream-online.ts` signs `messageId + timestamp + body` with `EVENTSUB_SECRET`
+from `apps/api/.env`, so the Worker runs its real verification and dedupe path and
+sends a real Web Push (the push service is reached over the internet from `wrangler dev`,
+so it lands in your browser). For the SW's rendering alone, DevTools → Application →
+Service Workers → Push with `{"type":"stream-online","channel":"…","locale":"pt-BR","pending":3}`
+needs no keys at all.
+See README "Testing the live notification locally".
+
 To verify something actually reached the server rather than the optimistic store, clear the
 queue cache before reloading: `Object.keys(localStorage).filter(k => k.startsWith('fila-dbd-queue')).forEach(k => localStorage.removeItem(k))`.
 
@@ -187,7 +205,7 @@ the low bits of the hash away. Ordering comes from `position`, never from the ID
   is one, which is why `ChannelHeader` reads it as `new Date(updated_at + 'Z')`.
 - Internal auth via `INTERNAL_API_SECRET` shared between Worker and PartyKit
 - ⚠️ **100 bound params per statement** — D1 free plan limit. Full sync's `NOT IN` clause fails at ≥100 requests. See Known Issues below.
-- `push_subscriptions` table — one Web Push subscription per (streamer, browser), registered by the client once notification permission is granted on the streamer's own channel (`services/push.ts`). Fed by the Twitch EventSub `stream.online` webhook (`POST /twitch/eventsub` in `index.ts`, HMAC-verified via `EVENTSUB_SECRET`): when a channel goes live, the Worker pushes a "you're live, open your queue" notification (`src/webpush.ts` — hand-rolled VAPID + aes128gcm, `web-push` is Node-only). Rows are dropped when the push service answers 404/410. The whole feature is optional: without `VAPID_*`/`EVENTSUB_SECRET` secrets, `/push/vapid-public-key` returns an empty key and clients never subscribe. Pushes are skipped when the queue is already open (PartyKit check) and rate-limited per channel (30-min KV cooldown). The notification itself is rendered by the custom service worker (`apps/web/src/sw.ts`).
+- `push_subscriptions` table — one Web Push subscription per (streamer, browser), registered by the client once notification permission is granted on the streamer's own channel (`services/push.ts`). Fed by the Twitch EventSub `stream.online` webhook (`POST /twitch/eventsub` in `index.ts`, HMAC-verified via `EVENTSUB_SECRET`): when a channel goes live, the Worker pushes a "you're live, open your queue" notification (`src/webpush.ts` — hand-rolled VAPID + aes128gcm, `web-push` is Node-only). Rows are dropped when the push service answers 404/410. The whole feature is optional: without `VAPID_*`/`EVENTSUB_SECRET` secrets, `/push/vapid-public-key` returns an empty key and clients never subscribe. Pushes are skipped when the queue is already open (PartyKit check); there is no rate limit, because `stream.online` fires once per stream and Twitch's own retries are deduped by message id. ⚠️ **The notification is localized via the payload, not the browser language**: the service worker cannot read the app's language toggle (`dbd-locale` in localStorage is off-limits there) and the browser language can contradict the UI, so each subscription stores the `locale` its browser registered with and the Worker sends it back (with the pending count) for `sw.ts` to render. The strings live in `apps/web/src/i18n/pushCopy.ts` — deliberately **not** in `locales/{en,pt-BR}.ts`, whose ~200-key object literals don't tree-shake and would triple a service worker that is re-fetched on every deploy. The client sends `locale` on every `/api/push/subscribe`, and `ChannelContext` re-registers whenever the language changes; a NULL `locale` (rows predating the column) is English.
 
 ## Known Limits
 

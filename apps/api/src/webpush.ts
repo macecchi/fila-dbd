@@ -16,6 +16,10 @@ export interface PushSubscriptionKeys {
   endpoint: string;
   p256dh: string;
   auth: string;
+  /** Language the subscribing browser was reading the app in; the push carries
+   *  it back so the service worker renders in the right one. NULL on rows
+   *  written before the column existed. */
+  locale?: string | null;
 }
 
 export type WebPushResult =

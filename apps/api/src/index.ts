@@ -334,10 +334,16 @@ api.post("/push/subscribe", async (c) => {
 
   const user = c.get("jwtPayload");
   const roomId = user.login.toLowerCase();
-  const body = await c.req.json<{ endpoint?: string; keys?: { p256dh?: string; auth?: string } }>().catch(() => null);
+  const body = await c.req
+    .json<{ endpoint?: string; keys?: { p256dh?: string; auth?: string }; locale?: string }>()
+    .catch(() => null);
   const endpoint = body?.endpoint;
   const p256dh = body?.keys?.p256dh;
   const auth = body?.keys?.auth;
+  // The service worker renders the push but can't read the app's language
+  // toggle, so the client tells us which language it is reading in and we hand
+  // it back with the notification.
+  const locale = normalizeLocale(body?.locale);
 
   if (
     typeof endpoint !== "string" || !endpoint.startsWith("https://") || endpoint.length > 1024 ||
@@ -348,13 +354,14 @@ api.post("/push/subscribe", async (c) => {
   }
 
   await c.env.DB.prepare(
-    `INSERT INTO push_subscriptions (room_id, endpoint, p256dh, auth)
-     VALUES (?, ?, ?, ?)
+    `INSERT INTO push_subscriptions (room_id, endpoint, p256dh, auth, locale)
+     VALUES (?, ?, ?, ?, ?)
      ON CONFLICT (room_id, endpoint) DO UPDATE SET
        p256dh = excluded.p256dh,
        auth = excluded.auth,
+       locale = excluded.locale,
        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`
-  ).bind(roomId, endpoint, p256dh, auth).run();
+  ).bind(roomId, endpoint, p256dh, auth, locale).run();
 
   // Same Worker serves the webhook, so derive the callback from this request.
   // Twitch requires a public HTTPS callback: in local dev the create call fails
@@ -391,10 +398,6 @@ app.get("/push/vapid-public-key", (c) => {
   return c.json({ key: c.env.VAPID_PUBLIC_KEY ?? "" });
 });
 
-// Don't re-notify a channel that flaps offline/online (or restarts the stream)
-// within this window.
-const LIVE_NOTIFY_COOLDOWN_SECONDS = 30 * 60;
-
 // Twitch EventSub webhook (stream.online). Verifies the HMAC signature, answers
 // the verification challenge, and fans a Web Push out to the streamer's
 // registered browsers when their stream starts.
@@ -415,7 +418,7 @@ app.post("/twitch/eventsub", async (c) => {
   let body: {
     challenge?: string;
     subscription?: { id: string; type: string; condition?: Record<string, string> };
-    event?: { broadcaster_user_id?: string; broadcaster_user_login?: string; broadcaster_user_name?: string };
+    event?: { broadcaster_user_id?: string; broadcaster_user_login?: string };
   };
   try {
     body = JSON.parse(rawBody);
@@ -439,7 +442,6 @@ app.post("/twitch/eventsub", async (c) => {
   }
 
   const login = body.event?.broadcaster_user_login?.toLowerCase();
-  const displayName = body.event?.broadcaster_user_name || login;
   const subscriptionId = body.subscription.id;
   if (!login) return c.body(null, 204);
 
@@ -448,13 +450,20 @@ app.post("/twitch/eventsub", async (c) => {
   if (await c.env.CACHE.get(dedupeKey)) return c.body(null, 204);
   await c.env.CACHE.put(dedupeKey, "1", { expirationTtl: 600 });
 
-  c.executionCtx.waitUntil(notifyChannelLive(c.env, login, displayName ?? login, subscriptionId));
+  c.executionCtx.waitUntil(notifyChannelLive(c.env, login, subscriptionId));
   return c.body(null, 204);
 });
 
-async function notifyChannelLive(env: Bindings, login: string, displayName: string, eventSubId: string) {
+// The strings live in apps/web/src/i18n/pushCopy.ts; the server only carries
+// the language each subscription registered with. NULL (rows written before the
+// column existed) falls back to English.
+function normalizeLocale(locale: string | null | undefined): string {
+  return locale?.toLowerCase().startsWith("pt") ? "pt-BR" : "en";
+}
+
+async function notifyChannelLive(env: Bindings, login: string, eventSubId: string) {
   const { results } = await env.DB.prepare(
-    "SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE room_id = ?"
+    "SELECT endpoint, p256dh, auth, locale FROM push_subscriptions WHERE room_id = ?"
   ).bind(login).all<PushSubscriptionKeys>();
   const subs = results ?? [];
 
@@ -466,15 +475,11 @@ async function notifyChannelLive(env: Bindings, login: string, displayName: stri
     return;
   }
 
-  const cooldownKey = `push_live_sent:${login}`;
-  if (await env.CACHE.get(cooldownKey)) {
-    console.log(`[push] ${login} went live but was notified recently, skipping`);
-    return;
-  }
-
   // Skip the notification when the queue is already running — the streamer is
-  // set up and a "open your queue" ping would just be noise. Best-effort: if
-  // PartyKit can't answer, notify anyway.
+  // set up and a "open your queue" ping would just be noise. The same call
+  // gives us how many requests are already waiting, which goes in the title.
+  // Best-effort: if PartyKit can't answer, notify anyway (without the count).
+  let pending = 0;
   if (env.PARTY_HOST) {
     try {
       const protocol = env.PARTY_HOST.startsWith("localhost") ? "http" : "https";
@@ -482,23 +487,26 @@ async function notifyChannelLive(env: Bindings, login: string, displayName: stri
         signal: AbortSignal.timeout(3000),
       });
       if (res.ok) {
-        const data = await res.json<{ status: string; connections: number }>();
+        const data = await res.json<{ status: string; connections: number; pending_count?: number }>();
         if (data.status !== "offline" && data.connections > 0) {
           console.log(`[push] ${login} went live but queue is already ${data.status}, skipping`);
           return;
         }
+        pending = data.pending_count ?? 0;
       }
     } catch {
       // PartyKit unreachable — proceed with the notification.
     }
   }
 
-  await env.CACHE.put(cooldownKey, "1", { expirationTtl: LIVE_NOTIFY_COOLDOWN_SECONDS });
-
-  const payload = { type: "stream-online", channel: login, channelDisplayName: displayName };
   const outcomes = await Promise.all(
     subs.map(async (sub) => {
-      const result = await sendWebPush(env, sub, payload);
+      const result = await sendWebPush(env, sub, {
+        type: "stream-online",
+        channel: login,
+        locale: normalizeLocale(sub.locale),
+        pending,
+      });
       if (!result.ok && result.gone) {
         await env.DB.prepare(
           "DELETE FROM push_subscriptions WHERE room_id = ? AND endpoint = ?"

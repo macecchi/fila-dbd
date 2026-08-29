@@ -10,6 +10,7 @@
     "cf-typegen": "wrangler types",
     "dev:party": "partykit dev --var DEV_MODE=true",
     "dev:login": "bun scripts/dev-login.ts",
+    "dev:live": "bun scripts/dev-stream-online.ts",
     "deploy:party": "partykit deploy",
     "tail:party": "partykit tail",
     "typecheck": "tsc --noEmit",

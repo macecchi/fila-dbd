@@ -4,6 +4,7 @@
 // no Push API. Failures are logged, never surfaced — the local Notification
 // path in ChannelContext keeps working regardless.
 import { useAuth } from '../store/auth';
+import { getLocale } from '../i18n';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
 
@@ -14,6 +15,14 @@ const LIVE_NOTIF_DISABLED_KEY = 'fila-dbd-live-notif-disabled-v1';
 
 export function isLivePushSupported(): boolean {
   return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+
+// The browser permission overrides the local preference: with notifications
+// blocked no push can ever be delivered, so the UI must show the feature off
+// (and say why) rather than claiming it is on.
+export function isLivePushBlocked(): boolean {
+  if (!isLivePushSupported()) return false;
+  return Notification.permission === 'denied';
 }
 
 export function isLivePushDisabled(): boolean {
@@ -33,13 +42,22 @@ function setLivePushDisabledFlag(disabled: boolean) {
   }
 }
 
-// Toggle handler for the settings panel. Disabling drops this browser's push
-// subscription locally and server-side; enabling (re-)requests permission if
-// needed and re-subscribes.
-export async function setLivePushEnabled(enabled: boolean): Promise<void> {
-  setLivePushDisabledFlag(!enabled);
-  if (!isLivePushSupported()) return;
+// Toggle handler for the settings panel. The preference itself is written
+// synchronously so the UI can flip instantly; the subscription work — which
+// waits on the service worker and the network — is serialized behind this
+// promise so rapid toggling can't apply out of order.
+let pushWork: Promise<void> = Promise.resolve();
 
+export function setLivePushEnabled(enabled: boolean): Promise<void> {
+  setLivePushDisabledFlag(!enabled);
+  if (!isLivePushSupported()) return Promise.resolve();
+  pushWork = pushWork.then(() => applyLivePushEnabled(enabled)).catch(() => {});
+  return pushWork;
+}
+
+// Disabling drops this browser's push subscription locally and server-side;
+// enabling (re-)requests permission if needed and re-subscribes.
+async function applyLivePushEnabled(enabled: boolean): Promise<void> {
   if (enabled) {
     if (Notification.permission === 'default') {
       await Notification.requestPermission().catch(() => 'denied');
@@ -49,8 +67,8 @@ export async function setLivePushEnabled(enabled: boolean): Promise<void> {
   }
 
   try {
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
+    const registration = await swRegistration();
+    const subscription = await registration?.pushManager.getSubscription();
     if (!subscription) return;
 
     const { endpoint } = subscription;
@@ -68,6 +86,21 @@ export async function setLivePushEnabled(enabled: boolean): Promise<void> {
     });
   } catch (e) {
     console.warn('[push] unsubscribe failed:', e);
+  }
+}
+
+// `navigator.serviceWorker.ready` never settles when no worker is registered —
+// the dev server registers none — so every await of it needs an escape hatch.
+const SW_READY_TIMEOUT_MS = 5000;
+
+async function swRegistration(): Promise<ServiceWorkerRegistration | null> {
+  try {
+    return await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), SW_READY_TIMEOUT_MS)),
+    ]);
+  } catch {
+    return null;
   }
 }
 
@@ -94,7 +127,8 @@ export async function syncPushSubscription(): Promise<void> {
     const token = await useAuth.getState().getAccessToken();
     if (!token) return;
 
-    const registration = await navigator.serviceWorker.ready;
+    const registration = await swRegistration();
+    if (!registration) return;
     let subscription = await registration.pushManager.getSubscription();
 
     if (!subscription) {
@@ -115,7 +149,9 @@ export async function syncPushSubscription(): Promise<void> {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(subscription.toJSON()),
+      // The service worker can't read the language toggle, so the language is
+      // stored with the subscription and comes back with the push.
+      body: JSON.stringify({ ...subscription.toJSON(), locale: getLocale() }),
     });
     if (!subscribeRes.ok) {
       console.warn(`[push] subscribe registration failed: ${subscribeRes.status}`);

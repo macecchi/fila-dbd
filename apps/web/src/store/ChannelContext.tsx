@@ -6,7 +6,7 @@ import { connectParty, disconnectParty, broadcastIrcStatus, claimOwnership, rele
 import { useAuth } from './auth';
 import { toast } from 'sonner';
 import { MAX_PENDING_REQUESTS } from '@filadbd/shared';
-import { t } from '../i18n';
+import { t, useTranslation } from '../i18n';
 import { showNewVersionToast } from '../components/UpdateToast';
 import { syncPushSubscription } from '../services/push';
 
@@ -198,6 +198,15 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
       dismissSelf();
     };
   }, [isOwnChannel]);
+
+  // Each subscription stores the language its push should use, so a language
+  // change has to reach the server: re-registering upserts the row with the new
+  // locale.
+  const { locale } = useTranslation();
+  useEffect(() => {
+    if (!isOwnChannel) return;
+    void syncPushSubscription();
+  }, [isOwnChannel, locale]);
 
   // Toast + push notification on disconnect (only for channel owner)
   const prevIrcState = useRef(localIrcState);
