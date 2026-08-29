@@ -14,9 +14,14 @@ export default defineConfig({
     VitePWA({
       registerType: 'prompt',
       manifest: false,
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,webp,woff2}'],
-        navigateFallback: 'index.html'
+      // Custom SW (src/sw.ts) instead of the generated one so we can handle Web
+      // Push events ("your channel is live"). Precache + navigateFallback +
+      // SKIP_WAITING live in sw.ts now — keep them in sync with UpdateToast/main.tsx.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,ico,png,webp,woff2}']
       }
     })
   ],

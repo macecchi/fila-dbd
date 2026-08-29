@@ -21,7 +21,7 @@ The web app is tuned for fast initial load. When modifying it, preserve these in
 - **Critical CSS**: inlined in `index.html` `<head>` to paint the dark shell pre-bundle; keep in sync with the bg/text tokens in `base.css` to avoid reflow.
 - **Instant paint**: the queue hydrates from the `fila-dbd-queue` localStorage cache and mutations (add/toggleDone/reorder) are optimistic. New persisted client state → version the key + defensive reads (`store/queueCache.ts`).
 - **Scroll**: the app owns its scroll position. `index.html` sets `history.scrollRestoration='manual'` (so reload/back-forward don't re-apply the prior offset into the cache-hydrated, full-height queue), and the page resets to the top on initial load/reload + every channel change (`App` `useLayoutEffect` on `channel`) and on push navigation (`navigate()`). Use `scrollToTop()` (`utils/helpers`), which resets **both** the window **and** `document.body.scrollTop` — ⚠️ on mobile (≤480px) `body` is the scroll container (`html` is `overflow:hidden`, `body` is `overflow:auto`/`height:100dvh`), so `window.scrollTo` alone is a no-op there. A URL hash (`#faq`/`#debug`) skips the reset so anchors still position.
-- ⚠️ **PWA service worker**: `index.html` + all assets are precached (`registerType: 'prompt'`), so returning users get shell/asset changes only **after the SW updates** (the "new version" toast → reload). The toast self-surfaces without a reload: `main.tsx` calls `registration.update()` on `visibilitychange`/`online` + a 30-min backstop, so an open tab detects a new deploy on refocus/reconnect. A waiting SW still needs activation (skipWaiting + reload) — a plain reload won't swap it while the tab stays open: the user clicks "Update now", or the toast auto-updates after a 60s countdown that runs unconditionally (the Update button itself is the countdown bar; dismissing the toast cancels it — `components/UpdateToast.tsx`). Include this in the Release Impact Check.
+- ⚠️ **PWA service worker**: custom SW at `src/sw.ts` (VitePWA `injectManifest` — it also handles Web Push for the "you're live" notification). It must keep precaching, the `index.html` navigation fallback, and the `SKIP_WAITING` message handler — the update flow below depends on them. `index.html` + all assets are precached (`registerType: 'prompt'`), so returning users get shell/asset changes only **after the SW updates** (the "new version" toast → reload). The toast self-surfaces without a reload: `main.tsx` calls `registration.update()` on `visibilitychange`/`online` + a 30-min backstop, so an open tab detects a new deploy on refocus/reconnect. A waiting SW still needs activation (skipWaiting + reload) — a plain reload won't swap it while the tab stays open: the user clicks "Update now", or the toast auto-updates after a 60s countdown that runs unconditionally (the Update button itself is the countdown bar; dismissing the toast cancels it — `components/UpdateToast.tsx`). Include this in the Release Impact Check.
 - **Verify prod behavior with the production build**, not the dev server (which serves unbundled ESM and skips the SW): `bun run --filter @filadbd/web preview` (the `preview` launch config serves `dist` on :4173). Clear the SW (unregister + delete caches) to see fresh changes.
 
 ## Structure
@@ -90,6 +90,24 @@ UI live and mutations accepted.
   `not_room_owner` is logged rather than toasted while `toggleDone` is optimistic. The ✓
   appears to land and nothing persists: a silently-passing test, worse than no test.
 - Sign out with `localStorage.removeItem('dbd-auth'); location.reload()`.
+
+## Testing the live notification locally
+
+`vite dev` registers no service worker and Twitch cannot reach `localhost`, so this one
+feature needs the production preview plus a fake webhook — **it is not untestable**:
+
+```bash
+bun run --filter @filadbd/web preview   # :4173, the only build with a real SW
+cd apps/api && bun run dev:live <channel>   # signed stream.online → local Worker
+```
+
+`scripts/dev-stream-online.ts` signs `messageId + timestamp + body` with `EVENTSUB_SECRET`
+from `apps/api/.env`, so the Worker runs its real verification and dedupe path and
+sends a real Web Push (the push service is reached over the internet from `wrangler dev`,
+so it lands in your browser). For the SW's rendering alone, DevTools → Application →
+Service Workers → Push with `{"type":"stream-online","channel":"…","locale":"pt-BR","pending":3}`
+needs no keys at all.
+See README "Testing the live notification locally".
 
 To verify something actually reached the server rather than the optimistic store, clear the
 queue cache before reloading: `Object.keys(localStorage).filter(k => k.startsWith('fila-dbd-queue')).forEach(k => localStorage.removeItem(k))`.
@@ -187,6 +205,7 @@ the low bits of the hash away. Ordering comes from `position`, never from the ID
   is one, which is why `ChannelHeader` reads it as `new Date(updated_at + 'Z')`.
 - Internal auth via `INTERNAL_API_SECRET` shared between Worker and PartyKit
 - ⚠️ **100 bound params per statement** — D1 free plan limit. Full sync's `NOT IN` clause fails at ≥100 requests. See Known Issues below.
+- `push_subscriptions` table — one Web Push subscription per (streamer, browser), registered by the client once notification permission is granted on the streamer's own channel (`services/push.ts`). Fed by the Twitch EventSub `stream.online` webhook (`POST /twitch/eventsub` in `index.ts`, HMAC-verified via `EVENTSUB_SECRET`): when a channel goes live, the Worker pushes a "you're live, open your queue" notification (`src/webpush.ts` — hand-rolled VAPID + aes128gcm, `web-push` is Node-only). Rows are dropped when the push service answers 404/410. The whole feature is optional: without `VAPID_*`/`EVENTSUB_SECRET` secrets, `/push/vapid-public-key` returns an empty key and clients never subscribe. Pushes are skipped when the queue is already open (PartyKit check); there is no rate limit, because `stream.online` fires once per stream and Twitch's own retries are deduped by message id. ⚠️ **The notification is localized via the payload, not the browser language**: the service worker cannot read the app's language toggle (`dbd-locale` in localStorage is off-limits there) and the browser language can contradict the UI, so each subscription stores the `locale` its browser registered with and the Worker sends it back (with the pending count) for `sw.ts` to render. The strings live in `apps/web/src/i18n/pushCopy.ts` — deliberately **not** in `locales/{en,pt-BR}.ts`, whose ~200-key object literals don't tree-shake and would triple a service worker that is re-fetched on every deploy. The client sends `locale` on every `/api/push/subscribe`, and `ChannelContext` re-registers whenever the language changes; a NULL `locale` (rows predating the column) is English. Clicking the notification focuses the channel tab **and opens the queue** — a tab already on the channel is told over `postMessage`, one the worker has to open or navigate carries `?open-queue=1` (there is no client to message until it loads). `ChannelContext` consumes both, waits for `partySynced`, and strips the param so a reload can't reopen a queue the streamer just closed.
 
 ## Known Limits
 
@@ -206,6 +225,10 @@ the low bits of the hash away. Ordering comes from `position`, never from the ID
 - `fila-dbd-notif-toast-dismissed-v1` - set to `'1'` once the streamer dismisses the
   "notifications blocked" warning toast; suppresses it permanently on that browser
   (`store/ChannelContext.tsx`). Absent = show it.
+- `fila-dbd-live-notif-disabled-v1` - set to `'1'` when the streamer turns off the
+  "Live notifications" toggle (Settings → Behavior); blocks the Web Push auto-subscribe in
+  `services/push.ts` on that browser (turning it off also unsubscribes locally + server-side).
+  Absent = enabled.
 - `fila-dbd-channels-v{N}` - landing-page featured-channels cache (stale-while-revalidate):
   the active list, the recently-active list (7-day window, closed queues) and the all-time
   channel count from `/rooms/active`. The landing merges them into one "featured" grid —

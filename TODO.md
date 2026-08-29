@@ -1,5 +1,3 @@
-- podia ter uma notificacao quando a live é aberta (precisa de um webhook da twitch e configurar notificacoes para web)
-    - menos urgente pq tem a recuperacao de pedidos já
 - depois de persistir no D1, limpar do partykit os ja feitos pra lista nao crescer sem limite
 - mostrar uma secao de informações no modo leitura pra entender como funciona, tipo algo que clica e abre um modal explicando os modos
 - analytics direito: como ter mais metricas do que o basico do cloudflare web analytics

@@ -1,13 +1,17 @@
 // apps/web/src/store/ChannelContext.tsx
-import { createContext, useContext, useMemo, useEffect, useRef, useCallback } from 'react';
+import { createContext, useContext, useMemo, useEffect, useRef, useState, useCallback } from 'react';
 import { createRoomStores, type ChannelStores } from './channel';
 import { setActiveStores, connect as connectIrc, disconnect as disconnectIrc } from '../services/twitch';
 import { connectParty, disconnectParty, broadcastIrcStatus, claimOwnership, releaseOwnership } from '../services/party';
 import { useAuth } from './auth';
 import { toast } from 'sonner';
 import { MAX_PENDING_REQUESTS } from '@filadbd/shared';
-import { t } from '../i18n';
+import { t, useTranslation } from '../i18n';
 import { showNewVersionToast } from '../components/UpdateToast';
+import { syncPushSubscription } from '../services/push';
+
+// Set by the service worker on the URL it opens from a notification click (sw.ts).
+const OPEN_QUEUE_PARAM = 'open-queue';
 
 // Persisted opt-out for the "notifications blocked" warning toast: once the user
 // dismisses it, we never show it again (per browser).
@@ -172,6 +176,9 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
         }
       } else if (state === 'granted') {
         dismissSelf();
+        // Register this browser for server-sent pushes too ("your channel is
+        // live" when the stream starts with the site closed). Fire-and-forget.
+        void syncPushSubscription();
       }
     };
 
@@ -194,6 +201,15 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
       dismissSelf();
     };
   }, [isOwnChannel]);
+
+  // Each subscription stores the language its push should use, so a language
+  // change has to reach the server: re-registering upserts the row with the new
+  // locale.
+  const { locale } = useTranslation();
+  useEffect(() => {
+    if (!isOwnChannel) return;
+    void syncPushSubscription();
+  }, [isOwnChannel, locale]);
 
   // Toast + push notification on disconnect (only for channel owner)
   const prevIrcState = useRef(localIrcState);
@@ -456,6 +472,46 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
       claimOwnership();
     }
   }, [hasLock]);
+
+  // Clicking the "you're live" notification means "open my queue". The service
+  // worker either messages a tab that is already on this channel or hands the
+  // intent over in the URL (sw.ts) — a tab it had to open or navigate has no
+  // client to message yet.
+  const [openQueueRequested, setOpenQueueRequested] = useState(false);
+  useEffect(() => {
+    if (!isOwnChannel) return;
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.has(OPEN_QUEUE_PARAM)) {
+      setOpenQueueRequested(true);
+      // Drop the param so a reload doesn't reopen a queue the streamer closed.
+      params.delete(OPEN_QUEUE_PARAM);
+      const search = params.toString();
+      window.history.replaceState(
+        window.history.state,
+        '',
+        `${window.location.pathname}${search ? `?${search}` : ''}${window.location.hash}`
+      );
+    }
+
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type !== 'open-queue') return;
+      if (String(event.data.channel).toLowerCase() !== channel.toLowerCase()) return;
+      setOpenQueueRequested(true);
+    };
+    navigator.serviceWorker?.addEventListener('message', onMessage);
+    // addEventListener (unlike onmessage) doesn't start the message queue.
+    navigator.serviceWorker?.startMessages?.();
+    return () => navigator.serviceWorker?.removeEventListener('message', onMessage);
+  }, [isOwnChannel, channel]);
+
+  // Wait for the first sync before acting: openQueue() claims ownership, and
+  // `owner` is only the server's answer once synced.
+  useEffect(() => {
+    if (!openQueueRequested || !partySynced) return;
+    setOpenQueueRequested(false);
+    if (localIrcState !== 'connected') openQueue();
+  }, [openQueueRequested, partySynced, localIrcState, openQueue]);
 
   const value = useMemo(
     () => ({ channel, isOwnChannel, canEditQueue, openQueue, closeQueue, ...stores }),

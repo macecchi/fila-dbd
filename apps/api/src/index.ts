@@ -6,6 +6,8 @@ import { verifyJwt, type JwtPayload } from "./jwt";
 import { extractCharacters } from "./gemini";
 import type { RequestExtraType } from "@filadbd/shared";
 import { getAppToken, fetchProfiles, fetchStreams, cacheProfiles, sendChatMessage, checkBotIsMod } from "./twitch";
+import { sendWebPush, isWebPushConfigured, type PushSubscriptionKeys } from "./webpush";
+import { verifyEventSubSignature, ensureStreamOnlineSubscription, deleteEventSubSubscription, clearEventSubMarker } from "./eventsub";
 
 const BATCH_CHUNK_SIZE = 80;
 
@@ -23,6 +25,11 @@ type Bindings = {
   GEMINI_API_KEY: string;
   INTERNAL_API_SECRET: string;
   PARTY_HOST: string;
+  // Web Push / EventSub — optional: the live-notification feature degrades to
+  // off when they're unset (see /push/vapid-public-key and /twitch/eventsub).
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+  EVENTSUB_SECRET?: string;
   DB: D1Database;
   CACHE: KVNamespace;
 };
@@ -316,7 +323,205 @@ api.get("/rooms/:roomId/requests", async (c) => {
   return c.json({ requests });
 });
 
+// POST /api/push/subscribe — register this browser's Web Push subscription for
+// "your channel is live" notifications. The room is always the JWT login (only
+// the streamer gets notified about their own channel), so re-subscribing is a
+// plain upsert. Also ensures the Twitch EventSub stream.online webhook exists.
+api.post("/push/subscribe", async (c) => {
+  if (!isWebPushConfigured(c.env)) {
+    return c.json({ error: "push_not_configured" }, 503);
+  }
+
+  const user = c.get("jwtPayload");
+  const roomId = user.login.toLowerCase();
+  const body = await c.req
+    .json<{ endpoint?: string; keys?: { p256dh?: string; auth?: string }; locale?: string }>()
+    .catch(() => null);
+  const endpoint = body?.endpoint;
+  const p256dh = body?.keys?.p256dh;
+  const auth = body?.keys?.auth;
+  // The service worker renders the push but can't read the app's language
+  // toggle, so the client tells us which language it is reading in and we hand
+  // it back with the notification.
+  const locale = normalizeLocale(body?.locale);
+
+  if (
+    typeof endpoint !== "string" || !endpoint.startsWith("https://") || endpoint.length > 1024 ||
+    typeof p256dh !== "string" || !p256dh || p256dh.length > 256 ||
+    typeof auth !== "string" || !auth || auth.length > 256
+  ) {
+    return c.json({ error: "invalid_subscription" }, 400);
+  }
+
+  await c.env.DB.prepare(
+    `INSERT INTO push_subscriptions (room_id, endpoint, p256dh, auth, locale)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (room_id, endpoint) DO UPDATE SET
+       p256dh = excluded.p256dh,
+       auth = excluded.auth,
+       locale = excluded.locale,
+       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`
+  ).bind(roomId, endpoint, p256dh, auth, locale).run();
+
+  // Same Worker serves the webhook, so derive the callback from this request.
+  // Twitch requires a public HTTPS callback: in local dev the create call fails
+  // and we still report ok — the push subscription itself is stored.
+  const callbackUrl = `${new URL(c.req.url).origin}/twitch/eventsub`;
+  const result = await ensureStreamOnlineSubscription(c.env, roomId, callbackUrl);
+  if (!result.ok) {
+    console.warn(`[push] eventsub subscription for ${roomId} not created: ${result.reason}`);
+  }
+
+  return c.json({ ok: true, eventsub: result.ok });
+});
+
+// POST /api/push/unsubscribe — drop this browser's subscription (e.g. sign-out).
+api.post("/push/unsubscribe", async (c) => {
+  const user = c.get("jwtPayload");
+  const body = await c.req.json<{ endpoint?: string }>().catch(() => null);
+  if (typeof body?.endpoint !== "string") return c.json({ error: "invalid_subscription" }, 400);
+
+  await c.env.DB.prepare(
+    "DELETE FROM push_subscriptions WHERE room_id = ? AND endpoint = ?"
+  ).bind(user.login.toLowerCase(), body.endpoint).run();
+
+  return c.json({ ok: true });
+});
+
 app.route("/api", api);
+
+// ============ WEB PUSH / TWITCH EVENTSUB ============
+
+// Public: the VAPID application server key the browser subscribes with. An
+// empty key tells the client the feature isn't configured in this deployment.
+app.get("/push/vapid-public-key", (c) => {
+  return c.json({ key: c.env.VAPID_PUBLIC_KEY ?? "" });
+});
+
+// Twitch EventSub webhook (stream.online). Verifies the HMAC signature, answers
+// the verification challenge, and fans a Web Push out to the streamer's
+// registered browsers when their stream starts.
+app.post("/twitch/eventsub", async (c) => {
+  const secret = c.env.EVENTSUB_SECRET;
+  if (!secret) return c.json({ error: "eventsub_not_configured" }, 503);
+
+  const messageId = c.req.header("Twitch-Eventsub-Message-Id") ?? "";
+  const timestamp = c.req.header("Twitch-Eventsub-Message-Timestamp") ?? "";
+  const signature = c.req.header("Twitch-Eventsub-Message-Signature") ?? "";
+  const messageType = c.req.header("Twitch-Eventsub-Message-Type") ?? "";
+  const rawBody = await c.req.text();
+
+  if (!(await verifyEventSubSignature(secret, messageId, timestamp, rawBody, signature))) {
+    return c.json({ error: "invalid_signature" }, 403);
+  }
+
+  let body: {
+    challenge?: string;
+    subscription?: { id: string; type: string; condition?: Record<string, string> };
+    event?: { broadcaster_user_id?: string; broadcaster_user_login?: string };
+  };
+  try {
+    body = JSON.parse(rawBody);
+  } catch {
+    return c.json({ error: "invalid_body" }, 400);
+  }
+
+  if (messageType === "webhook_callback_verification") {
+    return c.text(body.challenge ?? "", 200, { "Content-Type": "text/plain" });
+  }
+
+  if (messageType === "revocation") {
+    const login = body.event?.broadcaster_user_login ?? body.subscription?.condition?.broadcaster_user_login;
+    console.warn(`[eventsub] subscription revoked (${body.subscription?.type}, login=${login ?? "?"})`);
+    if (login) await clearEventSubMarker(c.env, login);
+    return c.body(null, 204);
+  }
+
+  if (messageType !== "notification" || body.subscription?.type !== "stream.online") {
+    return c.body(null, 204);
+  }
+
+  const login = body.event?.broadcaster_user_login?.toLowerCase();
+  const subscriptionId = body.subscription.id;
+  if (!login) return c.body(null, 204);
+
+  // Twitch retries on timeouts — dedupe by message id.
+  const dedupeKey = `eventsub_msg:${messageId}`;
+  if (await c.env.CACHE.get(dedupeKey)) return c.body(null, 204);
+  await c.env.CACHE.put(dedupeKey, "1", { expirationTtl: 600 });
+
+  c.executionCtx.waitUntil(notifyChannelLive(c.env, login, subscriptionId));
+  return c.body(null, 204);
+});
+
+// The strings live in apps/web/src/i18n/pushCopy.ts; the server only carries
+// the language each subscription registered with. NULL (rows written before the
+// column existed) falls back to English.
+function normalizeLocale(locale: string | null | undefined): string {
+  return locale?.toLowerCase().startsWith("pt") ? "pt-BR" : "en";
+}
+
+async function notifyChannelLive(env: Bindings, login: string, eventSubId: string) {
+  const { results } = await env.DB.prepare(
+    "SELECT endpoint, p256dh, auth, locale FROM push_subscriptions WHERE room_id = ?"
+  ).bind(login).all<PushSubscriptionKeys>();
+  const subs = results ?? [];
+
+  // Nobody to notify → the EventSub subscription is dead weight; remove it so
+  // Twitch stops calling us. It comes back on the next /api/push/subscribe.
+  if (subs.length === 0) {
+    console.log(`[push] ${login} went live but has no push subscriptions; deleting eventsub sub`);
+    await deleteEventSubSubscription(env, eventSubId, login);
+    return;
+  }
+
+  // Skip the notification when the queue is already running — the streamer is
+  // set up and a "open your queue" ping would just be noise. The same call
+  // gives us how many requests are already waiting, which goes in the title.
+  // Best-effort: if PartyKit can't answer, notify anyway (without the count).
+  let pending = 0;
+  if (env.PARTY_HOST) {
+    try {
+      const protocol = env.PARTY_HOST.startsWith("localhost") ? "http" : "https";
+      const res = await fetch(`${protocol}://${env.PARTY_HOST}/parties/main/${login}`, {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (res.ok) {
+        const data = await res.json<{ status: string; connections: number; pending_count?: number }>();
+        if (data.status !== "offline" && data.connections > 0) {
+          console.log(`[push] ${login} went live but queue is already ${data.status}, skipping`);
+          return;
+        }
+        pending = data.pending_count ?? 0;
+      }
+    } catch {
+      // PartyKit unreachable — proceed with the notification.
+    }
+  }
+
+  const outcomes = await Promise.all(
+    subs.map(async (sub) => {
+      const result = await sendWebPush(env, sub, {
+        type: "stream-online",
+        channel: login,
+        locale: normalizeLocale(sub.locale),
+        pending,
+      });
+      if (!result.ok && result.gone) {
+        await env.DB.prepare(
+          "DELETE FROM push_subscriptions WHERE room_id = ? AND endpoint = ?"
+        ).bind(login, sub.endpoint).run();
+      }
+      if (!result.ok && !result.gone) {
+        console.warn(`[push] send to ${login} failed: ${result.status ?? ""} ${result.detail ?? ""}`);
+      }
+      return result;
+    })
+  );
+
+  const sent = outcomes.filter((o) => o.ok).length;
+  console.log(`[push] ${login} went live: notified ${sent}/${subs.length} subscription(s)`);
+}
 
 // ============ INTERNAL API ROUTES (PartyKit → D1) ============
 

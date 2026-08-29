@@ -20,6 +20,8 @@
     "vite": "^7.3.0",
     "vite-plugin-pwa": "^1.2.0",
     "vitest": "^4.0.17",
+    "workbox-precaching": "^7.4.0",
+    "workbox-routing": "^7.4.0",
     "workbox-window": "^7.4.0"
   },
   "dependencies": {

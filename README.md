@@ -29,7 +29,7 @@ Use our [Discord](https://discord.gg/hXsAgk5KnX) or GitHub to send feedback, sug
 
 You need to keep the site open to receive requests.
 
-**Notifications**: we only show a small notice on the page when a new request is received. Enable browser notifications to get alerts when there's an issue.
+**Notifications**: we only show a small notice on the page when a new request is received. Enable browser notifications to get alerts when there's an issue — and to get a push when your stream goes live reminding you to open your queue (works even with the site closed).
 
 #### Request sources
 
@@ -78,20 +78,26 @@ The service is designed to be deployed on [Cloudflare Workers](https://workers.c
 - `CLOUDFLARE_API_TOKEN` - token with Workers permission
 - `PARTYKIT_TOKEN` and `PARTYKIT_LOGIN` - obtained with `bunx partykit@latest token generate`
 
-**Cloudflare secrets (via `wrangler secret put`):**
+**Cloudflare secrets** (run from `apps/api/`, where `wrangler.toml` lives — `bunx` there uses the pinned local wrangler; from the repo root it downloads a different one and has no config to read a Worker name from):
+
+```bash
+cd apps/api && bunx wrangler secret put <NAME> --env production
+```
 
 - `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` - Twitch app
 - `JWT_SECRET` - any secure string
 - `INTERNAL_API_SECRET` - shared secret between Worker and PartyKit
+- `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` - Web Push keys for the "you're live" notification (generate with `bun scripts/generate-vapid-keys.ts` from `apps/api/`). Optional — the feature stays off without them
+- `EVENTSUB_SECRET` - any secure string; signs Twitch EventSub webhooks (`stream.online`). Optional, required for the "you're live" notification
 
-**KV Namespace (via `wrangler kv namespace create CACHE`):**
+**KV Namespace (via `bunx wrangler kv namespace create CACHE`):**
 
 - Create the namespace and update the `id` in `wrangler.toml`
 
-**D1 Database (via `wrangler d1 create fila-dbd`):**
+**D1 Database (via `bunx wrangler d1 create fila-dbd`):**
 
 - Create the database and update the `database_id` in `wrangler.toml`
-- Apply migrations: `wrangler d1 migrations apply fila-dbd`
+- Apply migrations: `bunx wrangler d1 migrations apply fila-dbd` (production: `bun run deploy:migrations`)
 
 **Cloudflare Pages environment variables:**
 
@@ -115,7 +121,7 @@ Optional. Required for the "Confirm requests in chat" toggle to deliver messages
    TWITCH_CLIENT_ID=... TWITCH_CLIENT_SECRET=... bun scripts/authorize-bot.ts
    ```
    It opens the consent screen, captures the code locally, exchanges it, and prints the
-   `wrangler kv key put` command for the resulting `bot_token`. Run that command against
+   `bunx wrangler kv key put` command for the resulting `bot_token`. Run that command against
    `--remote` (and/or `--local` for dev). The Worker refreshes the token automatically.
 4. Each streamer using the feature must add the bot as a moderator in their channel
    (`/mod filadbd`) — the UI shows this hint when the toggle is enabled.
@@ -164,6 +170,60 @@ console on `localhost:5173`; the reload comes back signed in.
 
 The token is signed with the `JWT_SECRET` in `apps/api/.env` — your local dev secret — so it
 is only ever valid against `wrangler dev` / `partykit dev`, never production.
+
+### Testing the live notification locally
+
+The "your channel is live" push is the one flow the dev server cannot show you:
+`vite dev` registers no service worker, and Twitch cannot reach `localhost` to deliver
+the EventSub webhook. Both halves are replaceable locally.
+
+**1. Just the notification UI (30 seconds, no keys needed).** Build and preview, then
+use DevTools → Application → Service Workers → the *Push* box, and send:
+
+```json
+{"type":"stream-online","channel":"meriw_","locale":"pt-BR","pending":3}
+```
+
+That runs the real `push` / `notificationclick` handlers in `apps/web/src/sw.ts` — the
+notification copy, the icon and the click-through to the channel.
+
+**2. The whole chain (Worker → Web Push → your browser).**
+
+```bash
+# once: generate keys and add them to apps/api/.env
+cd apps/api && bun scripts/generate-vapid-keys.ts
+echo "EVENTSUB_SECRET=$(openssl rand -hex 32)" >> .env
+
+bun run dev                                   # from the repo root
+bun run --filter @filadbd/web preview         # production build — the SW only exists here
+```
+
+Open `http://localhost:4173/<your channel>/`, sign in with `bun run dev:login <channel>`,
+allow notifications, and confirm the subscription landed:
+
+```bash
+cd apps/api && bunx wrangler d1 execute fila-dbd --local --command "SELECT room_id, locale, substr(endpoint,1,40) FROM push_subscriptions"
+```
+
+Then fire a fake `stream.online`:
+
+```bash
+cd apps/api && bun run dev:live <channel>
+```
+
+The script signs the webhook exactly as Twitch does, so the Worker runs its real
+verification, dedupe, cooldown and push path — and the push goes out to the real push
+service, which delivers it to your browser even with the site closed.
+
+Nothing arriving is usually one of: the queue is already open (pushes are deliberately
+skipped then), or no `VAPID_*` keys (the feature stays off — `/push/vapid-public-key`
+returns an empty key). The `wrangler dev` log tells you which.
+
+The notification is written in whichever language the streamer has the site set to: each
+subscription stores that language, the Worker sends it back with the push, and the service
+worker renders the strings from `apps/web/src/i18n/pushCopy.ts` (the SW can't read the
+app's language toggle itself). Switching the language re-registers the subscription, so
+the next push follows.
 
 ### LLM extraction evals
 
@@ -214,7 +274,7 @@ Use o nosso [Discord](https://discord.gg/hXsAgk5KnX) ou o próprio GitHub para m
 
 É preciso estar com o site aberto para receber pedidos.
 
-**Notificações**: só mostramos um pequeno aviso na página quando um novo pedido é recebido. Ative as notificações do navegador para receber alertas quando houver algum problema.
+**Notificações**: só mostramos um pequeno aviso na página quando um novo pedido é recebido. Ative as notificações do navegador para receber alertas quando houver algum problema — e para receber um aviso quando sua live começar lembrando de abrir sua fila (funciona mesmo com o site fechado).
 
 #### Fontes de pedidos
 
