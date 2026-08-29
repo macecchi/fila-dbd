@@ -28,6 +28,6 @@
     "partykit": "^0.0.111",
     "typescript": "^5.7.0",
     "vitest": "^4.0.17",
-    "wrangler": "^4.0.0"
+    "wrangler": "^4.127.1"
   }
 }
