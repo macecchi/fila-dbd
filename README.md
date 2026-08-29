@@ -78,7 +78,11 @@ The service is designed to be deployed on [Cloudflare Workers](https://workers.c
 - `CLOUDFLARE_API_TOKEN` - token with Workers permission
 - `PARTYKIT_TOKEN` and `PARTYKIT_LOGIN` - obtained with `bunx partykit@latest token generate`
 
-**Cloudflare secrets (via `wrangler secret put`):**
+**Cloudflare secrets** (run from `apps/api/`, where `wrangler.toml` lives — `bunx` there uses the pinned local wrangler; from the repo root it downloads a different one and has no config to read a Worker name from):
+
+```bash
+cd apps/api && bunx wrangler secret put <NAME> --env production
+```
 
 - `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` - Twitch app
 - `JWT_SECRET` - any secure string
@@ -86,14 +90,14 @@ The service is designed to be deployed on [Cloudflare Workers](https://workers.c
 - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` - Web Push keys for the "you're live" notification (generate with `bun scripts/generate-vapid-keys.ts` from `apps/api/`). Optional — the feature stays off without them
 - `EVENTSUB_SECRET` - any secure string; signs Twitch EventSub webhooks (`stream.online`). Optional, required for the "you're live" notification
 
-**KV Namespace (via `wrangler kv namespace create CACHE`):**
+**KV Namespace (via `bunx wrangler kv namespace create CACHE`):**
 
 - Create the namespace and update the `id` in `wrangler.toml`
 
-**D1 Database (via `wrangler d1 create fila-dbd`):**
+**D1 Database (via `bunx wrangler d1 create fila-dbd`):**
 
 - Create the database and update the `database_id` in `wrangler.toml`
-- Apply migrations: `wrangler d1 migrations apply fila-dbd`
+- Apply migrations: `bunx wrangler d1 migrations apply fila-dbd` (production: `bun run deploy:migrations`)
 
 **Cloudflare Pages environment variables:**
 
@@ -117,7 +121,7 @@ Optional. Required for the "Confirm requests in chat" toggle to deliver messages
    TWITCH_CLIENT_ID=... TWITCH_CLIENT_SECRET=... bun scripts/authorize-bot.ts
    ```
    It opens the consent screen, captures the code locally, exchanges it, and prints the
-   `wrangler kv key put` command for the resulting `bot_token`. Run that command against
+   `bunx wrangler kv key put` command for the resulting `bot_token`. Run that command against
    `--remote` (and/or `--local` for dev). The Worker refreshes the token automatically.
 4. Each streamer using the feature must add the bot as a moderator in their channel
    (`/mod filadbd`) — the UI shows this hint when the toggle is enabled.
@@ -198,7 +202,7 @@ Open `http://localhost:4173/<your channel>/`, sign in with `bun run dev:login <c
 allow notifications, and confirm the subscription landed:
 
 ```bash
-cd apps/api && wrangler d1 execute fila-dbd --local --command "SELECT room_id, locale, substr(endpoint,1,40) FROM push_subscriptions"
+cd apps/api && bunx wrangler d1 execute fila-dbd --local --command "SELECT room_id, locale, substr(endpoint,1,40) FROM push_subscriptions"
 ```
 
 Then fire a fake `stream.online`:
