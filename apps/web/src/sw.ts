@@ -46,27 +46,55 @@ self.addEventListener('push', (event) => {
       tag: 'dbd-stream-online',
       icon: '/images/Dead-by-Daylight-Emblem.webp',
       badge: '/images/Dead-by-Daylight-Emblem.webp',
-      data: { url: `/${payload.channel}` },
+      data: { channel: payload.channel },
     })
   );
 });
 
+// Clicking the notification is the streamer saying "yes, open it" — so the tab
+// is focused *and* the queue is started. An already-open tab is told over
+// postMessage; a tab we have to open or navigate carries the intent in the URL,
+// since there is no client to message until it has loaded. Both are handled in
+// store/ChannelContext.tsx.
+const OPEN_QUEUE_PARAM = 'open-queue';
+
+// Paths are compared with a trailing slash on both sides: the app is served at
+// /channel/ but the notification only knows the channel name, and treating
+// those as different tabs used to reload whatever tab was focused instead of
+// landing on the channel.
+function samePath(a: string, b: string): boolean {
+  const trim = (p: string) => (p.endsWith('/') ? p.slice(0, -1) : p).toLowerCase();
+  return trim(a) === trim(b);
+}
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url: string = event.notification.data?.url ?? '/';
+  const channel: string | undefined = event.notification.data?.channel;
+  if (!channel) return;
+
+  const path = `/${channel}/`;
+  const url = `${path}?${OPEN_QUEUE_PARAM}=1`;
 
   event.waitUntil(
     (async () => {
       const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      // Prefer a tab already on the channel page, then any app tab (SPA
-      // navigation happens when the streamer clicks through), else a new one.
-      const existing =
-        windows.find((w) => new URL(w.url).pathname === url) ?? windows[0];
-      if (existing) {
-        await existing.focus();
-        if (new URL(existing.url).pathname !== url) await existing.navigate(url).catch(() => {});
+
+      const onChannel = windows.find((w) => samePath(new URL(w.url).pathname, path));
+      if (onChannel) {
+        await onChannel.focus();
+        onChannel.postMessage({ type: 'open-queue', channel });
         return;
       }
+
+      // Another page of the app: focus it and send it to the channel (an SPA
+      // navigation would lose the query string, so navigate() carries it).
+      const anyTab = windows[0];
+      if (anyTab) {
+        await anyTab.focus();
+        await anyTab.navigate(url).catch(() => {});
+        return;
+      }
+
       await self.clients.openWindow(url);
     })()
   );
