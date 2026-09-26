@@ -8,6 +8,7 @@ preview_urls = true
 [observability.logs]
 enabled = true
 invocation_logs = false
+destinations = ["posthog"]
 
 [vars]
 FRONTEND_URL = "http://localhost:5173"

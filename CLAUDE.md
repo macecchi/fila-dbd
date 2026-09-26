@@ -62,6 +62,11 @@ bun run deploy:party # Deploy PartyKit
 > **Note:** Use `bun run test`, not `bun test`. The project uses Vitest for testing,
 > but `bun test` invokes Bun's native test runner which is incompatible with this project.
 
+**Logs:** the API Worker exports `console.*` output and errors to PostHog Logs through the
+account-level `posthog` OTLP destination (`[observability.logs] destinations` in
+`apps/api/wrangler.toml`). Keep observability settings in that file — every deploy overwrites
+whatever was set in the Cloudflare dashboard.
+
 ## Testing owner paths locally
 
 Every owner-only path — opening the queue, ✓ / undo, editing sources — is gated on a JWT
