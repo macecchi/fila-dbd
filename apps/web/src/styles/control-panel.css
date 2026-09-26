@@ -395,12 +395,17 @@ a.channel-header-live:hover {
   }
 }
 
-/* Between the profile and the stats there is only so much room: the collapsed
-   entries are the first thing to go, so the open one never gets squeezed to an
-   ellipsis. */
-@media (max-width: 1100px) {
-  .recent-play:not(.active) {
-    display: none;
+/* Between the profile and the stats there is not enough room for the strip, so it
+   drops to its own row underneath. Below 600px the header stacks instead. */
+@media (max-width: 1100px) and (min-width: 601px) {
+  .channel-header {
+    flex-wrap: wrap;
+    row-gap: var(--space-md);
+  }
+
+  .recent-plays {
+    order: 1;
+    flex-basis: 100%;
   }
 }
 
@@ -452,11 +457,15 @@ a.channel-header-live:hover {
     font-size: 1.15rem;
   }
 
-  /* The column layout has no free space to center in — line the strip up with
-     everything else in the stack instead. */
   .recent-plays {
     flex: 0 0 auto;
-    align-items: flex-start;
+  }
+
+  /* The smallest phones fit two entries, not three. */
+  @media (max-width: 360px) {
+    .recent-play:last-child:not(.active) {
+      display: none;
+    }
   }
 
   /* Mobile is the viewer experience. Drop the stats counters — they carry
