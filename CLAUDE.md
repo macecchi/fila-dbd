@@ -67,6 +67,15 @@ account-level `posthog` OTLP destination (`[observability.logs] destinations` in
 `apps/api/wrangler.toml`). Keep observability settings in that file — every deploy overwrites
 whatever was set in the Cloudflare dashboard.
 
+PartyKit has no log export, so `party.ts` logs **only** through `this.logger` (`RoomLogger`,
+`apps/api/src/logs.ts`), never `console.*` directly: it prints the same arguments to the console
+(`partykit tail` unchanged) and ships each line over OTLP/HTTP to PostHog Logs as service
+`dbd-tracker-party`, with the room id in the `room.id` attribute and the console method in
+`name` (like the Worker's export). Buffered and flushed fire-and-forget every 2s / 200 lines and
+when a room's last connection closes; bodies are scrubbed of JWTs, `token=`/`code=` params and
+Bearer values as a backstop — still never log a token. Keyed by `POSTHOG_KEY` in
+`partykit.json` `vars`; off under `DEV_MODE`. Export failures go to the console only.
+
 ## Observability (PostHog)
 
 Everything lands in PostHog project 618081 (US), which is **shared with other apps** — filter

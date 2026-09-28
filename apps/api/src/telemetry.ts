@@ -53,6 +53,7 @@ export class RoomTelemetry {
     env: TelemetryEnv,
     private fetcher: Fetch = (url, init) => fetch(url, init),
     private now: () => number = Date.now,
+    private warn: (...args: unknown[]) => void = (...args) => console.warn(...args),
   ) {
     const key = typeof env.POSTHOG_KEY === 'string' && env.POSTHOG_KEY ? env.POSTHOG_KEY : null;
     // `partykit dev` runs with DEV_MODE=true: keep local rooms out of the production project.
@@ -137,9 +138,9 @@ export class RoomTelemetry {
       body: JSON.stringify({ api_key: this.key, batch }),
     }).then(
       (res) => {
-        if (!res.ok) console.warn(`[${this.room}] PostHog capture failed: ${res.status}`);
+        if (!res.ok) this.warn(`[${this.room}] PostHog capture failed: ${res.status}`);
       },
-      (e) => console.warn(`[${this.room}] PostHog capture error:`, e),
+      (e) => this.warn(`[${this.room}] PostHog capture error:`, e),
     );
     if (this.buffer.length > 0) this.scheduleFlush();
   }

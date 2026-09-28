@@ -1602,4 +1602,65 @@ describe('PartyServer telemetry', () => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
+
+  it('ships every console line to PostHog Logs with the room id, and never the token', async () => {
+    const shippedBodies: { body: string; room: string }[] = [];
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/i/v1/logs')) {
+        const payload = JSON.parse(String(init?.body));
+        for (const r of payload.resourceLogs[0].scopeLogs[0].logRecords) {
+          shippedBodies.push({
+            body: r.body.stringValue,
+            room: r.attributes.find((a: { key: string }) => a.key === 'room.id').value.stringValue,
+          });
+        }
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    // Its own room: timers left by earlier tests' rooms also print, but not as [logsroom].
+    const printed: string[] = [];
+    const record = (...args: unknown[]) => {
+      const line = args.map(String).join(' ');
+      if (line.startsWith('[logsroom]')) printed.push(line);
+    };
+    const spies = (['log', 'warn', 'error', 'info'] as const).map((m) => vi.spyOn(console, m).mockImplementation(record));
+
+    mockRoom = createMockRoom('logsroom');
+    mockRoom.env = { JWT_SECRET: 'test-secret', POSTHOG_KEY: 'phc_test' } as any;
+    const room = new PartyServer(mockRoom as any);
+    const goodToken = 'eyJhbGciOiJIUzI1NiJ9.eyJsb2dpbiI6InRlc3RjaGFubmVsIn0.Z29vZC1zaWduYXR1cmU';
+    const badToken = 'eyJhbGciOiJIUzI1NiJ9.eyJsb2dpbiI6InRlc3RjaGFubmVsIn0.YmFkLXNpZ25hdHVyZQ';
+
+    // The streamer, a stale-token socket of theirs, and a viewer — then everyone leaves.
+    vi.mocked(verifyJwt).mockResolvedValueOnce({ ...OWNER, login: 'logsroom' }).mockResolvedValueOnce(null);
+    const owner = new MockConnection('owner');
+    const stale = new MockConnection('stale');
+    const viewer = new MockConnection('viewer');
+    for (const c of [owner, stale, viewer]) mockRoom._connections.set(c.id, c);
+    await room.onConnect(owner as any, createMockContext(goodToken) as any);
+    await room.onConnect(stale as any, createMockContext(badToken) as any);
+    await room.onConnect(viewer as any, createMockContext() as any);
+    await room.onMessage(JSON.stringify({ type: 'claim-ownership' }), owner as any);
+    await room.onMessage(JSON.stringify({ type: 'add-request', request: createTestRequest({ id: 7 }) }), owner as any);
+    await room.onMessage(JSON.stringify({ type: 'toggle-done', id: 7, done: true }), stale as any);
+    for (const c of [viewer, stale, owner]) room.onClose(c as any);
+    // Lines logged after the empty-room flush go out with the next timed flush (2s).
+    await vi.waitFor(() => expect(shippedBodies.length).toBeGreaterThanOrEqual(printed.length), { timeout: 4000 });
+
+    spies.forEach((s) => s.mockRestore());
+    vi.unstubAllGlobals();
+
+    // Every console line made it, in order, tagged with this room.
+    expect(printed.length).toBeGreaterThan(8);
+    expect(shippedBodies.map((b) => b.body)).toEqual(expect.arrayContaining(printed));
+    expect(new Set(shippedBodies.map((b) => b.room))).toEqual(new Set(['logsroom']));
+    expect(printed.some((l) => l.includes('JWT verification failed'))).toBe(true);
+    expect(printed.some((l) => l.includes('Rejected toggle-done from non-owner'))).toBe(true);
+    // No token on either side.
+    for (const line of [...printed, ...shippedBodies.map((b) => b.body)]) {
+      expect(line).not.toContain(goodToken);
+      expect(line).not.toContain(badToken);
+    }
+  });
 });
