@@ -14,6 +14,7 @@ export function ChannelHeader() {
   const { t } = useTranslation();
   const owner = useChannelInfo((s) => s.owner);
   const channelStatus = useChannelInfo((s) => s.status);
+  const statusKnown = useChannelInfo((s) => s.statusKnown);
   const hasLock = useChannelInfo((s) => s.hasLock);
   const twitchStatus = useChannelInfo((s) => s.localIrcConnectionState);
   const queue = useQueueStatus();
@@ -116,7 +117,7 @@ export function ChannelHeader() {
         {canEditQueue && (
           <div className="channel-header-actions">
             <button
-              className={`btn ${isConnected ? 'btn-ghost' : 'btn-primary'} ${!isConnected && !isConnecting ? 'btn-pulse' : ''}`.trim()}
+              className={`btn ${isConnected ? 'btn-ghost' : 'btn-primary'} ${statusKnown && !isConnected && !isConnecting ? 'btn-pulse' : ''}`.trim()}
               onClick={handleToggle}
               disabled={isConnecting}
             >

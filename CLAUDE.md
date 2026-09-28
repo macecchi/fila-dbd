@@ -214,7 +214,11 @@ internal bookkeeping and must never surface as a mode the streamer has to notice
   closed, the same for streamer and viewer, derived from `channelStatus` rather than this
   window's own sockets — so every window says the same thing. Sockets and the lock are
   internal; failures surface as toasts, not as a badge. Don't reintroduce a second
-  connection indicator.
+  connection indicator. Before the server's first status (`statusKnown`) it goes by the
+  room's last saved status from `/rooms/:id` — saved open → connecting, saved closed →
+  closed, not loaded yet → `unknown` (no text, no animation). Never infer "connecting"
+  from this window's socket opening: every channel page pulsed on load that way, only to
+  settle on closed.
 - **The lock transfers, it never refuses** (`party.ts` `claim-ownership`): a claim from
   another window of the same streamer hands the lock over and sends the old holder
   `ownership-denied` (which clears its lock and drops its IRC). So Open/Close the queue works

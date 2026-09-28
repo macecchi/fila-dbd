@@ -387,6 +387,12 @@ interface ChannelInfoStore {
   closedByOwner: boolean;
   hasLock: boolean;
   partySynced: boolean;
+  /**
+   * `status` has come from the server at least once. Until then it's a placeholder;
+   * unlike `partySynced` this stays set across reconnects, where `status` keeps the last
+   * value the server sent.
+   */
+  statusKnown: boolean;
   localIrcConnectionState: ConnectionState;
   localPartyConnectionState: ConnectionState;
   setHasLock: (hasLock: boolean) => void;
@@ -404,6 +410,7 @@ export function createChannelInfoStore() {
     closedByOwner: false,
     hasLock: false,
     partySynced: false,
+    statusKnown: false,
     localIrcConnectionState: 'disconnected',
     localPartyConnectionState: 'disconnected',
     setHasLock: (hasLock) => set({ hasLock }),
@@ -433,6 +440,7 @@ export function createChannelInfoStore() {
       } else if (msg.type === 'sync-full' || msg.type === 'update-channel') {
         const updates: Partial<ChannelInfoStore> = {
           status: msg.channel.status,
+          statusKnown: true,
           owner: msg.channel.owner,
           closedByOwner: msg.channel.closedByOwner ?? false,
         };

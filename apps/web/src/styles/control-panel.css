@@ -168,6 +168,12 @@
   background: var(--text-muted);
 }
 
+/* Nothing known yet (the room's saved status and the server's first sync are both on
+   their way): hold the space, say nothing, rather than flash a guess. */
+.channel-header-badge.state-unknown {
+  visibility: hidden;
+}
+
 /* Live-on-Twitch pill: independent of the queue badge — a streamer can be live
    with the queue closed. Links to the Twitch channel. */
 .channel-header-live {
