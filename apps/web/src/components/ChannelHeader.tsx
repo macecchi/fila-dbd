@@ -20,11 +20,18 @@ export function ChannelHeader() {
   const queue = useQueueStatus();
 
   const [roomInfo, setRoomInfo] = useState<RoomInfo | null>(null);
+  // Settled, even if it failed: until then "last used" and the avatar are unknown, not absent.
+  const [roomInfoLoaded, setRoomInfoLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    setRoomInfoLoaded(false);
     // Shared, memoized lookup — the channel gate already fired the same request.
-    fetchRoomInfo(channel).then((room) => { if (!cancelled && room) setRoomInfo(room); });
+    fetchRoomInfo(channel).then((room) => {
+      if (cancelled) return;
+      if (room) setRoomInfo(room);
+      setRoomInfoLoaded(true);
+    });
     return () => { cancelled = true; };
   }, [channel]);
 
@@ -63,7 +70,7 @@ export function ChannelHeader() {
             <img className="channel-header-avatar" src={avatarUrl} alt={channel} />
           ) : (
             <div className="channel-header-avatar channel-header-avatar-fallback">
-              {channel[0].toUpperCase()}
+              {roomInfoLoaded && channel[0].toUpperCase()}
             </div>
           )}
         </div>
@@ -98,7 +105,9 @@ export function ChannelHeader() {
               {queue.text}
             </span>
           </div>
-          <span className="channel-header-sub">
+          {/* Held (not blank-then-swapped) until it's known which line this is: a closed
+              queue reads "last used", which needs the room info. */}
+          <span className={`channel-header-sub${queue.state === 'unknown' || (queue.state === 'closed' && !roomInfoLoaded) ? ' is-pending' : ''}`}>
             {lastActive && queue.state === 'closed'
               ? t('header.lastUsed', { time: formatRelativeTime(lastActive) })
               : <a href={shareUrl} className="channel-header-share" onClick={handleCopyLink}>

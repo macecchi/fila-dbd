@@ -203,6 +203,11 @@ a.channel-header-live:hover {
   color: var(--text-muted);
 }
 
+/* Not known yet which line this is (share link or "last used"): keep its space, show nothing. */
+.channel-header-sub.is-pending {
+  visibility: hidden;
+}
+
 .channel-header-share {
   color: var(--text-muted);
   position: relative;
