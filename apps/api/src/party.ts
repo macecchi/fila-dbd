@@ -1,5 +1,6 @@
 import type * as Party from 'partykit/server';
 import { verifyJwt, type JwtPayload } from './jwt';
+import { RoomTelemetry, describeRejectedToken } from './telemetry';
 import { MAX_PENDING_REQUESTS, PROTOCOL_VERSION, RECENT_DONE_KEPT, normalizeSourcesSettings, compareRequests } from '@filadbd/shared';
 import type { SerializedRequest, SourcesSettings, ChannelState, PartyMessage } from '@filadbd/shared';
 
@@ -40,8 +41,12 @@ export default class PartyServer implements Party.Server {
   private d1SyncFailCount = 0;
   private notModNotifiedAt = 0;
   private static readonly D1_SYNC_FAIL_NOTIFY = 3;
+  // PostHog events (telemetry.ts); a no-op without POSTHOG_KEY or under DEV_MODE.
+  readonly telemetry: RoomTelemetry;
 
-  constructor(public room: Party.Room) { }
+  constructor(public room: Party.Room) {
+    this.telemetry = new RoomTelemetry(room.id.toLowerCase(), room.env);
+  }
 
   private async putRequestKeys(entries: Record<string, SerializedRequest>) {
     const keys = Object.keys(entries);
@@ -181,12 +186,21 @@ export default class PartyServer implements Party.Server {
       const jwtSecret = this.room.env.JWT_SECRET as string;
       if (!jwtSecret) {
         console.warn(`${this.tag} JWT_SECRET not configured`);
+        this.telemetry.captureThrottled('config', 'fila_party_config_error', { missing: 'JWT_SECRET' });
       } else {
         user = await verifyJwt(token, jwtSecret);
         if (user) {
           console.log(`${this.tag} Auth: ${user.login.toLowerCase()}`);
         } else {
           console.warn(`${this.tag} JWT verification failed for conn ${conn.id}`);
+          // The socket carries on anonymous, and every edit it sends will be refused.
+          // When the token claims to be the streamer, that's their session going silent.
+          const rejected = describeRejectedToken(token);
+          this.telemetry.captureThrottled('auth_failed', 'fila_party_auth_failed', {
+            ...rejected,
+            is_room_login: rejected.claimed_login === roomOwner,
+            client_version: clientVersion,
+          });
         }
       }
     } else {
@@ -194,6 +208,13 @@ export default class PartyServer implements Party.Server {
     }
 
     this.connections.set(conn.id, { user });
+    if (user && user.login.toLowerCase() === roomOwner) {
+      // Denominator for the auth failures above: the streamer connecting as themselves.
+      this.telemetry.capture('fila_party_owner_connected', {
+        client_version: clientVersion,
+        room_has_lock_holder: this.activeOwnerConnId !== null,
+      });
+    }
     console.log(`${this.tag} Connected: ${conn.id} (${user?.login ?? 'anon'}) v${clientVersion} - ${this.connections.size} total`);
 
     // Protocol version check — reject clients with incompatible protocol
@@ -256,6 +277,7 @@ export default class PartyServer implements Party.Server {
         const denyMsg: PartyMessage = { type: 'ownership-denied', currentOwner: 'not-room-owner' };
         sender.send(JSON.stringify(denyMsg));
         console.log(`${this.tag} Denied ownership to ${connInfo?.user?.login ?? sender.id}: not room owner`);
+        this.telemetry.captureThrottled('claim_denied', 'fila_party_claim_denied', this.senderProps(connInfo));
         return;
       }
       // Another window of the same streamer holds the lock: hand it over rather than
@@ -311,6 +333,7 @@ export default class PartyServer implements Party.Server {
       };
       sender.send(JSON.stringify(errorMsg));
       console.warn(`${this.tag} Rejected ${msg.type} from non-lock-holder ${connInfo?.user?.login ?? sender.id}`);
+      this.reportRejected('not_lock_holder', msg.type, connInfo);
       return;
     }
 
@@ -323,6 +346,7 @@ export default class PartyServer implements Party.Server {
       };
       sender.send(JSON.stringify(errorMsg));
       console.warn(`${this.tag} Rejected ${msg.type} from non-owner ${connInfo?.user?.login ?? sender.id}`);
+      this.reportRejected('not_room_owner', msg.type, connInfo);
       return;
     }
 
@@ -339,6 +363,7 @@ export default class PartyServer implements Party.Server {
           // (the reject path intentionally does not echo the add back).
           this.sendError('pending_cap', `Fila cheia (${MAX_PENDING_REQUESTS}). Marque pedidos como feitos para liberar espaço.`, msg.request.id);
           console.warn(`${this.tag} ${user}: add-request #${msg.request.id} rejected (pending cap ${MAX_PENDING_REQUESTS})`);
+          this.reportRejected('pending_cap', msg.type, connInfo);
           break;
         }
         if (this.sources.sortMode === 'fifo') {
@@ -426,6 +451,7 @@ export default class PartyServer implements Party.Server {
           await this.persistAll();
         } catch (e) {
           console.error(`${this.tag} SET-ALL PERSIST FAILED (${this.requests.length} requests):`, e);
+          this.reportPersistFailed('set-all', e);
           this.sendError('persist_failed', 'Erro ao salvar dados localmente. Tentando sincronizar com o banco de dados.');
         }
         this.scheduleSyncRequests();
@@ -500,6 +526,7 @@ export default class PartyServer implements Party.Server {
       this.scheduleSyncRequests(reorderOnly);
     } catch (e) {
       console.error(`${this.tag} PERSIST FAILED (${this.requests.length} requests):`, e);
+      this.reportPersistFailed(reorderOnly ? 'reorder' : 'persist', e);
       this.sendError('persist_failed', 'Erro ao salvar dados localmente. Tentando sincronizar com o banco de dados.');
       this.needsFullSync = true;
       this.scheduleSyncRequests();
@@ -538,6 +565,9 @@ export default class PartyServer implements Party.Server {
         body: JSON.stringify({ requests: requestsToSync, mode }),
       });
       if (res.ok) {
+        if (this.d1SyncFailCount > 0) {
+          this.telemetry.capture('fila_party_d1_sync_recovered', { target: 'requests', after_failures: this.d1SyncFailCount });
+        }
         this.d1SyncFailCount = 0;
         // Delete done (and optionally type='none') request keys from DO (unless
         // re-dirtied during sync, or among the newest done the strip still shows)
@@ -561,18 +591,19 @@ export default class PartyServer implements Party.Server {
         console.error(`${this.tag} D1 sync requests failed: ${res.status}`);
         for (const id of syncingIds) this.dirtyRequestIds.add(id);
         this.needsFullSync = true;
-        this.handleD1SyncFailure();
+        this.handleD1SyncFailure({ status: res.status, mode });
       }
     } catch (e) {
       console.error(`${this.tag} D1 sync requests error:`, e);
       for (const id of syncingIds) this.dirtyRequestIds.add(id);
       this.needsFullSync = true;
-      this.handleD1SyncFailure();
+      this.handleD1SyncFailure({ status: null, mode, error: errorText(e) });
     }
   }
 
-  private handleD1SyncFailure() {
+  private handleD1SyncFailure(details: { status: number | null; mode: string; error?: string }) {
     this.d1SyncFailCount++;
+    this.reportD1Failure('requests', { ...details, fail_count: this.d1SyncFailCount, request_count: this.requests.length });
     if (this.d1SyncFailCount === PartyServer.D1_SYNC_FAIL_NOTIFY) {
       this.sendError('d1_sync_failed', 'Sincronização com o banco de dados falhou repetidamente. Dados estão seguros localmente, mas podem ser perdidos se o servidor reiniciar.');
     }
@@ -591,12 +622,14 @@ export default class PartyServer implements Party.Server {
       });
       if (!res.ok) {
         console.error(`${this.tag} D1 sources recovery failed: ${res.status}`);
+        this.reportD1Failure('recover-sources', { status: res.status });
         return null;
       }
       const data = await res.json<{ sources: Partial<SourcesSettings> | null }>();
       return data.sources;
     } catch (e) {
       console.error(`${this.tag} D1 sources recovery error:`, e);
+      this.reportD1Failure('recover-sources', { status: null, error: errorText(e) });
       return null;
     }
   }
@@ -613,12 +646,14 @@ export default class PartyServer implements Party.Server {
       });
       if (!res.ok) {
         console.error(`${this.tag} D1 recovery failed: ${res.status}`);
+        this.reportD1Failure('recover-requests', { status: res.status });
         return null;
       }
       const data = await res.json<{ requests: SerializedRequest[] }>();
       return data.requests.length > 0 ? data.requests : null;
     } catch (e) {
       console.error(`${this.tag} D1 recovery error:`, e);
+      this.reportD1Failure('recover-requests', { status: null, error: errorText(e) });
       return null;
     }
   }
@@ -639,11 +674,13 @@ export default class PartyServer implements Party.Server {
       });
       if (!res.ok) {
         console.error(`${this.tag} D1 sync sources failed: ${res.status}`);
+        this.reportD1Failure('sources', { status: res.status });
       } else {
         console.log(`${this.tag} D1 synced sources`);
       }
     } catch (e) {
       console.error(`${this.tag} D1 sync sources error:`, e);
+      this.reportD1Failure('sources', { status: null, error: errorText(e) });
     }
   }
 
@@ -754,6 +791,43 @@ export default class PartyServer implements Party.Server {
     }
   }
 
+  // ---------- telemetry ----------
+
+  private senderProps(connInfo: ConnectionInfo | undefined) {
+    const login = connInfo?.user?.login.toLowerCase() ?? null;
+    return {
+      sender_authenticated: !!connInfo?.user,
+      sender_login: login,
+      sender_is_room_owner: login === this.room.id.toLowerCase(),
+      room_has_lock_holder: this.activeOwnerConnId !== null,
+    };
+  }
+
+  /**
+   * An edit the server refused. `not_room_owner` from an anonymous sender while the
+   * room has no lock holder is the streamer's own socket that lost its auth — the
+   * pattern behind edits that "come back" after a reload.
+   */
+  private reportRejected(code: string, messageType: string, connInfo: ConnectionInfo | undefined) {
+    this.telemetry.captureThrottled(`rejected:${code}:${messageType}`, 'fila_party_mutation_rejected', {
+      code,
+      message_type: messageType,
+      ...this.senderProps(connInfo),
+    });
+  }
+
+  private reportPersistFailed(op: string, e: unknown) {
+    this.telemetry.captureThrottled(`persist:${op}`, 'fila_party_persist_failed', {
+      op,
+      request_count: this.requests.length,
+      error: errorText(e),
+    });
+  }
+
+  private reportD1Failure(target: string, props: Record<string, unknown>) {
+    this.telemetry.captureThrottled(`d1:${target}`, 'fila_party_d1_sync_failed', { target, ...props });
+  }
+
   private get tag() {
     return `[${this.room.id}]`;
   }
@@ -803,9 +877,15 @@ export default class PartyServer implements Party.Server {
       });
       if (!res.ok) {
         console.error(`${this.tag} D1 sync status failed: ${res.status}`);
+        this.reportD1Failure('status', { status: res.status });
       }
     } catch (e) {
       console.error(`${this.tag} D1 sync status error:`, e);
+      this.reportD1Failure('status', { status: null, error: errorText(e) });
     }
   }
+}
+
+function errorText(e: unknown): string {
+  return (e instanceof Error ? `${e.name}: ${e.message}` : String(e)).slice(0, 200);
 }
