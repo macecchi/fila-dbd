@@ -56,11 +56,6 @@ function ignoredSentence(ignored: readonly Arrival[]): string {
   return t('toast.ignoredFrom', { count: ignored.length, names: joinNames(ignored.map((a) => a.request.donor)) });
 }
 
-/** One sentence per line (sonner renders a string description on one line). */
-function Sentences({ lines }: { lines: string[] }) {
-  return <>{lines.map((line) => <div key={line}>{line}</div>)}</>;
-}
-
 function singleRequestView({ request: req, position }: Arrival): DigestView {
   const title = req.source === 'manual' ? t('toast.newRequest') :
     req.source === 'donation' ? t('toast.newRequestDonation') :
@@ -85,9 +80,9 @@ function singleIgnoredView({ request: req }: Arrival, release: () => void, actio
 /**
  * Everything that arrived since the streamer last saw the toast, in one toast. A single
  * arrival keeps the look it always had; more become a summary titled by the count of new
- * requests (or of skipped messages, if that's all there is), with the details in the
- * description: the new requests with their characters, then the skipped messages with
- * their senders. Every view sets `description` and `action` explicitly: sonner merges an
+ * requests (or of skipped messages, if that's all there is), with the details in a
+ * one-line description: the new requests with their characters, then the skipped
+ * messages with their senders. Every view sets `description` and `action` explicitly: sonner merges an
  * update into the toast it replaces, so a field left out would keep its old value.
  */
 export function renderArrivals(items: readonly Arrival[], release: () => void, actions: ToastActions): DigestView {
@@ -105,15 +100,15 @@ export function renderArrivals(items: readonly Arrival[], release: () => void, a
 
   // Skipped messages had already qualified (a donation at or above the minimum, a
   // resub, an eligible chat command), so the streamer wants to know whose they were.
-  const lines = [
+  const details = [
     requests.length > 0 ? requestsSentence(requests) : null,
     ignored.length > 0 ? ignoredSentence(ignored) : null,
-  ].filter((line) => line !== null);
+  ].filter((sentence) => sentence !== null);
   return {
     title: requests.length > 0
       ? t('toast.newRequests', { count: requests.length })
       : t('toast.ignoredCount', { count: ignored.length }),
-    options: { description: lines.length > 0 ? <Sentences lines={lines} /> : undefined, action },
+    options: { description: details.length > 0 ? details.join(' · ') : undefined, action },
   };
 }
 

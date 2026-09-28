@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, render, act } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { renderHook, act } from '@testing-library/react';
 import { toast, type ExternalToast } from 'sonner';
 import { useRequestToasts, joinNames, REQUESTS_TOAST_ID } from './useRequestToasts';
 import { READ_DELAY_MS } from '../utils/toastDigest';
@@ -37,12 +36,9 @@ type Action = { label: string; onClick: (e: unknown) => void };
 const calls = () => toastMock.mock.calls as Call[];
 const last = () => calls().at(-1)!;
 
-/** The summary's description, one entry per line. */
+/** The summary's description, split back into its sentences. */
 function sentences(description: ExternalToast['description']) {
-  const { container, unmount } = render(<>{description as ReactNode}</>);
-  const text = [...container.querySelectorAll('div > div')].map((div) => div.textContent);
-  unmount();
-  return text;
+  return String(description).split(' · ');
 }
 
 function setOnTab(on: boolean) {
@@ -242,6 +238,7 @@ describe('useRequestToasts', () => {
       expect(new Set(calls().map(([, o]) => o.id)).size).toBe(1);
       const [title, opts] = last();
       expect(title).toBe(t('toast.newRequests', { count: 2 }));
+      expect(typeof opts.description).toBe('string'); // one line
       expect(sentences(opts.description)).toEqual([
         t('toast.newRequestsOf', { count: 2, names: t('toast.namesTwo', { a: 'Trapper', b: 'Nurse' }) }),
         t('toast.ignoredFrom', { count: 2, names: t('toast.namesTwo', { a: 'Ana', b: 'Duda' }) }),
