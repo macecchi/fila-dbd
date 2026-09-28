@@ -14,7 +14,6 @@ export { DONATE_BOT_NAMES, isDonateBot } from '../utils/helpers';
 
 let ws: WebSocket | null = null;
 let activeStores: ChannelStores | null = null;
-let intentionalClose = false;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
@@ -40,21 +39,22 @@ function clearReconnect() {
 export function disconnect() {
   clearReconnect();
   if (ws) {
-    intentionalClose = true;
-    ws.close();
+    // Dropping the reference first is what makes this close intentional: the socket's own
+    // handlers stand down once it is no longer `ws`.
+    const closing = ws;
     ws = null;
+    closing.close();
+    console.log('Disconnected from Twitch IRC');
     activeStores?.useChannelInfo.getState().setIrcConnectionState('disconnected', false);
   }
 }
 
+/** Debug: drop the live socket as the network would, so it goes through the reconnect path. */
 export function simulateDisconnect(permanent = false) {
   if (permanent) {
     reconnectAttempts = MAX_RECONNECT_ATTEMPTS;
   }
-  if (ws) {
-    ws.close();
-    ws = null;
-  }
+  ws?.close();
 }
 
 let currentChannel: string | null = null;
@@ -65,11 +65,10 @@ export function connect(channel: string) {
 
   clearReconnect();
   if (ws) {
-    intentionalClose = true;
-    ws.close();
+    const replaced = ws;
     ws = null;
+    replaced.close();
   }
-  intentionalClose = false;
   currentChannel = ch;
 
   const { setIrcConnectionState } = getStores().useChannelInfo.getState();
@@ -83,7 +82,12 @@ export function connect(channel: string) {
     socket.send('NICK justinfan' + Math.floor(Math.random() * 99999));
     socket.send(`JOIN #${ch}`);
   };
+  // A socket that was replaced or closed on purpose finishes its close handshake later, and
+  // may still deliver a few lines meanwhile: once it isn't `ws` it must not touch state, or
+  // its close drops the reference to the socket that replaced it and schedules a reconnect —
+  // leaving two sockets reading chat, one of which disconnect() can no longer reach.
   socket.onmessage = (e) => {
+    if (socket !== ws) return;
     for (const line of e.data.split('\r\n')) {
       const command = ircCommand(line);
       if (command === 'PING') socket.send('PONG :tmi.twitch.tv');
@@ -97,14 +101,8 @@ export function connect(channel: string) {
     }
   };
   socket.onclose = () => {
+    if (socket !== ws) return;
     ws = null;
-    if (intentionalClose) {
-      console.log('Disconnected from Twitch IRC');
-      setIrcConnectionState('disconnected');
-      intentionalClose = false;
-      return;
-    }
-    intentionalClose = false;
 
     if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS && currentChannel) {
       reconnectAttempts++;
@@ -128,8 +126,9 @@ export function connect(channel: string) {
  * The command of a raw IRC line (`PRIVMSG`, `USERNOTICE`, `366`, …), past its `@tags` and
  * `:prefix`. Dispatch must go by this, never by searching the line: tags carry message ids,
  * nonces, timestamps and user ids, and the text is whatever the chatter typed, so a substring
- * like `366` or `PRIVMSG` shows up in ordinary messages — matching `366` anywhere used to
- * swallow ~3% of chat, donation and resub lines as a JOIN confirmation.
+ * like `366` or `USERNOTICE` shows up in ordinary messages. Matching `366` anywhere used to
+ * swallow ~3% of chat, donation and resub lines as a JOIN confirmation — and every line of a
+ * channel (or donation bot) whose id contains it.
  */
 export function ircCommand(line: string): string {
   let rest = line;
@@ -417,7 +416,7 @@ window.dbdDebug = {
   },
   raw: (ircLine: string) => {
     if (!checkWriteMode()) return;
-    dispatchChatLine(ircLine);
+    dispatchChatLine(ircLine.trim());
   },
   review: () => window.dispatchEvent(new CustomEvent('dbd:open-review')),
   // Shows the "new version" toast with the inactivity auto-update countdown.
