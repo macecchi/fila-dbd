@@ -54,8 +54,8 @@ export const CHARACTERS: CharacterData = {
         { name: "Dustin Henderson", aliases: [], portrait: "/images/portraits/S50_DustinHenderson.webp" },
         { name: "Eleven", aliases: ["Jane Hopper", "Onze"], portrait: "/images/portraits/S51_Eleven.webp" },
         { name: "Kwon Tae-young", aliases: [], portrait: "/images/portraits/S52_KwonTae-young.webp" },
-        { name: "Shane Wiigwaas", aliases: [] },
-        { name: "Aurora Stardotter", aliases: [] },
+        { name: "Shane Wiigwaas", aliases: [], portrait: "/images/portraits/S53_ShaneWiigwaas.webp" },
+        { name: "Aurora Stardotter", aliases: [], portrait: "/images/portraits/S54_AuroraStardotter.webp" },
     ],
     killers: [
         { name: "Trapper", aliases: ["Caçador"], portrait: "/images/portraits/K01_TheTrapper.webp" },

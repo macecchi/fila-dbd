@@ -6,10 +6,23 @@ import type {
   WrappedLanguage,
 } from '@filadbd/shared';
 
-const MODEL = 'gemini-3.1-flash-lite';
+// Quality-first single model for the narrative: it runs at most 5x/day per
+// room, so unlike the high-volume extraction path it's worth paying for the
+// strongest flash model rather than degrading to a weaker fallback. It gets
+// one retry on transient errors (429/5xx) or a timeout.
+const NARRATIVE_MODEL = 'gemini-3.6-flash';
+const NARRATIVE_ATTEMPTS = 2;
 const RETRIABLE_CODES = [429, 500, 502, 503, 504];
-const MAX_RETRIES = 2;
-const RETRY_DELAYS = [2000, 4000];
+const RETRY_DELAY_MS = 2000;
+const ATTEMPT_TIMEOUT_MS = 25_000;
+
+// The narrative is the heart of the retrospective — if every model fails, the
+// generation fails (nothing is stored) rather than caching a generic recap.
+export class NarrativeError extends Error {
+  constructor() {
+    super('narrative_failed');
+  }
+}
 
 // Requests that count as real character requests for stats. `type = 'none'`
 // rows are detected non-requests (small talk donations etc.) — excluded from
@@ -170,33 +183,6 @@ export async function computeWrappedStats(
   return { stats, priv, sampleMessages, requesterNames: (requesterNames.results ?? []).map((r) => r.donor) };
 }
 
-const FALLBACK_NARRATIVES: Record<WrappedLanguage, WrappedNarrative> = {
-  'pt-BR': {
-    personaTitle: 'Lenda do Nevoeiro',
-    personaText: 'Sua comunidade encheu a fila de pedidos nesta edição.',
-    intro: 'A neblina baixou, os pedidos subiram. Essa é a história da sua fila.',
-    captions: {},
-    highlights: [],
-    funniestNames: [],
-    superlative: {
-      title: 'Streamer Requisitado(a) pela Entidade',
-      text: 'A fila não perdoou. Que venha a próxima edição!',
-    },
-  },
-  en: {
-    personaTitle: 'Legend of the Fog',
-    personaText: 'Your community filled the queue with requests this edition.',
-    intro: 'The fog rolled in, the requests rolled up. This is the story of your queue.',
-    captions: {},
-    highlights: [],
-    funniestNames: [],
-    superlative: {
-      title: 'Most Requested by the Entity',
-      text: 'The queue showed no mercy. On to the next edition!',
-    },
-  },
-};
-
 function buildNarrativePrompt(
   language: WrappedLanguage,
   channelName: string,
@@ -271,27 +257,26 @@ Retorne APENAS JSON:
 - superlative: um "prêmio" final no estilo superlativo de anuário (title + text), específico deste canal.`;
 }
 
-export async function generateWrappedNarrative(
-  channelName: string,
-  stats: WrappedStats,
-  priv: WrappedPrivate,
-  sampleMessages: string[],
+// One narrative attempt against one model. Returns the parsed narrative, or
+// throws — { retriable: true } errors mean "same model may still work".
+async function narrativeAttempt(
+  model: string,
+  prompt: string,
   requesterNames: string[],
-  apiKey: string,
-  language: WrappedLanguage = 'pt-BR',
-  attempt = 0
+  apiKey: string
 ): Promise<WrappedNarrative> {
-  const prompt = buildNarrativePrompt(language, channelName, stats, priv, sampleMessages, requesterNames);
-
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+      signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
-          maxOutputTokens: 2000,
+          // Generous: 3.6-flash is a thinking model and its thought tokens
+          // count toward this limit — too tight a cap truncates the JSON.
+          maxOutputTokens: 8000,
           temperature: 1.0,
           responseMimeType: 'application/json',
           responseSchema: {
@@ -351,40 +336,50 @@ export async function generateWrappedNarrative(
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     const msg = (err as any).error?.message || `HTTP ${res.status}`;
-    console.warn(`[wrapped] Narrative request failed with status ${res.status}: ${msg}`);
-    if (RETRIABLE_CODES.includes(res.status) && attempt < MAX_RETRIES) {
-      await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
-      return generateWrappedNarrative(channelName, stats, priv, sampleMessages, requesterNames, apiKey, language, attempt + 1);
-    }
-    console.error(`[wrapped] Narrative generation failed, using fallback: ${msg}`);
-    return FALLBACK_NARRATIVES[language];
+    throw Object.assign(new Error(`${model}: ${res.status} ${msg}`), {
+      retriable: RETRIABLE_CODES.includes(res.status),
+    });
   }
 
   const data = (await res.json()) as any;
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) {
-    console.warn(`[wrapped] Empty narrative response`);
-    if (attempt < MAX_RETRIES) {
-      await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
-      return generateWrappedNarrative(channelName, stats, priv, sampleMessages, requesterNames, apiKey, language, attempt + 1);
+  if (!text) throw Object.assign(new Error(`${model}: empty response`), { retriable: true });
+
+  const parsed = JSON.parse(text) as WrappedNarrative; // throws → not retriable on this attempt
+  // Cap highlights defensively — the UI renders each as its own slide.
+  parsed.highlights = (parsed.highlights ?? []).slice(0, 3);
+  // Only keep funniest-name picks that actually exist in the community (no
+  // hallucinated names), matched case-insensitively against the real list.
+  const known = new Map(requesterNames.map((n) => [n.toLowerCase(), n]));
+  parsed.funniestNames = (parsed.funniestNames ?? [])
+    .filter((f) => known.has(f.name?.toLowerCase?.()))
+    .map((f) => ({ name: known.get(f.name.toLowerCase())!, comment: f.comment }))
+    .slice(0, 4);
+  return parsed;
+}
+
+export async function generateWrappedNarrative(
+  channelName: string,
+  stats: WrappedStats,
+  priv: WrappedPrivate,
+  sampleMessages: string[],
+  requesterNames: string[],
+  apiKey: string,
+  language: WrappedLanguage = 'pt-BR'
+): Promise<{ narrative: WrappedNarrative; model: string }> {
+  const prompt = buildNarrativePrompt(language, channelName, stats, priv, sampleMessages, requesterNames);
+
+  for (let attempt = 0; attempt < NARRATIVE_ATTEMPTS; attempt++) {
+    try {
+      const narrative = await narrativeAttempt(NARRATIVE_MODEL, prompt, requesterNames, apiKey);
+      return { narrative, model: NARRATIVE_MODEL };
+    } catch (e: any) {
+      console.warn(`[wrapped] Narrative attempt failed (${NARRATIVE_MODEL}, attempt ${attempt + 1}): ${e?.message ?? e}`);
+      const hasRetry = attempt < NARRATIVE_ATTEMPTS - 1 && (e?.retriable || e?.name === 'TimeoutError');
+      if (hasRetry) await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
     }
-    return FALLBACK_NARRATIVES[language];
   }
 
-  try {
-    const parsed = JSON.parse(text) as WrappedNarrative;
-    // Cap highlights defensively — the UI renders each as its own slide.
-    parsed.highlights = (parsed.highlights ?? []).slice(0, 3);
-    // Only keep funniest-name picks that actually exist in the community (no
-    // hallucinated names), matched case-insensitively against the real list.
-    const known = new Map(requesterNames.map((n) => [n.toLowerCase(), n]));
-    parsed.funniestNames = (parsed.funniestNames ?? [])
-      .filter((f) => known.has(f.name?.toLowerCase?.()))
-      .map((f) => ({ name: known.get(f.name.toLowerCase())!, comment: f.comment }))
-      .slice(0, 4);
-    return parsed;
-  } catch (e) {
-    console.error('[wrapped] Failed to parse narrative JSON:', e);
-    return FALLBACK_NARRATIVES[language];
-  }
+  console.error('[wrapped] Narrative generation failed');
+  throw new NarrativeError();
 }

@@ -22,14 +22,18 @@ For each new character, follow the existing entry style:
 - **Survivors**: `{ name, aliases }`. Aliases are usually empty for originals; add well-known alternate names for licensed characters (e.g. Eleven → "Jane Hopper").
 - Append at the end of the respective array, preserving release order.
 
-## 3. Killer portrait
+## 3. Portraits (killers AND survivors)
 
-1. On the wiki, the killer page references a portrait file like `K##_TheName_Portrait.png` (the `K##` index continues the sequence — check the highest existing file in `apps/web/public/images/portraits/`, and it must match the wiki's index).
-2. Download the original: `https://deadbydaylight.wiki.gg/images/K##_TheName_Portrait.png?format=original` (verify it's a real PNG with `file`).
-3. Convert to the repo format (200×200 webp): `cwebp -quiet -resize 200 200 -q 85 in.png -o apps/web/public/images/portraits/K##_TheName.webp` (note: no `_Portrait` suffix in the repo filename).
-4. Reference it in the entry as `/images/portraits/K##_TheName.webp`.
+Every character gets two webp portraits: a 200×200 in `apps/web/public/images/portraits/` (queue view) and a 512×512 in `apps/web/public/images/portraits/lg/` (Wrapped page — `getCharacterPortraitLarge` derives the `lg/` path from the same filename, so the two names must match).
 
-Survivors have no portraits in this app.
+1. On the wiki, the character page references a portrait file like `K##_TheName_Portrait.png` / `S##_FirstLast_Portrait.png` (the index continues the sequence — check the highest existing file in `apps/web/public/images/portraits/`, and it must match the wiki's index; probe with a HEAD request if unsure).
+2. Download the original: `https://deadbydaylight.wiki.gg/images/<wiki filename>?format=original` (verify it's a real PNG with `file`).
+3. Convert to both repo formats (note: no `_Portrait` suffix in the repo filenames):
+   ```bash
+   cwebp -quiet -resize 200 200 -q 85 in.png -o apps/web/public/images/portraits/<Name>.webp
+   cwebp -quiet -resize 512 512 -q 85 in.png -o apps/web/public/images/portraits/lg/<Name>.webp
+   ```
+4. Reference it in the entry as `portrait: "/images/portraits/<Name>.webp"` — killers and survivors alike (the `lg/` variant is resolved by convention, never referenced in data).
 
 ## 4. Verify
 
@@ -42,7 +46,7 @@ bun run typecheck
 Sanity-check matching (from `packages/shared/`):
 
 ```bash
-bun -e "import {tryLocalMatch, getKillerPortrait} from './src/characters.ts'; console.log(tryLocalMatch('<new name>'), tryLocalMatch('<pt-br alias>'), getKillerPortrait('<new killer name>'))"
+bun -e "import {tryLocalMatch, getCharacterPortrait, getCharacterPortraitLarge} from './src/characters.ts'; console.log(tryLocalMatch('<new name>'), tryLocalMatch('<pt-br alias>'), getCharacterPortrait('<new name>'), getCharacterPortraitLarge('<new name>'))"
 ```
 
 If running locally with a browser available, also confirm the webp serves/renders via the `web` launch config.

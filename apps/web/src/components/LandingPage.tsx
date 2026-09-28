@@ -7,8 +7,7 @@ import { getKillerPortrait } from '../data/characters';
 import { CharacterAvatar } from './CharacterAvatar';
 import { SyncSweep } from './SyncSweep';
 import { loadCachedChannels, saveCachedChannels, type ActiveRoom } from '../store/channelsCache';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
+import { API_URL } from '../config';
 
 // Twitch live-preview thumbnails share a stable URL whose image updates over time,
 // so the browser keeps serving its cached copy (stale until a hard refresh). Bust

@@ -1,6 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, Suspense } from 'react';
 import { ChannelHeader } from './components/ChannelHeader';
-import { WrappedBanner } from './components/WrappedBanner';
 import { HeaderMenu } from './components/HeaderMenu';
 import { CharacterRequestList } from './components/CharacterRequestList';
 import { SourcesBadges } from './components/SourcesBadges';
@@ -401,8 +400,6 @@ function ChannelApp() {
           </header>
 
           <ChannelHeader />
-
-          <WrappedBanner channel={channel} isOwner={canControlConnection} />
 
         <main className="grid">
           <Panel as="div" className="panel">

@@ -11,6 +11,7 @@ vi.mock('./wrapped', () => ({
 }));
 vi.mock('./twitch', () => ({
   getAppToken: vi.fn().mockResolvedValue(null),
+  getValidatedAppToken: vi.fn().mockResolvedValue(null),
   fetchProfiles: vi.fn().mockResolvedValue([]),
   fetchStreams: vi.fn().mockResolvedValue([]),
   fetchRecentVodThumbs: vi.fn().mockResolvedValue([]),
@@ -128,7 +129,7 @@ describe('Wrapped endpoints', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCompute.mockResolvedValue({ stats: STATS, priv: PRIV, sampleMessages: [], requesterNames: ['viewer1'] });
-    mockNarrative.mockResolvedValue(NARRATIVE);
+    mockNarrative.mockResolvedValue({ narrative: NARRATIVE, model: 'gemini-3.6-flash' });
   });
 
   describe('GET /rooms/:roomId/wrapped/:edition (public)', () => {

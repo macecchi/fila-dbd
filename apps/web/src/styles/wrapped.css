@@ -1216,7 +1216,25 @@
   height: 72px;
   object-fit: contain;
   opacity: 0.9;
-  filter: drop-shadow(0 4px 20px rgba(120, 32, 42, 0.6));
+  /* source image is near-black — invert to white so it reads on the dark bg */
+  filter: brightness(0) invert(0.92) drop-shadow(0 4px 20px rgba(255, 106, 60, 0.35));
+}
+
+/* wrapped-item-in animates `filter: blur()`, which would REPLACE the tint
+   above while it runs (animations override the whole property), flashing the
+   raw black asset. This variant bakes the tint into both frames; the
+   selector that applies it lives next to the wrapped-item-in rules below. */
+@keyframes wrapped-emblem-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+    filter: brightness(0) invert(0.92) blur(3px) drop-shadow(0 4px 20px rgba(255, 106, 60, 0.35));
+  }
+  to {
+    opacity: 0.9;
+    transform: translateY(0);
+    filter: brightness(0) invert(0.92) blur(0) drop-shadow(0 4px 20px rgba(255, 106, 60, 0.35));
+  }
 }
 
 .wr-finale .wr-emblem {
@@ -1486,6 +1504,16 @@
 .wrapped-slide-content > *:nth-child(3) { animation-delay: 0.24s; }
 .wrapped-slide-content > *:nth-child(4) { animation-delay: 0.38s; }
 .wrapped-slide-content > *:nth-child(5) { animation-delay: 0.52s; }
+
+/* Must come after the shorthand rules above so it wins the cascade: the
+   emblem needs the filter-carrying entry variant (see wrapped-emblem-item-in)
+   or its white tint is replaced by the keyframes' bare blur() while animating.
+   The finale is excluded — its emblem uses wrapped-emblem-pop, whose keyframes
+   don't touch `filter`, so the tint survives there. */
+.wrapped-slide-content > .wr-emblem,
+.wr-poster:not(.wr-finale) > .wr-emblem {
+  animation-name: wrapped-emblem-item-in;
+}
 
 .wrapped-caption {
   font-size: 1rem;

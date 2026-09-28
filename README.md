@@ -51,7 +51,7 @@ You need to keep the site open to receive requests.
 
 A Spotify-Wrapped-style recap of your queue, generated per edition (first edition covers everything up to July 2026). Open it from the menu ("Retrospectiva") or at `/:channel/wrapped`. It compiles your most requested killers and survivors, top requesters, peak months, and AI-written highlights personalized to your community (including a hall of fame of the funniest usernames). Money stats appear only to the channel owner, with amounts hidden by default. The wrapped is written in a single language (Portuguese or English) that you pick when generating it — every viewer sees it in that language. The page is public once generated — share the link with your community.
 
-The share button opens a menu with **Copy link**, native **Share** (on supported devices), and **Video for your Stories** — a short vertical video recap you can post straight to Instagram Stories. On a phone it opens the video page directly; on desktop it shows a QR code to scan with your phone instead. On the video page, tap **Generate video** to record the ~12s animation, then download it or share it directly (on devices that support sharing files).
+The share button opens a menu with **Copy link**, native **Share** (on supported devices), and **Video for your Stories** — a short vertical video recap you can post straight to Instagram Stories. On a phone it opens the video page directly; on desktop it shows a QR code to scan with your phone instead. On the video page, tap **Export video** to record the ~28s animation, then share it straight to your Stories from the share sheet (on devices that support sharing files) or download it.
 
 #### Sources panel
 
@@ -221,7 +221,7 @@ Use o nosso [Discord](https://discord.gg/6pY7Efhxd) ou o próprio GitHub para ma
 
 Um recap da sua fila no estilo Spotify Wrapped, gerado por edição (a primeira edição cobre tudo até julho de 2026). Abra pelo menu ("Retrospectiva") ou em `/:canal/wrapped`. Ela compila seus killers e sobreviventes mais pedidos, quem mais pediu, meses de pico e destaques escritos por IA personalizados para a sua comunidade (incluindo um hall da fama dos nomes de usuário mais engraçados). Estatísticas de dinheiro aparecem só para o dono do canal, com valores ocultos por padrão. A retrospectiva é escrita em um único idioma (português ou inglês) que você escolhe na hora de gerar — todo mundo vê nesse idioma. A página fica pública depois de gerada — compartilhe o link com a sua comunidade.
 
-O botão de compartilhar abre um menu com **Copiar link**, **Compartilhar** nativo (em dispositivos compatíveis) e **Vídeo para o Stories** — um vídeo vertical curto para postar direto nos Stories do Instagram. No celular, ele abre a página do vídeo direto; no computador, mostra um QR code para escanear com o celular. Na página do vídeo, toque em **Gerar vídeo** para gravar a animação de ~12s e depois baixe ou compartilhe direto (em dispositivos que suportam compartilhar arquivos).
+O botão de compartilhar abre um menu com **Copiar link**, **Compartilhar** nativo (em dispositivos compatíveis) e **Vídeo para o Stories** — um vídeo vertical curto para postar direto nos Stories do Instagram. No celular, ele abre a página do vídeo direto; no computador, mostra um QR code para escanear com o celular. Na página do vídeo, toque em **Exportar vídeo** para gravar a animação de ~28s e depois compartilhe direto nos Stories pelo menu de compartilhamento (em dispositivos que suportam compartilhar arquivos) ou baixe o arquivo.
 
 #### Painel de fontes
 

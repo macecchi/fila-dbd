@@ -1,8 +1,7 @@
 import { tryLocalMatch, isWholeMessageMatch } from '../data/characters';
 import { useAuth } from '../store/auth';
 import type { Request, RequestExtra, RequestExtraType } from '../types';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
+import { API_URL } from '../config';
 
 declare const __APP_VERSION__: string;
 

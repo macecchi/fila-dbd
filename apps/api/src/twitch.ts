@@ -59,6 +59,26 @@ export async function getAppToken(env: TwitchEnv): Promise<string | null> {
   return data.access_token;
 }
 
+// Like getAppToken, but verifies the (possibly KV-cached) token is still
+// accepted by Twitch. A cached app token can be invalidated before its KV TTL
+// expires (e.g. client secret rotation), which makes every Helix call 401 —
+// and since our helpers are best-effort, everything silently returns empty.
+// Use this on low-frequency paths where correctness matters more than the
+// extra validate subrequest (e.g. Wrapped generation).
+export async function getValidatedAppToken(env: TwitchEnv): Promise<string | null> {
+  const token = await getAppToken(env);
+  if (!token) return null;
+
+  const res = await fetch("https://id.twitch.tv/oauth2/validate", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.ok) return token;
+
+  console.warn(`[twitch] cached app token rejected by validate (${res.status}); refreshing`);
+  await env.CACHE.delete(APP_TOKEN_KV_KEY);
+  return getAppToken(env);
+}
+
 function helixHeaders(token: string, clientId: string) {
   return { Authorization: `Bearer ${token}`, "Client-Id": clientId };
 }
@@ -98,25 +118,38 @@ export async function fetchRecentVodThumbs(
   login: string,
   token: string,
   clientId: string,
-  count = 3
+  count = 6
 ): Promise<string[]> {
   try {
-    const userRes = await fetch(`https://api.twitch.tv/helix/users?login=${login}`, { headers: helixHeaders(token, clientId) });
-    if (!userRes.ok) return [];
-    const userData = await userRes.json() as { data: Array<{ id: string }> };
-    const userId = userData.data[0]?.id;
-    if (!userId) return [];
+    const userRes = await fetch(`https://api.twitch.tv/helix/users?login=${encodeURIComponent(login)}`, { headers: helixHeaders(token, clientId) });
+    if (!userRes.ok) {
+      console.warn(`[vod-thumbs] /users failed for ${login}: ${userRes.status}`);
+      return [];
+    }
+    const userData = await userRes.json() as { data?: Array<{ id: string }> };
+    const userId = userData.data?.[0]?.id;
+    if (!userId) {
+      console.warn(`[vod-thumbs] no Twitch user found for login ${login}`);
+      return [];
+    }
 
     const vodRes = await fetch(
       `https://api.twitch.tv/helix/videos?user_id=${userId}&type=archive&first=${count}`,
       { headers: helixHeaders(token, clientId) }
     );
-    if (!vodRes.ok) return [];
-    const vodData = await vodRes.json() as { data: Array<{ thumbnail_url: string }> };
-    return vodData.data
-      .map((v) => v.thumbnail_url.replace("%{width}", "640").replace("%{height}", "360"))
-      .filter((u) => u.length > 0);
-  } catch {
+    if (!vodRes.ok) {
+      console.warn(`[vod-thumbs] /videos failed for ${login}: ${vodRes.status}`);
+      return [];
+    }
+    const vodData = await vodRes.json() as { data?: Array<{ thumbnail_url: string }> };
+    return (vodData.data ?? [])
+      // Helix VOD thumbnails are URL templates (`%{width}x%{height}`; streams
+      // use `{width}x{height}`) — substitute a real size so URLs are usable.
+      // Freshly-created VODs can have an empty thumbnail_url — drop those.
+      .map((v) => v.thumbnail_url.replace(/%?\{width\}/g, "640").replace(/%?\{height\}/g, "360"))
+      .filter((u) => u.startsWith("https://"));
+  } catch (e) {
+    console.warn(`[vod-thumbs] failed for ${login}:`, e);
     return [];
   }
 }

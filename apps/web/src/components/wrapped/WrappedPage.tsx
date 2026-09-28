@@ -238,7 +238,10 @@ function EyeIcon({ open }: { open: boolean }) {
 export function WrappedPage({ channel }: { channel: string }) {
   const { t, locale } = useTranslation();
   const { isAuthenticated, user, login } = useAuth();
-  const isOwner = isAuthenticated && !!user && user.login.toLowerCase() === channel.toLowerCase();
+  // Dev bypass mirrors ChannelContext's isOwnChannel: locally, any logged-in
+  // user is treated as the owner of every channel.
+  const isOwner = isAuthenticated && !!user &&
+    (import.meta.env.DEV || user.login.toLowerCase() === channel.toLowerCase());
   const edition = CURRENT_WRAPPED_EDITION.id;
 
   const [state, setState] = useState<PageState>({ phase: 'loading' });
@@ -268,7 +271,7 @@ export function WrappedPage({ channel }: { channel: string }) {
     setState({ phase: 'loading' });
     const load = async () => {
       try {
-        const payload = isOwner ? await fetchOwnerWrapped(edition) : await fetchPublicWrapped(channel, edition);
+        const payload = isOwner ? await fetchOwnerWrapped(edition, channel) : await fetchPublicWrapped(channel, edition);
         if (!cancelled) setState({ phase: 'ready', payload });
       } catch (e) {
         if (cancelled) return;
@@ -292,7 +295,7 @@ export function WrappedPage({ channel }: { channel: string }) {
   const handleGenerate = useCallback(async () => {
     setState({ phase: 'generating' });
     try {
-      const payload = await generateWrapped(edition, genLang);
+      const payload = await generateWrapped(edition, genLang, channel);
       setState({ phase: 'ready', payload });
       setIndex(0);
     } catch (e) {

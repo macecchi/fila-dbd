@@ -4,10 +4,10 @@ import { sign } from "hono/jwt";
 import { Twitch } from "arctic";
 import { verifyJwt, type JwtPayload } from "./jwt";
 import { extractCharacters } from "./gemini";
-import { computeWrappedStats, generateWrappedNarrative } from "./wrapped";
+import { computeWrappedStats, generateWrappedNarrative, NarrativeError } from "./wrapped";
 import type { RequestExtraType, WrappedPayload, WrappedLanguage } from "@filadbd/shared";
 import { getWrappedEdition, wrappedEditionLabel, WRAPPED_MIN_REQUESTS } from "@filadbd/shared";
-import { getAppToken, fetchProfiles, fetchStreams, fetchRecentVodThumbs, cacheProfiles, sendChatMessage, checkBotIsMod } from "./twitch";
+import { getAppToken, getValidatedAppToken, fetchProfiles, fetchStreams, fetchRecentVodThumbs, cacheProfiles, sendChatMessage, checkBotIsMod } from "./twitch";
 
 const BATCH_CHUNK_SIZE = 80;
 
@@ -42,6 +42,9 @@ app.use(
     origin: (origin, c) => {
       const frontend = new URL(c.env.FRONTEND_URL);
       if (!origin) return frontend.origin;
+      // Dev (FRONTEND_URL is localhost): reflect any origin so the app also
+      // works when opened from another device on the LAN (phone testing).
+      if (frontend.hostname === "localhost") return origin;
       const url = new URL(origin);
       if (url.hostname === frontend.hostname || url.hostname.endsWith(`.${frontend.hostname}`)) return origin;
       return frontend.origin;
@@ -322,10 +325,18 @@ api.get("/rooms/:roomId/requests", async (c) => {
 
 const DAILY_WRAPPED_GENERATE_LIMIT = 5;
 
+// Local dev only (FRONTEND_URL is localhost, same signal as CORS): any
+// authenticated user may act as another room's owner, mirroring the channel
+// page's dev bypass (ChannelContext isOwnChannel / PartyKit isDev).
+function devWrappedRoomOverride(env: Bindings, requested: string | undefined): string | null {
+  if (!requested || new URL(env.FRONTEND_URL).hostname !== "localhost") return null;
+  return requested.toLowerCase();
+}
+
 // GET /api/wrapped/:edition — owner's full payload (includes private money stats)
 api.get("/wrapped/:edition", async (c) => {
   const user = c.get("jwtPayload");
-  const roomId = user.login.toLowerCase();
+  const roomId = devWrappedRoomOverride(c.env, c.req.query("channel")) ?? user.login.toLowerCase();
   const edition = c.req.param("edition");
 
   const row = await c.env.DB.prepare(
@@ -337,10 +348,10 @@ api.get("/wrapped/:edition", async (c) => {
 });
 
 // POST /api/wrapped/:edition/generate — compute stats, run the LLM narrative,
-// cache in D1, return the full payload. Owner-only (room = JWT login).
+// cache in D1, return the full payload. Owner-only (room = JWT login; in local
+// dev a `channel` body param may target another room, see devWrappedRoomOverride).
 api.post("/wrapped/:edition/generate", async (c) => {
   const user = c.get("jwtPayload");
-  const roomId = user.login.toLowerCase();
   const editionId = c.req.param("edition");
 
   const edition = getWrappedEdition(editionId);
@@ -348,8 +359,9 @@ api.post("/wrapped/:edition/generate", async (c) => {
 
   // The whole retrospective (narrative + UI labels) renders in one language,
   // picked by the streamer at generation time and baked into the payload.
-  const body = await c.req.json().catch(() => ({})) as { language?: string };
+  const body = await c.req.json().catch(() => ({})) as { language?: string; channel?: string };
   const language: WrappedLanguage = body.language === "en" ? "en" : "pt-BR";
+  const roomId = devWrappedRoomOverride(c.env, body.channel) ?? user.login.toLowerCase();
 
   // Per-room daily generation limit (each run is a Gemini call)
   const today = new Date().toISOString().slice(0, 10);
@@ -373,11 +385,26 @@ api.post("/wrapped/:edition/generate", async (c) => {
   console.log(`[wrapped] Generating ${editionId} for ${roomId} (${stats.totalRequests} requests)`);
 
   // Narrative + Twitch media (VOD thumbnails for slide texture) in parallel.
-  const token = await getAppToken(c.env);
-  const [narrative, vodThumbs] = await Promise.all([
-    generateWrappedNarrative(channelName, stats, priv, sampleMessages, requesterNames, c.env.GEMINI_API_KEY, language),
-    token ? fetchRecentVodThumbs(roomId, token, c.env.TWITCH_CLIENT_ID) : Promise.resolve([]),
-  ]);
+  // The narrative is essential — if every model in the chain fails, the whole
+  // generation fails (nothing stored, daily limit not consumed) so the owner
+  // can simply retry, instead of permanently caching a generic recap.
+  // Validated token: a KV-cached app token invalidated before its TTL (e.g.
+  // secret rotation) would silently 401 every Helix call here — thumbs and
+  // avatars would bake into the cached payload as permanently empty.
+  const token = await getValidatedAppToken(c.env);
+  if (!token) console.warn(`[wrapped] no Twitch app token — generating ${roomId} without VOD thumbs/avatars`);
+  let narrativeResult: Awaited<ReturnType<typeof generateWrappedNarrative>>;
+  let vodThumbs: string[];
+  try {
+    [narrativeResult, vodThumbs] = await Promise.all([
+      generateWrappedNarrative(channelName, stats, priv, sampleMessages, requesterNames, c.env.GEMINI_API_KEY, language),
+      token ? fetchRecentVodThumbs(roomId, token, c.env.TWITCH_CLIENT_ID) : Promise.resolve([]),
+    ]);
+  } catch (e) {
+    if (e instanceof NarrativeError) return c.json({ error: "narrative_failed" }, 503);
+    throw e;
+  }
+  const { narrative, model: narrativeModel } = narrativeResult;
 
   // Best-effort Twitch avatars for featured community members. Donor names are
   // free text (donation platforms), so only names that look like real Twitch
@@ -420,9 +447,9 @@ api.post("/wrapped/:edition/generate", async (c) => {
   };
 
   await c.env.DB.prepare(
-    `INSERT INTO wrapped (room_id, edition, payload, generated_at) VALUES (?, ?, ?, datetime('now'))
-     ON CONFLICT (room_id, edition) DO UPDATE SET payload = excluded.payload, generated_at = datetime('now')`
-  ).bind(roomId, edition.id, JSON.stringify(payload)).run();
+    `INSERT INTO wrapped (room_id, edition, payload, generated_at, model) VALUES (?, ?, ?, datetime('now'), ?)
+     ON CONFLICT (room_id, edition) DO UPDATE SET payload = excluded.payload, generated_at = datetime('now'), model = excluded.model`
+  ).bind(roomId, edition.id, JSON.stringify(payload), narrativeModel).run();
 
   const putPromise = c.env.CACHE.put(rateLimitKey, String(currentCount + 1), { expirationTtl: 86400 });
   try {

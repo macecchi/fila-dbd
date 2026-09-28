@@ -427,15 +427,16 @@ const ptBR = {
   // Wrapped video export (Instagram Stories)
   'wrapped.export.loadError': 'Não foi possível carregar essa retrospectiva.',
   'wrapped.export.backToWrapped': 'Voltar para a retrospectiva',
-  'wrapped.export.generateButton': 'Gerar vídeo',
-  'wrapped.export.recording': 'Gravando…',
+  'wrapped.export.generateButton': 'Exportar vídeo',
+  'wrapped.export.recording': 'Exportando…',
   'wrapped.export.ready': 'Vídeo pronto!',
   'wrapped.export.download': 'Baixar vídeo',
-  'wrapped.export.shareVideo': 'Compartilhar vídeo',
+  'wrapped.export.shareVideo': 'Compartilhar nos Stories',
+  'wrapped.export.shareHint': 'Escolha o Instagram no menu de compartilhamento para postar direto nos Stories.',
   'wrapped.export.iosHint': 'No iPhone: salve nos Fotos e publique pelo Instagram.',
   'wrapped.export.generalHint': 'Salve o vídeo e publique nos Stories do Instagram.',
   'wrapped.export.unsupported': 'Seu navegador não suporta gravação de vídeo.',
-  'wrapped.export.generateAgain': 'Gerar novamente',
+  'wrapped.export.generateAgain': 'Exportar novamente',
 
   // Language
   'lang.label': 'Idioma',

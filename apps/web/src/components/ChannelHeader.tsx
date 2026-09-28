@@ -7,9 +7,9 @@ import { useConnectionStatus } from '../hooks/useConnectionStatus';
 import { useTranslation } from '../i18n';
 import { formatRelativeTime } from '../utils/helpers';
 import { Stats } from './Stats';
+import { WrappedBanner } from './WrappedBanner';
 import { Panel } from './Panel';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
+import { API_URL } from '../config';
 
 interface RoomInfo {
   display_name: string | null;
@@ -115,6 +115,8 @@ export function ChannelHeader() {
           </span>
         </div>
       </div>
+
+      <WrappedBanner channel={channel} isOwner={canControlConnection} />
 
       <div className="channel-header-right">
         <Stats />

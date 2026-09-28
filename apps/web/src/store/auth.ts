@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { API_URL } from '../config';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
 const TWITCH_CLIENT_ID = import.meta.env.VITE_TWITCH_CLIENT_ID || '';
 
 interface TwitchUser {

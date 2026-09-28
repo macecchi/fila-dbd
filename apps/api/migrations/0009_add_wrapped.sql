@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS wrapped (
   edition TEXT NOT NULL,
   payload TEXT NOT NULL,
   generated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  -- LLM model that produced the narrative (internal bookkeeping, never exposed)
+  model TEXT,
   PRIMARY KEY (room_id, edition),
   FOREIGN KEY (room_id) REFERENCES rooms(id)
 );

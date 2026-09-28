@@ -6,6 +6,11 @@ const commitHash = (process.env.GITHUB_SHA ?? process.env.CF_PAGES_COMMIT_SHA)?.
 
 export default defineConfig({
   base: '/',
+  server: {
+    // Allow phone testing through `tailscale serve` (https://<machine>.<tailnet>.ts.net),
+    // which proxies with the ts.net Host header. Dev-only; ignored by the prod build.
+    allowedHosts: ['.ts.net']
+  },
   define: {
     __APP_VERSION__: JSON.stringify(commitHash)
   },

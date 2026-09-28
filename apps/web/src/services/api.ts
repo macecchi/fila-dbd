@@ -1,7 +1,6 @@
 import { useAuth } from '../store/auth';
 import type { SerializedRequest } from '../types';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
+import { API_URL } from '../config';
 
 export async function fetchRequestsHistory(channel: string): Promise<SerializedRequest[]> {
   const token = await useAuth.getState().getAccessToken();

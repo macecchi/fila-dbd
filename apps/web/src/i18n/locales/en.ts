@@ -429,15 +429,16 @@ const en: TranslationKeys = {
   // Wrapped video export (Instagram Stories)
   'wrapped.export.loadError': 'Could not load this wrapped.',
   'wrapped.export.backToWrapped': 'Back to wrapped',
-  'wrapped.export.generateButton': 'Generate video',
-  'wrapped.export.recording': 'Recording…',
+  'wrapped.export.generateButton': 'Export video',
+  'wrapped.export.recording': 'Exporting…',
   'wrapped.export.ready': 'Video ready!',
   'wrapped.export.download': 'Download video',
-  'wrapped.export.shareVideo': 'Share video',
+  'wrapped.export.shareVideo': 'Share to Stories',
+  'wrapped.export.shareHint': 'Pick Instagram in the share sheet to post it straight to your Stories.',
   'wrapped.export.iosHint': 'On iPhone: save it to Photos and post from Instagram.',
   'wrapped.export.generalHint': 'Save the video and post it to your Instagram Stories.',
   'wrapped.export.unsupported': 'Your browser doesn\'t support video recording.',
-  'wrapped.export.generateAgain': 'Generate again',
+  'wrapped.export.generateAgain': 'Export again',
 
   // Language
   'lang.label': 'Language',

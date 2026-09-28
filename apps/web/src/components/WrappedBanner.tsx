@@ -1,43 +1,43 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from '../i18n';
+import { useChannel } from '../store';
 import { navigate } from '../utils/helpers';
 import { CURRENT_WRAPPED_EDITION, wrappedEditionLabel } from '@filadbd/shared';
 import '../styles/wrapped-banner.css';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
+import { API_URL } from '../config';
 
 // Retrospectiva discovery banner on the channel page. Deliberately does NOT
 // import the lazy wrapped chunk (services/wrapped stays lazy) — it only needs
-// to know whether this edition was generated, via the public endpoint, and
-// caches the answer per session. The check is deferred so it never competes
-// with the queue's first paint.
+// to know whether this edition was generated, via the public endpoint (a
+// single-row PK lookup, cheap enough to ask on every mount). The check is
+// deferred so it never competes with the queue's first paint.
 export function WrappedBanner({ channel, isOwner }: { channel: string; isOwner: boolean }) {
   const { t, locale } = useTranslation();
+  const { useChannelInfo } = useChannel();
+  const owner = useChannelInfo((s) => s.owner);
   const edition = CURRENT_WRAPPED_EDITION;
   const label = wrappedEditionLabel(edition, locale === 'en' ? 'en' : 'pt-BR');
   const dismissKey = `dbd-wrapped-banner-dismissed-${edition.id}`;
 
   const [generated, setGenerated] = useState<boolean | null>(null);
+  const [payloadName, setPayloadName] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(() => {
     try { return localStorage.getItem(dismissKey) === '1'; } catch { return false; }
   });
 
   useEffect(() => {
     let cancelled = false;
-    const key = `dbd-wrapped-exists-${channel.toLowerCase()}-${edition.id}`;
-    try {
-      const cached = sessionStorage.getItem(key);
-      if (cached !== null) {
-        setGenerated(cached === '1');
-        if (cached === '1') return; // generated is final; "not yet" can change
-      }
-    } catch { /* ignore */ }
     const id = setTimeout(async () => {
       try {
         const res = await fetch(`${API_URL}/rooms/${channel.toLowerCase()}/wrapped/${edition.id}`);
         if (cancelled) return;
         setGenerated(res.ok);
-        try { sessionStorage.setItem(key, res.ok ? '1' : '0'); } catch { /* ignore */ }
+        if (res.ok) {
+          const data = await res.json().catch(() => null) as { wrapped?: { channel?: { displayName?: string } } } | null;
+          if (cancelled) return;
+          const name = data?.wrapped?.channel?.displayName || '';
+          if (name) setPayloadName(name);
+        }
       } catch { /* leave as-is — no banner is better than a wrong one */ }
     }, 1500);
     return () => { cancelled = true; clearTimeout(id); };
@@ -48,9 +48,11 @@ export function WrappedBanner({ channel, isOwner }: { channel: string; isOwner: 
   // owners always get a call to action.
   const open = () => navigate(`/${channel.toLowerCase()}/wrapped`);
 
+  const channelName = owner?.displayName || payloadName || channel;
+
   const text = isOwner
     ? (generated ? t('wrapped.banner.ownerReady', { label }) : t('wrapped.banner.ownerCta', { label }))
-    : (generated ? t('wrapped.banner.viewerReady', { label, channel }) : t('wrapped.banner.viewerNotYet', { label, channel }));
+    : (generated ? t('wrapped.banner.viewerReady', { label, channel: channelName }) : t('wrapped.banner.viewerNotYet', { label, channel: channelName }));
   const actionable = isOwner || generated;
 
   return (
