@@ -1,9 +1,11 @@
 import { useChannel } from '../store';
 import { useTranslation } from '../i18n';
+import { useQueueStatus } from '../hooks/useQueueStatus';
 
 export function SourcesBadges() {
     const { useSources, useChannelInfo } = useChannel();
     const channelStatus = useChannelInfo((s) => s.status);
+    const queueState = useQueueStatus().state;
     const sourcesEnabled = useSources((s) => s.enabled);
     const minDonation = useSources((s) => s.minDonation);
     const chatCommand = useSources((s) => s.chatCommand);
@@ -12,6 +14,9 @@ export function SourcesBadges() {
     const { t } = useTranslation();
 
     const badges = (() => {
+        // Before the server's first status only a queue saved closed says so; the sources
+        // wait for the sync that brings them.
+        if (channelStatus === null) return queueState === 'closed' ? [t('badges.queueClosed')] : [];
         if (channelStatus !== 'live') return [t('badges.queueClosed')];
         const parts: string[] = [];
         if (sourcesEnabled.donation) parts.push(t('badges.donates', { amount: String(minDonation) }));

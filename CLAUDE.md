@@ -194,6 +194,7 @@ queue cache before reloading: `Object.keys(localStorage).filter(k => k.startsWit
 - `callLLM()` - Gemini API with model fallback/retry
 - `identifyCharacter()` - Local match first, then LLM fallback
 - `loadAndReplayVOD()` - VOD chat replay via GQL
+- `useRequestToasts()` - One toast, updated in place, for what arrives while the page is open (requests + skipped `type: 'none'` messages): one arrival keeps its classic look, more become "3 novos pedidos" / "Huntress e Lich · 2 mensagens sem pedidos de Ana e Beto". It waits while the streamer is off the tab and goes `READ_DELAY_MS` after they're back (`utils/toastDigest.ts`). The baseline is the queue at the first party sync
 
 ## Sessions & ownership
 
@@ -213,7 +214,16 @@ internal bookkeeping and must never surface as a mode the streamer has to notice
   closed, the same for streamer and viewer, derived from `channelStatus` rather than this
   window's own sockets — so every window says the same thing. Sockets and the lock are
   internal; failures surface as toasts, not as a badge. Don't reintroduce a second
-  connection indicator.
+  connection indicator. Until the server's first status (`status` is `null`) it goes by the
+  room's last saved status from `/rooms/:id` (`useRoomInfo`) — saved open → connecting,
+  saved closed → closed, not loaded yet → `unknown` (no text, no animation). Never infer
+  "connecting" from this window's socket opening. The queue panel's sync bar follows the
+  same rule, and what can't be known yet is held (hidden, space kept) rather than guessed
+  and swapped: the header's name, badge and subtitle, the avatar's fallback letter, and
+  the panel's `SourcesBadges`. On the streamer's own channel the name and avatar come from
+  the sign-in (`dbd-auth`), so they don't wait. Queue cards play their enter animation only
+  for what arrives after the first sync (`CharacterRequestList`), never for the queue the
+  page loads with.
 - **The lock transfers, it never refuses** (`party.ts` `claim-ownership`): a claim from
   another window of the same streamer hands the lock over and sends the old holder
   `ownership-denied` (which clears its lock and drops its IRC). So Open/Close the queue works
@@ -276,7 +286,7 @@ the low bits of the hash away. Ordering comes from `position`, never from the ID
   reload. They are excluded from `order` and from the pending cap, and every list that
   renders the queue filters `!r.done` — so don't "fix" a done request showing up in the
   room state, and DO add that filter to anything new that consumes the requests store
-  (`useRequestToasts` in `App.tsx` needs it). Raising the constant grows DO storage and
+  (`hooks/useRequestToasts.tsx` needs it). Raising the constant grows DO storage and
   the full-sync statement (see the 100-param D1 limit).
 - ⚠️ **D1 cannot tell a completed request from a deleted one, and the recovery
   endpoint must stay pending-only because of it.** `deleted_at` exists in the schema
@@ -314,9 +324,6 @@ the low bits of the hash away. Ordering comes from `position`, never from the ID
   the requests store on boot so the queue paints before PartyKit `sync-full`, which then
   replaces it (authoritative). Versioned + defensively parsed (`store/queueCache.ts`); bump the
   version to invalidate on a shape change. Never authoritative — DO remains source of truth.
-- `fila-dbd-notif-toast-dismissed-v1` - set to `'1'` once the streamer dismisses the
-  "notifications blocked" warning toast; suppresses it permanently on that browser
-  (`store/ChannelContext.tsx`). Absent = show it.
 - `fila-dbd-live-notif-disabled-v1` - set to `'1'` when the streamer turns off the
   "Live notifications" toggle (Settings → Behavior); blocks the Web Push auto-subscribe in
   `services/push.ts` on that browser (turning it off also unsubscribes locally + server-side).

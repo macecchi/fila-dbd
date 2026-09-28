@@ -381,7 +381,8 @@ interface ChannelOwner {
 }
 
 interface ChannelInfoStore {
-  status: ChannelStatus;
+  /** Null until the server's first status; it then keeps the last one across reconnects. */
+  status: ChannelStatus | null;
   owner: ChannelOwner | null;
   /** The room is free because the streamer closed the queue, not because a socket died. */
   closedByOwner: boolean;
@@ -399,7 +400,7 @@ export type ChannelInfoStoreApi = ReturnType<typeof createChannelInfoStore>;
 
 export function createChannelInfoStore() {
   return create<ChannelInfoStore>()((set, get) => ({
-    status: 'offline',
+    status: null,
     owner: null,
     closedByOwner: false,
     hasLock: false,

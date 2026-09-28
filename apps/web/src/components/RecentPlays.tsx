@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Request } from '../types';
 import { useChannel } from '../store';
 import { useTranslation, getLocale } from '../i18n';
-import { getKillerPortrait } from '../data/characters';
+import { getCharacterPortrait } from '../data/characters';
 import { CharacterAvatar } from './CharacterAvatar';
 import { formatRelativeTime } from '../utils/helpers';
 
@@ -23,10 +23,6 @@ const SHOWN = 3;
 /** Newest first. Rows synced from D1 before `done_at` existed fall back to arrival time. */
 function doneTime(r: Request): number {
   return (r.doneAt ?? r.timestamp).getTime();
-}
-
-function portraitFor(r: Request) {
-  return r.type === 'killer' && r.character ? getKillerPortrait(r.character) ?? undefined : undefined;
 }
 
 export function RecentPlays() {
@@ -70,7 +66,7 @@ export function RecentPlays() {
               onClick={() => setHoveredId(r.id)}
               title={active ? undefined : `${r.character} — ${r.donor}`}
             >
-              <CharacterAvatar portrait={portraitFor(r)} type={r.type} size="sm" />
+              <CharacterAvatar portrait={getCharacterPortrait(r.character, r.type)} type={r.type} size="sm" />
               <div className="recent-play-reveal" aria-hidden={!active}>
                 <div className="recent-play-reveal-inner">
                   <div className="recent-play-info">

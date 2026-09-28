@@ -235,6 +235,17 @@ const en: TranslationKeys = {
 
   // Toast messages
   'toast.ignored': 'Skipped: {donor} — "{message}"',
+  'toast.ignoredCount': '{count} message without a request',
+  'toast.ignoredCount_plural': '{count} messages without requests',
+  'toast.ignoredFrom': '{count} message without a request from {names}',
+  'toast.ignoredFrom_plural': '{count} messages without requests from {names}',
+  'toast.ignoredFromNames': 'From {names}',
+  'toast.namesTwo': '{a} and {b}',
+  'toast.namesThree': '{a}, {b} and {c}',
+  'toast.namesMore': '{a}, {b} and {count} more',
+  'toast.newRequests': '{count} new request',
+  'toast.newRequests_plural': '{count} new requests',
+  'toast.review': 'Review',
   'toast.newRequest': 'New request',
   'toast.newRequestDonation': 'New request via donation',
   'toast.newRequestResub': 'New request via resub',
@@ -245,8 +256,6 @@ const en: TranslationKeys = {
   'toast.newRequestFromAmount': 'New request from {donor} ({amount})',
   'toast.undo': 'Undo',
   'toast.close': 'Close',
-  'toast.notificationsBlocked': 'Notifications blocked',
-  'toast.notificationsBlockedDesc': 'Enable notifications so we can remind you about your queue when you go live.',
   'toast.newVersionAvailable': 'Update available',
   'toast.updateAction': 'Update now',
   'toast.newVersionUpdate': 'New requests won\'t be received.',
@@ -286,18 +295,8 @@ const en: TranslationKeys = {
 
   // What's new
   'whatsNew.title': "✨ What's new",
-  'whatsNew.langToggleTitle': 'English language support',
-  'whatsNew.langToggle': 'You can now switch between English and Portuguese in the footer.',
-  'whatsNew.multiDonateBotsTitle': 'StreamElements donations support',
-  'whatsNew.multiDonateBots': 'StreamElements (GGPix, and others) is now supported for donations, in addition to LivePix.',
-  'whatsNew.multiRequestDonationsTitle': 'Multiple requests per donation',
-  'whatsNew.multiRequestDonations': 'Donations above the minimum can now contain multiple requests in one message — e.g. R$30 with R$10 minimum becomes up to 3 characters, including quantifiers like "2 de trapper".',
-  'whatsNew.chatConfirmationsTitle': 'Confirmations in chat',
-  'whatsNew.chatConfirmations': 'The @FilaDBD bot can now confirm in chat whenever a request lands in the queue. Enable it in the Donations panel.',
-  'whatsNew.buildRequestsTitle': 'Build requests',
-  'whatsNew.buildRequests': 'Donations can now include a build — perks, addons or a theme. Enable it under Donations → Build requests.',
-  'whatsNew.sourceOrderingTitle': 'More options in Priority mode ordering',
-  'whatsNew.sourceOrdering': 'You can now prioritize requests by donation value or subscription tier. Enable it in the Ordering options. The subscription tier of users now appears next to their name.',
+  'whatsNew.queueSaveFix': 'Fixed a bug that sometimes kept queue changes from being saved',
+  'whatsNew.performance': 'Performance improvements',
 
   // Push notifications
   'push.connectionLost': 'Fila DBD - Connection lost',

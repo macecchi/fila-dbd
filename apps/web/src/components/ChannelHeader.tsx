@@ -1,13 +1,13 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
-import { useChannel } from '../store';
+import { useAuth, useChannel } from '../store';
 import { useQueueStatus } from '../hooks/useQueueStatus';
 import { useTranslation } from '../i18n';
 import { formatRelativeTime } from '../utils/helpers';
 import { Stats } from './Stats';
 import { RecentPlays } from './RecentPlays';
 import { Panel } from './Panel';
-import { fetchRoomInfo, type RoomInfo } from '../services/roomInfo';
+import { useRoomInfo } from '../hooks/useRoomInfo';
 
 export function ChannelHeader() {
   const { channel, canEditQueue, openQueue, closeQueue, useChannelInfo } = useChannel();
@@ -18,18 +18,18 @@ export function ChannelHeader() {
   const twitchStatus = useChannelInfo((s) => s.localIrcConnectionState);
   const queue = useQueueStatus();
 
-  const [roomInfo, setRoomInfo] = useState<RoomInfo | null>(null);
+  const { room: roomInfo, loaded: roomInfoLoaded } = useRoomInfo(channel);
+  // On your own channel your Twitch profile is already in the sign-in: no need to wait.
+  const user = useAuth((s) => s.user);
+  const self = user?.login.toLowerCase() === channel.toLowerCase() ? user : null;
 
-  useEffect(() => {
-    let cancelled = false;
-    // Shared, memoized lookup — the channel gate already fired the same request.
-    fetchRoomInfo(channel).then((room) => { if (!cancelled && room) setRoomInfo(room); });
-    return () => { cancelled = true; };
-  }, [channel]);
-
-  const avatarUrl = roomInfo?.avatar_url || owner?.avatar;
-  const displayName = owner?.displayName || roomInfo?.display_name || channel;
+  const avatarUrl = self?.profile_image_url || roomInfo?.avatar_url || owner?.avatar;
+  // Twitch's display name (its casing, sometimes other characters). Until it's known the
+  // login holds the space, hidden: the name font is monospace, so it's the same width.
+  const nameKnown = roomInfoLoaded || !!owner?.displayName || !!self;
+  const displayName = self?.display_name || owner?.displayName || roomInfo?.display_name || channel;
   const lastActive = roomInfo?.updated_at ? new Date(roomInfo.updated_at + 'Z') : null;
+  const showLastUsed = !!lastActive && queue.state === 'closed';
 
   const [copied, setCopied] = useState(false);
   const shareUrl = `${window.location.origin}${import.meta.env.BASE_URL}${channel}`;
@@ -62,7 +62,7 @@ export function ChannelHeader() {
             <img className="channel-header-avatar" src={avatarUrl} alt={channel} />
           ) : (
             <div className="channel-header-avatar channel-header-avatar-fallback">
-              {channel[0].toUpperCase()}
+              {roomInfoLoaded && channel[0].toUpperCase()}
             </div>
           )}
         </div>
@@ -72,7 +72,7 @@ export function ChannelHeader() {
               href={`https://twitch.tv/${channel}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="channel-header-name-link"
+              className={`channel-header-name-link${nameKnown ? '' : ' is-pending'}`}
             >
               <h2 className="channel-header-name">{displayName}</h2>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
@@ -94,17 +94,20 @@ export function ChannelHeader() {
           <div className="channel-header-meta">
             <span className={`channel-header-badge state-${queue.state}`}>
               <span className="dot" />
-              {queue.text}
+              {queue.text || '\u00a0' /* an empty badge would collapse its row */}
             </span>
           </div>
-          <span className="channel-header-sub">
-            {lastActive && queue.state === 'closed'
-              ? t('header.lastUsed', { time: formatRelativeTime(lastActive) })
-              : <a href={shareUrl} className="channel-header-share" onClick={handleCopyLink}>
-                {new URL(shareUrl).href.replace(/https?:\/\//, '')}
-                <span className="channel-header-share-hint">{copied ? t('header.copied') : t('header.clickToCopy')}</span>
-              </a>
-            }
+          {/* Both lines share one slot, the inactive one hidden, so the column is always as
+              wide as the wider of them and switching never resizes it. Held until it's known
+              which one it is: a closed queue reads "last used", which needs the room info. */}
+          <span className={`channel-header-sub${queue.state === 'unknown' || (queue.state === 'closed' && !roomInfoLoaded) ? ' is-pending' : ''}`}>
+            <a href={shareUrl} className={`channel-header-share${showLastUsed ? ' is-hidden' : ''}`} onClick={handleCopyLink}>
+              {new URL(shareUrl).href.replace(/https?:\/\//, '')}
+              <span className="channel-header-share-hint">{copied ? t('header.copied') : t('header.clickToCopy')}</span>
+            </a>
+            {lastActive && (
+              <span className={showLastUsed ? undefined : 'is-hidden'}>{t('header.lastUsed', { time: formatRelativeTime(lastActive) })}</span>
+            )}
           </span>
         </div>
       </div>
@@ -116,7 +119,7 @@ export function ChannelHeader() {
         {canEditQueue && (
           <div className="channel-header-actions">
             <button
-              className={`btn ${isConnected ? 'btn-ghost' : 'btn-primary'} ${!isConnected && !isConnecting ? 'btn-pulse' : ''}`.trim()}
+              className={`btn ${isConnected ? 'btn-ghost' : 'btn-primary'} ${channelStatus !== null && !isConnected && !isConnecting ? 'btn-pulse' : ''}`.trim()}
               onClick={handleToggle}
               disabled={isConnecting}
             >

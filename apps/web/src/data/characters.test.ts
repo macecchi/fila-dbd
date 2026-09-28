@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { tryLocalMatch, isWholeMessageMatch } from './characters';
+import { tryLocalMatch, isWholeMessageMatch, getCharacterPortrait, CHARACTERS } from './characters';
 
 describe('tryLocalMatch', () => {
   it('matches a single alias', () => {
@@ -55,5 +55,25 @@ describe('isWholeMessageMatch', () => {
 
   it('is false for a null match regardless of message', () => {
     expect(isWholeMessageMatch(null, 'Trapper')).toBe(false);
+  });
+});
+
+describe('portraits', () => {
+  // Listed, never imported: the keys are the files under public/ at test time.
+  const onDisk = new Set(Object.keys(import.meta.glob('../../public/images/portraits/*.webp')).map(p => p.replace('../../public', '')));
+
+  it('every character\'s portrait exists on disk', () => {
+    for (const c of [...CHARACTERS.killers, ...CHARACTERS.survivors]) {
+      expect(onDisk.has(c.portrait), `${c.name}: ${c.portrait}`).toBe(true);
+    }
+  });
+
+  it('looks survivors up by name and alias, and keeps roles apart', () => {
+    expect(getCharacterPortrait('Dwight Fairfield', 'survivor')).toBe('/images/portraits/S01_DwightFairfield.webp');
+    expect(getCharacterPortrait('Jane Hopper', 'survivor')).toBe('/images/portraits/S51_Eleven.webp');
+    expect(getCharacterPortrait('Trapper', 'killer')).toBe('/images/portraits/K01_TheTrapper.webp');
+    expect(getCharacterPortrait('Dwight Fairfield', 'killer')).toBeUndefined();
+    expect(getCharacterPortrait('Nurse', 'unknown')).toBeUndefined();
+    expect(getCharacterPortrait(undefined, 'killer')).toBeUndefined();
   });
 });

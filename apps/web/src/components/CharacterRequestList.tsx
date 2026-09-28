@@ -17,6 +17,7 @@ export function CharacterRequestList() {
   const chatCommand = useSources((s) => s.chatCommand);
   const minDonation = useSources((s) => s.minDonation);
   const channelStatus = useChannelInfo((s) => s.status);
+  const partySynced = useChannelInfo((s) => s.partySynced);
   const [draggedId, setDraggedId] = useState<number | null>(null);
   const [dragOverId, setDragOverId] = useState<number | null>(null);
   const readOnly = !canEditQueue;
@@ -83,10 +84,18 @@ export function CharacterRequestList() {
     return () => clearTimeout(timer);
   }, [requests]);
 
+  // Only what arrives after the first sync slides in. The queue the page loads with (the
+  // cached one, then the server's) was already there: animating it made every card jump
+  // and slide back on each load.
+  const enterBaselineTaken = useRef(false);
   useEffect(() => {
     const currentIds = new Set(requests.map(r => r.id));
     const newIds = [...currentIds].filter(id => !prevRequestIds.current.has(id));
     prevRequestIds.current = currentIds;
+    if (!enterBaselineTaken.current) {
+      enterBaselineTaken.current = partySynced;
+      return;
+    }
     if (newIds.length === 0) return;
     setEnteringIds(prev => new Set([...prev, ...newIds]));
     const timer = setTimeout(() => {
@@ -97,7 +106,7 @@ export function CharacterRequestList() {
       });
     }, 200);
     return () => clearTimeout(timer);
-  }, [requests]);
+  }, [requests, partySynced]);
 
   const filtered = requests.filter(r =>
     (!r.done && (!hideNonRequests || r.type !== 'none')) || exitingIds.has(r.id) || skippingIds.has(r.id)
@@ -173,8 +182,6 @@ export function CharacterRequestList() {
     }
     setDragOverId(null);
   }, [draggedId]);
-
-  const partySynced = useChannelInfo((s) => s.partySynced);
 
   if (filtered.length === 0) {
     if (!partySynced) {

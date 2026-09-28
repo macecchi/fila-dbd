@@ -24,26 +24,6 @@ const REAUTH_WARN_AFTER = 3;
 const REAUTH_WARN_WINDOW = 10 * 60_000;
 const TOKEN_FAILURES_WARN_AFTER = 5;
 
-// Persisted opt-out for the "notifications blocked" warning toast: once the user
-// dismisses it, we never show it again (per browser).
-const NOTIF_TOAST_DISMISSED_KEY = 'fila-dbd-notif-toast-dismissed-v1';
-
-function isNotifToastDismissed(): boolean {
-  try {
-    return localStorage.getItem(NOTIF_TOAST_DISMISSED_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function setNotifToastDismissed() {
-  try {
-    localStorage.setItem(NOTIF_TOAST_DISMISSED_KEY, '1');
-  } catch {
-    // ignore (private mode / storage full)
-  }
-}
-
 function sendPushNotification(title: string, body: string) {
   if (!('Notification' in window)) return;
   if (Notification.permission === 'granted') {
@@ -172,40 +152,16 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
     return () => disconnectIrc();
   }, [someoneElseIsOwner]);
 
-  // Request notification permission + show toast if denied (reactive to permission changes)
-  const notifToastId = useRef<string | number | null>(null);
+  // Request notification permission, and register for pushes once granted (reactive to
+  // permission changes). Blocked notifications are explained in Settings → Behavior, not
+  // as a toast.
   useEffect(() => {
     if (!isOwnChannel || !('Notification' in window)) return;
-
-    // Distinguishes our own toast.dismiss() calls (permission granted / unmount)
-    // from a real user dismissal, since sonner fires onDismiss for both. Stays set
-    // until the next toast is created — onDismiss runs async, after this returns.
-    let dismissingSelf = false;
-    const dismissSelf = () => {
-      if (notifToastId.current === null) return;
-      dismissingSelf = true;
-      toast.dismiss(notifToastId.current);
-      notifToastId.current = null;
-    };
 
     const handlePermission = (state: string) => {
       if (state === 'default') {
         Notification.requestPermission();
-      } else if (state === 'denied') {
-        if (notifToastId.current === null && !isNotifToastDismissed()) {
-          dismissingSelf = false;
-          notifToastId.current = toast.warning(t('toast.notificationsBlocked'), {
-            description: t('toast.notificationsBlockedDesc'),
-            duration: Infinity,
-            onDismiss: () => {
-              if (dismissingSelf) return;
-              notifToastId.current = null;
-              setNotifToastDismissed();
-            },
-          });
-        }
       } else if (state === 'granted') {
-        dismissSelf();
         // Register this browser for server-sent pushes too ("your channel is
         // live" when the stream starts with the site closed). Fire-and-forget.
         void syncPushSubscription();
@@ -228,7 +184,6 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
 
     return () => {
       permStatus?.removeEventListener('change', onChange);
-      dismissSelf();
     };
   }, [isOwnChannel]);
 

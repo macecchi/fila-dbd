@@ -1,7 +1,7 @@
 export {
   CHARACTERS,
   DEFAULT_CHARACTERS,
-  getKillerPortrait,
+  getCharacterPortrait,
   tryLocalMatch,
   isWholeMessageMatch,
 } from '@filadbd/shared';

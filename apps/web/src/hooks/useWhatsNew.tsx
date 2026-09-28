@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { toast } from 'sonner';
 import { changelog, type ChangelogEntry } from '../data/changelog';
-import { t } from '../i18n';
+import { getLocale, t, type Locale } from '../i18n';
 
 const STORAGE_KEY = 'dbd-whats-new-dismissed';
 const TOAST_ID = 'whats-new';
@@ -23,16 +23,32 @@ function dismissAll(ids: string[]) {
   } catch { /* ignore */ }
 }
 
+/**
+ * "28 de setembro" / "September 28", with the year only when it isn't this one. Read as
+ * local midnight (`T00:00`): a bare `2026-09-28` is UTC, i.e. the 27th in Brazil.
+ */
+export function formatReleaseDate(date: string, locale: Locale): string {
+  const day = new Date(`${date}T00:00`);
+  return day.toLocaleDateString(locale, {
+    day: 'numeric',
+    month: 'long',
+    ...(day.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}),
+  });
+}
+
 function DigestBody({ entries }: { entries: ChangelogEntry[] }) {
+  const locale = getLocale();
   return (
-    <ul className="whats-new-list">
+    <div className="whats-new-list">
       {entries.map(e => (
-        <li key={e.id} className="whats-new-item">
-          <div className="whats-new-item-title">{t(e.titleKey)}</div>
-          <div className="whats-new-item-desc">{t(e.descriptionKey)}</div>
-        </li>
+        <section key={e.id} className="whats-new-item">
+          <time className="whats-new-date" dateTime={e.date}>{formatReleaseDate(e.date, locale)}</time>
+          <ul className="whats-new-lines">
+            {e.items.map(key => <li key={key}>{t(key)}</li>)}
+          </ul>
+        </section>
       ))}
-    </ul>
+    </div>
   );
 }
 

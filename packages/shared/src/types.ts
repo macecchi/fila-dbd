@@ -1,7 +1,7 @@
 export interface Character {
   name: string;
   aliases: string[];
-  portrait?: string;
+  portrait: string;
 }
 
 export interface CharacterData {

@@ -5,13 +5,15 @@ import { CharacterRequestList } from './components/CharacterRequestList';
 import { LandingPage } from './components/LandingPage';
 import { ManualEntry } from './components/ManualEntry';
 import { UnregisteredChannel } from './components/UnregisteredChannel';
-import { fetchRoomInfo, type RoomInfo } from './services/roomInfo';
+import { useRoomInfo } from './hooks/useRoomInfo';
 import { SourcesBadges } from './components/SourcesBadges';
 import { SettingsPanel } from './components/SettingsPanel';
 import { Panel, PanelHeader } from './components/Panel';
 import { SyncSweep } from './components/SyncSweep';
 import { Toaster } from 'sonner';
 import { useWhatsNew } from './hooks/useWhatsNew';
+import { useRequestToasts } from './hooks/useRequestToasts';
+import { useQueueStatus } from './hooks/useQueueStatus';
 import { identifyCharacter } from './services';
 import { eligibleExtras } from './services/extras';
 import { tryLocalMatch } from './data/characters';
@@ -39,7 +41,7 @@ import { toast } from 'sonner';
 import { useAuth, ChannelProvider, useChannel, useLastChannel } from './store';
 import { navigate, handleLinkClick, scrollToTop, isLikelyTruncatedDonation } from './utils/helpers';
 import { sortRequests, mergeRequests } from './utils/requests';
-import { useTranslation, t } from './i18n';
+import { useTranslation } from './i18n';
 import type { Request } from './types';
 import type { SourcesStoreApi } from './store/channel';
 
@@ -103,39 +105,12 @@ function useAutoIdentify(
   }, [requests, update, readOnly, useSources]);
 }
 
-function useRequestToasts(requests: Request[], update: (id: number, updates: Partial<Request>) => void, hideNonRequests: boolean, readOnly: boolean) {
-  const shownToasts = useRef(new Set<number>());
-  const isFirstLoad = useRef(true);
-  useEffect(() => {
-    // `!r.done` matters: the room keeps the newest done requests in sync-full, and a
-    // stale localStorage cache can flip `isFirstLoad` before that arrives — without
-    // this guard those land as "new request" toasts for something already finished.
-    const ready = requests.filter(r => !shownToasts.current.has(r.id) && !r.needsIdentification && !r.done);
-    for (const req of ready) {
-      shownToasts.current.add(req.id);
-      if (isFirstLoad.current || readOnly) continue;
-      if (hideNonRequests && req.type === 'none') {
-        const msg = req.message.length > 50 ? req.message.slice(0, 50) + '…' : req.message;
-        toast(t('toast.ignored', { donor: req.donor, message: msg }), {
-          action: { label: t('toast.undo'), onClick: () => update(req.id, { type: 'unknown', character: '' }) },
-        });
-        continue;
-      }
-      const activeRequests = requests.filter(r => !r.done && (!hideNonRequests || r.type !== 'none'));
-      const index = activeRequests.findIndex(r => r.id === req.id);
-      const position = index !== -1 ? index + 1 : undefined;
-
-      const title = req.source === 'manual' ? t('toast.newRequest') :
-        req.source === 'donation' ? t('toast.newRequestDonation') :
-          req.source === 'resub' ? t('toast.newRequestResub') : t('toast.newRequestChat');
-      const titleWithPos = position !== undefined ? `${title} (#${String(position).padStart(2, '0')})` : title;
-      const message = req.character
-        ? (req.amount ? t('toast.requestedCharAmount', { donor: req.donor, character: req.character, amount: req.amount }) : t('toast.requestedChar', { donor: req.donor, character: req.character }))
-        : (req.amount ? t('toast.newRequestFromAmount', { donor: req.donor, amount: req.amount }) : t('toast.newRequestFrom', { donor: req.donor }));
-      toast(titleWithPos, { description: message });
-    }
-    if (ready.length > 0) isFirstLoad.current = false;
-  }, [requests, update, hideNonRequests, readOnly]);
+/** The queue panel's sync bar: only while syncing a queue that is open or coming up. */
+function QueueSyncSweep() {
+  const { useChannelInfo } = useChannel();
+  const partySynced = useChannelInfo((s) => s.partySynced);
+  const { state } = useQueueStatus();
+  return <SyncSweep active={!partySynced && (state === 'open' || state === 'connecting')} className="panel-header-sync" />;
 }
 
 function ChannelApp() {
@@ -146,12 +121,12 @@ function ChannelApp() {
   const setAll = useRequests((s) => s.setAll);
   const [manualOpen, setManualOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const openReview = useCallback(() => setReviewOpen(true), []);
 
   useEffect(() => {
-    const open = () => setReviewOpen(true);
-    window.addEventListener('dbd:open-review', open);
-    return () => window.removeEventListener('dbd:open-review', open);
-  }, []);
+    window.addEventListener('dbd:open-review', openReview);
+    return () => window.removeEventListener('dbd:open-review', openReview);
+  }, [openReview]);
   const readOnly = !canEditQueue;
 
   // Missed requests recovery state
@@ -350,7 +325,7 @@ function ChannelApp() {
   const hideNonRequests = useSources((s) => s.hideNonRequests);
 
   useAutoIdentify(requests, update, !hasLock, useSources);
-  useRequestToasts(requests, update, hideNonRequests, readOnly);
+  useRequestToasts(requests, update, hideNonRequests, readOnly, openReview, partySynced);
   useWhatsNew(canEditQueue);
 
   const pendingCount = requests.filter(d => !d.done && (!hideNonRequests || d.type !== 'none')).length;
@@ -380,7 +355,7 @@ function ChannelApp() {
           <Panel as="div" className="panel">
             <PanelHeader
               icon={<img src={`${import.meta.env.BASE_URL}images/IconPlayers.webp`} />}
-              indicator={<SyncSweep active={!partySynced} className="panel-header-sync" />}
+              indicator={<QueueSyncSweep />}
               actions={
                 <div className={readOnly ? 'viewer-mode' : undefined} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <button className="btn btn-ghost btn-small btn-small-icon" onClick={() => setManualOpen(true)} title={t('queue.addRequest')} disabled={readOnly}>
@@ -581,7 +556,9 @@ export function App() {
 
   return (
     <ChannelProvider channel={channel}>
-      <ChannelGate />
+      {/* Keyed: a channel switch starts the channel view fresh (its state, the toast
+          baseline, open dialogs), while the provider keeps its sockets. */}
+      <ChannelGate key={channel} />
     </ChannelProvider>
   );
 }
@@ -593,14 +570,7 @@ export function App() {
 // path that creates the room, so it must always get the full app.
 function ChannelGate() {
   const { channel, canEditQueue } = useChannel();
-  const [room, setRoom] = useState<RoomInfo | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setRoom(null);
-    fetchRoomInfo(channel).then((r) => { if (!cancelled) setRoom(r); });
-    return () => { cancelled = true; };
-  }, [channel]);
+  const { room } = useRoomInfo(channel);
 
   // `registered === false` only — a failed lookup or an older API without the
   // flag must never block a real channel.

@@ -1,7 +1,7 @@
 import { memo, useMemo } from 'react';
 import type { Request } from '../types';
 import { useContextMenuActions } from '../context/ContextMenuContext';
-import { getKillerPortrait, tryLocalMatch } from '../data/characters';
+import { getCharacterPortrait, tryLocalMatch } from '../data/characters';
 import { CharacterAvatar } from './CharacterAvatar';
 import { SwapText } from './SwapText';
 import { useTranslation } from '../i18n';
@@ -46,7 +46,7 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
   const { channel } = useChannel();
   const { t } = useTranslation();
   const r = request;
-  const portrait = r.type === 'killer' && r.character ? getKillerPortrait(r.character) : null;
+  const portrait = getCharacterPortrait(r.character, r.type);
   const isIdentifying = r.needsIdentification || r.character === 'Identificando...' || r.character === 'Identifying...';
   const isValidating = r.validating;
   const charDisplay = isIdentifying ? t('card.identifying') :
@@ -152,7 +152,7 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
         <span className="request-position">{position ? String(position).padStart(2, '0') : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
           <polyline points="20 6 9 17 4 12"></polyline>
         </svg>}</span>
-        <CharacterAvatar portrait={portrait ?? undefined} type={r.type} extras={r.extras} />
+        <CharacterAvatar portrait={portrait} type={r.type} extras={r.extras} />
         <div className="request-card-info">
           <div className="character">
             <img

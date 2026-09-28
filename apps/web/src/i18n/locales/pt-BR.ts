@@ -233,6 +233,17 @@ const ptBR = {
 
   // Toast messages
   'toast.ignored': 'Ignorado: {donor} — "{message}"',
+  'toast.ignoredCount': '{count} mensagem sem pedido',
+  'toast.ignoredCount_plural': '{count} mensagens sem pedidos',
+  'toast.ignoredFrom': '{count} mensagem sem pedido de {names}',
+  'toast.ignoredFrom_plural': '{count} mensagens sem pedidos de {names}',
+  'toast.ignoredFromNames': 'De {names}',
+  'toast.namesTwo': '{a} e {b}',
+  'toast.namesThree': '{a}, {b} e {c}',
+  'toast.namesMore': '{a}, {b} e mais {count}',
+  'toast.newRequests': '{count} novo pedido',
+  'toast.newRequests_plural': '{count} novos pedidos',
+  'toast.review': 'Revisar',
   'toast.newRequest': 'Novo pedido',
   'toast.newRequestDonation': 'Novo pedido por donate',
   'toast.newRequestResub': 'Novo pedido por resub',
@@ -243,8 +254,6 @@ const ptBR = {
   'toast.newRequestFromAmount': 'Novo pedido de {donor} ({amount})',
   'toast.undo': 'Desfazer',
   'toast.close': 'Fechar',
-  'toast.notificationsBlocked': 'Notificações bloqueadas',
-  'toast.notificationsBlockedDesc': 'Ative as notificações para lembrarmos da sua fila quando você abrir uma live.',
   'toast.newVersionAvailable': 'Atualização disponível',
   'toast.updateAction': 'Atualizar agora',
   'toast.newVersionUpdate': 'Novos pedidos não serão recebidos.',
@@ -284,18 +293,8 @@ const ptBR = {
 
   // What's new
   'whatsNew.title': '✨ Novidades',
-  'whatsNew.langToggleTitle': 'Suporte a outros idiomas',
-  'whatsNew.langToggle': 'Agora você pode alternar entre Português e Inglês no rodapé.',
-  'whatsNew.multiDonateBotsTitle': 'Suporte a donates via StreamElements',
-  'whatsNew.multiDonateBots': 'StreamElements (GGPix, entre outros) agora é suportado para donates, além do LivePix.',
-  'whatsNew.multiRequestDonationsTitle': 'Vários pedidos por donate',
-  'whatsNew.multiRequestDonations': 'Donates agora podem conter vários pedidos numa mesma mensagem — ex.: R$30 com mínimo R$10 vira até 3 pedidos.',
-  'whatsNew.chatConfirmationsTitle': 'Confirmações no chat',
-  'whatsNew.chatConfirmations': 'O bot @FilaDBD agora pode confirmar no chat quando um pedido entra na fila. Ative  no painel de fontes.',
-  'whatsNew.buildRequestsTitle': 'Pedidos com build',
-  'whatsNew.buildRequests': 'Donates agora podem incluir uma build — perks, addons ou um tema. Configure em Donates → Pedidos com build.',
-  'whatsNew.sourceOrderingTitle': 'Mais opções de ordenação por prioridade',
-  'whatsNew.sourceOrdering': 'Agora você pode priorizar pedidos por valor de donate ou nível de inscrição mais alto. Ative nas opções de Ordenação. O nível de inscrição dos usuários agora aparece ao lado do nome.',
+  'whatsNew.queueSaveFix': 'Corrigimos um bug que às vezes não salvava alterações na fila',
+  'whatsNew.performance': 'Melhorias de desempenho',
 
   // Push notifications
   'push.connectionLost': 'Fila DBD - Conexão perdida',

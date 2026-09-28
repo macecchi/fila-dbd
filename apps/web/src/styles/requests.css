@@ -460,6 +460,10 @@
   --portrait-role-bg: #78202a;
 }
 
+.char-portrait-bg.survivor {
+  --portrait-role-bg: #1d3a63;
+}
+
 .char-portrait {
   width: var(--defaultCharPortraitDimensions);
   object-fit: cover;

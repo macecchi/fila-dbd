@@ -29,7 +29,7 @@ Use our [Discord](https://discord.gg/hXsAgk5KnX) or GitHub to send feedback, sug
 
 You need to keep the site open to receive requests.
 
-**Notifications**: we only show a small notice on the page when a new request is received. Enable browser notifications to get alerts when there's an issue — and to get a push when your stream goes live reminding you to open your queue (works even with the site closed).
+**Notifications**: we only show a small notice on the page when new requests arrive — a single notice that keeps count while you're away (in a match, say) and clears a few seconds after you're back on the tab. Enable browser notifications to get alerts when there's an issue — and to get a push when your stream goes live reminding you to open your queue (works even with the site closed).
 
 #### Request sources
 
@@ -103,6 +103,9 @@ cd apps/api && bunx wrangler secret put <NAME> --env production
 
 - `VITE_TWITCH_CLIENT_ID` - same Twitch app Client ID (used by frontend for OAuth redirect)
 - `VITE_API_URL` - Production Worker URL
+- `VITE_PARTY_HOST` - Production PartyKit host
+
+Pages builds (production and previews) fall back to this repo's production values for all three (`PAGES_DEFAULTS` in `apps/web/vite.config.ts`), so preview deployments work without their own copies; a dashboard value overrides. Previews therefore talk to the production API and PartyKit.
 
 **PartyKit secrets (via `bunx partykit env add`):**
 
@@ -298,7 +301,7 @@ Use o nosso [Discord](https://discord.gg/hXsAgk5KnX) ou o próprio GitHub para m
 
 É preciso estar com o site aberto para receber pedidos.
 
-**Notificações**: só mostramos um pequeno aviso na página quando um novo pedido é recebido. Ative as notificações do navegador para receber alertas quando houver algum problema — e para receber um aviso quando sua live começar lembrando de abrir sua fila (funciona mesmo com o site fechado).
+**Notificações**: só mostramos um pequeno aviso na página quando chegam novos pedidos — um único aviso que vai somando enquanto você está fora (numa partida, por exemplo) e some alguns segundos depois que você volta para a aba. Ative as notificações do navegador para receber alertas quando houver algum problema — e para receber um aviso quando sua live começar lembrando de abrir sua fila (funciona mesmo com o site fechado).
 
 #### Fontes de pedidos
 

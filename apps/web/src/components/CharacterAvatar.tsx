@@ -114,11 +114,11 @@ export function CharacterAvatar({ portrait, type, size = 'md', extras }: Props) 
   // (badge sits at bottom: -6px). The inner clip div preserves the existing
   // image-masking behavior for the portrait/role background without affecting
   // overlay children.
-  if (type === 'killer' && portrait) {
+  if (portrait) {
     return (
       <div className={`char-portrait-wrapper ${sizeClass}`} {...interactionProps}>
         <div className="char-portrait-clip" style={{ backgroundImage: portraitBg }}>
-          <div className="char-portrait-bg killer" style={{ WebkitMaskImage: roleBg, maskImage: roleBg }}></div>
+          <div className={`char-portrait-bg ${type}`} style={{ WebkitMaskImage: roleBg, maskImage: roleBg }}></div>
           <img src={portrait} alt="" className="char-portrait" />
         </div>
         {build && <BuildBadge size={size} />}
