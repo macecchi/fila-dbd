@@ -258,8 +258,6 @@ const en: TranslationKeys = {
   'toast.newRequestFromAmount': 'New request from {donor} ({amount})',
   'toast.undo': 'Undo',
   'toast.close': 'Close',
-  'toast.notificationsBlocked': 'Notifications blocked',
-  'toast.notificationsBlockedDesc': 'Enable notifications so we can remind you about your queue when you go live.',
   'toast.newVersionAvailable': 'Update available',
   'toast.updateAction': 'Update now',
   'toast.newVersionUpdate': 'New requests won\'t be received.',

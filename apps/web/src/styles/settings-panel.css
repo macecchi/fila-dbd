@@ -399,6 +399,11 @@
   margin-top: 4px;
 }
 
+/* Blocked notifications are only ever explained here (no toast), so it reads as a warning. */
+.behavior-row-desc.warning {
+  color: var(--yellow);
+}
+
 .behavior-row .settings-toggle.on { background: rgba(139, 92, 246, 0.22); }
 .behavior-row .settings-toggle.on::after { background: var(--accent); }
 

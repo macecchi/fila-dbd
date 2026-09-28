@@ -315,9 +315,6 @@ the low bits of the hash away. Ordering comes from `position`, never from the ID
   the requests store on boot so the queue paints before PartyKit `sync-full`, which then
   replaces it (authoritative). Versioned + defensively parsed (`store/queueCache.ts`); bump the
   version to invalidate on a shape change. Never authoritative — DO remains source of truth.
-- `fila-dbd-notif-toast-dismissed-v1` - set to `'1'` once the streamer dismisses the
-  "notifications blocked" warning toast; suppresses it permanently on that browser
-  (`store/ChannelContext.tsx`). Absent = show it.
 - `fila-dbd-live-notif-disabled-v1` - set to `'1'` when the streamer turns off the
   "Live notifications" toggle (Settings → Behavior); blocks the Web Push auto-subscribe in
   `services/push.ts` on that browser (turning it off also unsubscribes locally + server-side).

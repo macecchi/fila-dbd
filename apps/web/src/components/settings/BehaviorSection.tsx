@@ -120,7 +120,7 @@ export function BehaviorSection() {
         <div className="behavior-row">
           <div className="behavior-row-label">
             <div className="behavior-row-title">{t('liveNotif.toggle')}</div>
-            <div className="behavior-row-desc">
+            <div className={liveNotifBlocked ? 'behavior-row-desc warning' : 'behavior-row-desc'}>
               {liveNotifBlocked ? t('liveNotif.blocked') : t('liveNotif.toggleDesc')}
             </div>
           </div>

@@ -256,8 +256,6 @@ const ptBR = {
   'toast.newRequestFromAmount': 'Novo pedido de {donor} ({amount})',
   'toast.undo': 'Desfazer',
   'toast.close': 'Fechar',
-  'toast.notificationsBlocked': 'Notificações bloqueadas',
-  'toast.notificationsBlockedDesc': 'Ative as notificações para lembrarmos da sua fila quando você abrir uma live.',
   'toast.newVersionAvailable': 'Atualização disponível',
   'toast.updateAction': 'Atualizar agora',
   'toast.newVersionUpdate': 'Novos pedidos não serão recebidos.',
