@@ -60,7 +60,9 @@ export function connectParty(
   socket.addEventListener('close', (event) => {
     // A socket we closed on purpose (disconnectParty, a channel switch) isn't an outage.
     if (current !== socket) return;
-    observe(() => realtimeTelemetry.onClose({ code: event.code, wasClean: event.wasClean }));
+    // partysocket re-emits closes it starts itself (reconnect()) as its own CloseEvent,
+    // whose `code` can arrive as the event type string rather than a number.
+    observe(() => realtimeTelemetry.onClose({ code: typeof event.code === 'number' ? event.code : undefined, wasClean: event.wasClean }));
     onClose?.();
   });
 

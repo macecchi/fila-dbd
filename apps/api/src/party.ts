@@ -197,7 +197,10 @@ export default class PartyServer implements Party.Server {
   async onConnect(conn: Party.Connection, ctx: Party.ConnectionContext) {
     const url = new URL(ctx.request.url);
     const token = url.searchParams.get('token');
-    const clientVersion = url.searchParams.get('v') || 'unknown';
+    // Client-controlled and unbounded: it goes into log lines and event properties, so
+    // anything that isn't a plain protocol number is 'other' (which fails the check below).
+    const rawVersion = url.searchParams.get('v') || 'unknown';
+    const clientVersion = /^\d{1,4}$/.test(rawVersion) ? rawVersion : 'other';
     const roomOwner = this.room.id.toLowerCase();
 
     let user: JwtPayload | null = null;

@@ -184,7 +184,8 @@ export function describeRejectedToken(token: string, nowMs = Date.now()): Proper
       reason: expiredForS !== null && expiredForS >= 0 ? 'expired' : 'invalid',
       expired_for_s: expiredForS !== null && expiredForS >= 0 ? expiredForS : null,
       // Unverified: whoever the token claims to be. Twitch logins are public.
-      claimed_login: typeof payload.login === 'string' ? payload.login.toLowerCase() : null,
+      // Twitch logins are ≤25 of [a-z0-9_]; anything else in an unverified token is noise.
+      claimed_login: typeof payload.login === 'string' && /^\w{1,25}$/.test(payload.login) ? payload.login.toLowerCase() : null,
     };
   } catch {
     return { reason: 'malformed', expired_for_s: null, claimed_login: null };

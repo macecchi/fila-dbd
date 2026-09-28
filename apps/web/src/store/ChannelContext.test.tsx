@@ -564,3 +564,29 @@ describe('ChannelProvider — a refusal the self-heal cannot fix is not silent',
     expect(ircStatus).not.toHaveBeenCalled();
   });
 });
+
+describe('ChannelProvider — a failed heal is reported at once', () => {
+  const connect = vi.mocked(connectParty);
+  const warning = vi.mocked(toast.warning);
+  const reconnect = vi.mocked(reconnectParty);
+
+  afterEach(() => vi.clearAllMocks());
+
+  it('warns as soon as the socket a heal reconnected is refused again', async () => {
+    // The final review measured ~2 minutes of silence here when PartyKit and the Worker
+    // disagree on JWT_SECRET: the refusals inside the cooldown never counted.
+    setup();
+    const [, , onMessage, onOpen] = connect.mock.calls[connect.mock.calls.length - 1];
+    const authWarnings = () => warning.mock.calls.filter(([, opts]) => (opts as { id?: string })?.id === 'auth-status');
+
+    await act(async () => { onMessage({ type: 'ownership-denied', currentOwner: 'not-room-owner' }); });
+    expect(reconnect).toHaveBeenCalledTimes(1);
+    expect(authWarnings()).toHaveLength(0);
+
+    act(() => { onOpen!(); }); // the healed socket is up...
+    await act(async () => { onMessage({ type: 'ownership-denied', currentOwner: 'not-room-owner' }); }); // ...and refused
+
+    expect(authWarnings()).toHaveLength(1);
+    expect(authWarnings()[0][1]).toMatchObject({ duration: Infinity });
+  });
+});

@@ -261,6 +261,7 @@ const en: TranslationKeys = {
   'toast.serverError': 'Server error',
   'toast.authStatus': 'Your session isn\'t being accepted',
   'toast.authStatusDesc': 'Changes you make may not be saved. Reload the page, or sign in again if it keeps happening.',
+  'toast.authStatusRetryDesc': 'We can\'t renew your session right now and are retrying. Changes may not be saved until it works again.',
   'toast.chatBot': 'Chat bot',
   'toast.recoveredRequests': 'Recovered requests',
   'toast.added': '{count} added',

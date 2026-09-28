@@ -358,8 +358,18 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
 
     let tokenFailures = 0;
     let reauthAttempts: number[] = [];
-    const warnAuthStatus = () => {
-      toast.warning(t('toast.authStatus'), { id: 'auth-status', description: t('toast.authStatusDesc'), duration: 15_000 });
+    // A heal reconnected and that socket opened: a refusal on it means a fresh token
+    // didn't help, so there's nothing left to retry — say so at once.
+    let healPending = false;
+    let healedSocketOpen = false;
+    // Stays up until the server grants the lock again: it's the one state the streamer
+    // has to act on, and they may not be looking at the page when it starts.
+    const warnAuthStatus = (retrying = false) => {
+      toast.warning(t('toast.authStatus'), {
+        id: 'auth-status',
+        description: t(retrying ? 'toast.authStatusRetryDesc' : 'toast.authStatusDesc'),
+        duration: Infinity,
+      });
     };
 
     // Runs before every connection attempt, so a reconnect presents a current token.
@@ -374,7 +384,8 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
       if (cancelled) return null;
       if (!token && isOwnChannel) {
         tokenFailures++;
-        if (tokenFailures >= TOKEN_FAILURES_WARN_AFTER) warnAuthStatus();
+        // Usually the Worker or the network, not the session: the socket keeps retrying.
+        if (tokenFailures >= TOKEN_FAILURES_WARN_AFTER) warnAuthStatus(true);
         throw new Error('No access token for the channel owner');
       }
       tokenFailures = 0;
@@ -389,13 +400,20 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
     const reauthenticate = () => {
       if (!isOwnChannel) return;
       const now = Date.now();
-      if (now - lastReauthAt < REAUTH_COOLDOWN) return;
+      if (now - lastReauthAt < REAUTH_COOLDOWN) {
+        if (healedSocketOpen) warnAuthStatus();
+        return;
+      }
       lastReauthAt = now;
       reauthAttempts = [...reauthAttempts.filter((at) => now - at < REAUTH_WARN_WINDOW), now];
       if (reauthAttempts.length >= REAUTH_WARN_AFTER) warnAuthStatus();
       console.warn('[party] server does not recognize this session as the channel owner; reconnecting with a fresh token');
       void refresh().then((ok) => {
-        if (ok && !cancelled) reconnectParty();
+        if (ok && !cancelled) {
+          healPending = true;
+          healedSocketOpen = false;
+          reconnectParty();
+        }
       });
     };
 
@@ -409,10 +427,11 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
           if (msg.type === 'ownership-denied' && msg.currentOwner === 'not-room-owner') {
             reauthenticate();
           }
-          if (msg.type === 'ownership-granted' && reauthAttempts.length > 0) {
+          if (msg.type === 'ownership-granted') {
             // The server knows us again: whatever the heal was fighting is over.
+            if (reauthAttempts.length > 0 || healedSocketOpen) toast.dismiss('auth-status');
             reauthAttempts = [];
-            toast.dismiss('auth-status');
+            healedSocketOpen = false;
           }
           if (msg.type === 'server-error') {
             console.error(`[server-error] ${msg.code}: ${msg.message}`);
@@ -502,6 +521,10 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
         () => {
           console.log('Connected to PartyKit');
           setPartyConnectionState('connected');
+          if (healPending) {
+            healPending = false;
+            healedSocketOpen = true;
+          }
           // No irc-status here: on a reconnect `hasLock` is still stale-true while the
           // server has already dropped the lock, so it would only be refused. The grant
           // effect reports chat once the lock actually comes back.

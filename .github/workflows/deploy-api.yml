@@ -79,6 +79,7 @@ jobs:
       # Telemetry only: never let it block a deploy.
       - name: Set PartyKit PostHog vars
         continue-on-error: true
+        timeout-minutes: 2
         run: |
           printf '%s' 'phc_CCs7f8DwgPzVqFderx2rUX3XNS54raDHYhz8z8sxDTRW' | bunx partykit env add POSTHOG_KEY
           printf '%s' 'https://us.i.posthog.com' | bunx partykit env add POSTHOG_HOST

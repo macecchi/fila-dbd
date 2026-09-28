@@ -118,7 +118,7 @@ cd apps/api && bunx wrangler secret put <NAME> --env production
   does **not** send `partykit.json` `vars` (only `--with-vars` does, and that would also push the
   file's local-dev `API_URL`/`INTERNAL_API_SECRET`), so `.github/workflows/deploy-api.yml` stores
   it with `bunx partykit env add` before each deploy — the same mechanism as the secrets above.
-  The copy in `partykit.json` only serves `partykit dev`, where `DEV_MODE` switches it off anyway.
+  It isn't in `partykit.json`, so a local `partykit dev` never reports into the production project.
   Remove the env var and PartyKit logs only to the console again (`partykit tail`).
 - `POSTHOG_HOST` - ingestion host, default `https://us.i.posthog.com`.
 
@@ -242,7 +242,7 @@ the next push follows.
 ### Observability
 
 Front-end errors, pageviews and the health of the streamer's realtime session go to PostHog
-(project token in `apps/web/.env.production` and `apps/api/partykit.json`, both public
+(project token in `apps/web/.env.production` and the deploy workflow's PartyKit env step, both public
 ingestion tokens). Both servers' logs go to PostHog Logs: the API Worker's as service
 `dbd-tracker-production` (`apps/api/wrangler.toml`), PartyKit's as `dbd-tracker-party`, each
 line tagged with `room.id` — `partykit tail` still shows the same output. Local dev never

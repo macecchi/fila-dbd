@@ -127,9 +127,10 @@ on `app = 'fila-dbd'` (every event carries it). Event names are prefixed `fila_`
   `_recovered`. Same `POSTHOG_KEY` env var as the logs; off under `DEV_MODE` (i.e. `partykit dev`).
   `distinct_id` is the room (= streamer login), with `$process_person_profile: false`.
 - Test locally without touching the real project: build with `VITE_POSTHOG_HOST` pointing at
-  a local sink + `VITE_POSTHOG_ALLOW_LOCAL=true`, run `partykit dev --var
-  POSTHOG_HOST=<sink>` (without `DEV_MODE`). Headless Chromium sets `navigator.webdriver`,
-  which posthog-js treats as a bot and drops — mask it in the test browser.
+  a local sink + `VITE_POSTHOG_ALLOW_LOCAL=true`, run `partykit dev --var POSTHOG_KEY=phc_test
+  --var POSTHOG_HOST=<sink>` (without `DEV_MODE`; the key is deliberately not in `partykit.json`).
+  posthog-js drops headless browsers as bots: mask `navigator.webdriver` **and**
+  `navigator.userAgentData`, and set a non-headless user agent, in the test browser.
 
 ## Testing owner paths locally
 
@@ -240,9 +241,10 @@ internal bookkeeping and must never surface as a mode the streamer has to notice
   re-claim. `not_room_owner` (and `ownership-denied` with `not-room-owner`) on the streamer's
   own channel means this socket isn't authenticated as them — force a token refresh and
   reconnect (`reauthenticate`, throttled by `REAUTH_COOLDOWN`). If that keeps failing
-  (`REAUTH_WARN_AFTER` rounds in `REAUTH_WARN_WINDOW`, or an owner session that repeatedly can't
-  get a token), a finite `auth-status` warning says edits may not be saved — the one case the
-  streamer has to act on (reload / sign in again); a grant takes it down. Only
+  (the socket a heal reconnected is refused again, `REAUTH_WARN_AFTER` rounds in
+  `REAUTH_WARN_WINDOW`, or an owner session that repeatedly can't get a token), an
+  `auth-status` warning says edits may not be saved. It stays up (`duration: Infinity`) until a
+  grant takes it down — the one state the streamer has to act on (reload / sign in again). Only
   `persist_failed` / `d1_sync_failed` are real server failures (toast id `server-error`,
   `duration: Infinity`); `pending_cap` and `chat_send_not_mod` are finite warnings under their
   own ids. Connection toasts own `party-status` / `irc-status` — don't reuse those ids for

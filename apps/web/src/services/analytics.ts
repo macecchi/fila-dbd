@@ -21,6 +21,7 @@ const allowLocal = () => import.meta.env.VITE_POSTHOG_ALLOW_LOCAL === 'true';
 
 // The project is shared with other apps: every event carries this.
 export const APP_NAME = 'fila-dbd';
+const PRODUCTION_HOST = 'filadbd.pages.dev';
 
 const MAX_QUEUE = 200;
 
@@ -147,7 +148,9 @@ async function load() {
     capture_exceptions: true,
     before_send: beforeSend,
     loaded: (ph) => {
-      ph.register({ app: APP_NAME, app_version: __APP_VERSION__ });
+      // Pages branch previews are production builds too: keep them apart from the real site.
+      const environment = window.location.hostname === PRODUCTION_HOST ? 'production' : 'preview';
+      ph.register({ app: APP_NAME, app_version: __APP_VERSION__, environment });
     },
   });
   client = posthog;
