@@ -35,8 +35,12 @@ export function connectParty(
     },
   });
 
+  // Every listener checks it's still the live socket: a replaced or closed one can still
+  // fire (partysocket resolves `query` after its reconnect wait even once closed, and a
+  // failed lookup then emits close + error), and must not write over the new socket's state.
   const current = socket;
   socket.addEventListener('message', (event) => {
+    if (current !== socket) return;
     try {
       const msg = JSON.parse(event.data) as PartyMessage;
       observe(() => realtimeTelemetry.onMessage(msg));
@@ -47,6 +51,7 @@ export function connectParty(
   });
 
   socket.addEventListener('open', () => {
+    if (current !== socket) return;
     // Only whether a token was presented and its remaining TTL — never the URL.
     observe(() => realtimeTelemetry.onOpen(describeSocketUrl(current.url)));
     onOpen?.();
@@ -54,11 +59,13 @@ export function connectParty(
 
   socket.addEventListener('close', (event) => {
     // A socket we closed on purpose (disconnectParty, a channel switch) isn't an outage.
-    if (current === socket) observe(() => realtimeTelemetry.onClose({ code: event.code, wasClean: event.wasClean }));
+    if (current !== socket) return;
+    observe(() => realtimeTelemetry.onClose({ code: event.code, wasClean: event.wasClean }));
     onClose?.();
   });
 
   socket.addEventListener('error', () => {
+    if (current !== socket) return;
     onError?.();
   });
 }

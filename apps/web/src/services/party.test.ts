@@ -4,11 +4,16 @@ import { connectParty, disconnectParty } from './party';
 
 vi.mock('partysocket', () => ({
   default: vi.fn(function (this: Record<string, unknown>) {
-    this.addEventListener = vi.fn();
+    const listeners: Record<string, ((e?: unknown) => void)[]> = {};
+    this.listeners = listeners;
+    this.addEventListener = vi.fn((type: string, fn: (e?: unknown) => void) => { (listeners[type] ??= []).push(fn); });
     this.close = vi.fn();
     this.reconnect = vi.fn();
   }),
 }));
+
+type MockSocket = { listeners: Record<string, ((e?: unknown) => void)[]> };
+const emit = (sock: MockSocket, type: string, e: unknown = {}) => sock.listeners[type]?.forEach((fn) => fn(e));
 
 type Query = () => Promise<Record<string, string>>;
 
@@ -49,5 +54,26 @@ describe('connectParty — every connection presents a current token', () => {
   it('lets a failed token lookup fail the attempt, for the socket to retry', async () => {
     connectParty('streamer', async () => { throw new Error('offline'); }, vi.fn());
     await expect(queryOfLastSocket()()).rejects.toThrow('offline');
+  });
+
+  it('ignores events from a socket that has been replaced or closed', () => {
+    // partysocket resolves `query` after its reconnect wait even once closed, and a failed
+    // lookup then emits close + error on the dead socket: those must not touch state.
+    const first = { onMessage: vi.fn(), onOpen: vi.fn(), onClose: vi.fn(), onError: vi.fn() };
+    connectParty('streamer', async () => null, first.onMessage, first.onOpen, first.onClose, first.onError);
+    const oldSocket = vi.mocked(PartySocket).mock.instances.at(-1) as unknown as MockSocket;
+
+    connectParty('streamer', async () => null, vi.fn());
+    emit(oldSocket, 'close', { code: 1006, wasClean: false });
+    emit(oldSocket, 'error');
+    emit(oldSocket, 'open');
+    emit(oldSocket, 'message', { data: JSON.stringify({ type: 'ownership-granted' }) });
+
+    expect(first.onClose).not.toHaveBeenCalled();
+    expect(first.onError).not.toHaveBeenCalled();
+    expect(first.onOpen).not.toHaveBeenCalled();
+    expect(first.onMessage).not.toHaveBeenCalled();
+
+    disconnectParty();
   });
 });

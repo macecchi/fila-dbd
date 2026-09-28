@@ -257,6 +257,8 @@ const ptBR = {
   'toast.twitchIrc': 'Twitch IRC',
   'toast.server': 'Servidor',
   'toast.serverError': 'Erro no servidor',
+  'toast.authStatus': 'Sua sessão não está sendo aceita',
+  'toast.authStatusDesc': 'O que você mudar pode não ser salvo. Recarregue a página, ou entre de novo se continuar.',
   'toast.chatBot': 'Bot do chat',
   'toast.recoveredRequests': 'Pedidos recuperados',
   'toast.added': '{count} adicionado',

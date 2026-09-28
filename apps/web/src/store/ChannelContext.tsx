@@ -17,6 +17,12 @@ const OPEN_QUEUE_PARAM = 'open-queue';
 // At most one forced token refresh + reconnect per window of this, so a server that
 // keeps refusing the streamer can't turn the self-heal into a reconnect loop.
 const REAUTH_COOLDOWN = 60_000;
+// A refusal the self-heal can't fix (e.g. a secret rotated on only one of Worker and
+// PartyKit) would otherwise be as silent as the bug it heals: after this many attempts
+// inside the window, tell the streamer. Same for an owner session that can't get a token.
+const REAUTH_WARN_AFTER = 3;
+const REAUTH_WARN_WINDOW = 10 * 60_000;
+const TOKEN_FAILURES_WARN_AFTER = 5;
 
 // Persisted opt-out for the "notifications blocked" warning toast: once the user
 // dismisses it, we never show it again (per browser).
@@ -350,13 +356,28 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
 
     let cancelled = false;
 
+    let tokenFailures = 0;
+    let reauthAttempts: number[] = [];
+    const warnAuthStatus = () => {
+      toast.warning(t('toast.authStatus'), { id: 'auth-status', description: t('toast.authStatusDesc'), duration: 15_000 });
+    };
+
     // Runs before every connection attempt, so a reconnect presents a current token.
     // The streamer's own session never falls back to an anonymous socket: the server
     // would refuse every edit while the optimistic ✓ stays on screen. A missing token
     // (a refresh that failed on the network) fails the attempt, and the socket retries.
     const getToken = async () => {
+      // A torn-down effect's socket may still ask (partysocket resolves the query after its
+      // reconnect wait even once closed): answer without failing, it won't connect.
+      if (cancelled) return null;
       const token = await getAccessToken();
-      if (!token && isOwnChannel) throw new Error('No access token for the channel owner');
+      if (cancelled) return null;
+      if (!token && isOwnChannel) {
+        tokenFailures++;
+        if (tokenFailures >= TOKEN_FAILURES_WARN_AFTER) warnAuthStatus();
+        throw new Error('No access token for the channel owner');
+      }
+      tokenFailures = 0;
       return token;
     };
 
@@ -370,6 +391,8 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
       const now = Date.now();
       if (now - lastReauthAt < REAUTH_COOLDOWN) return;
       lastReauthAt = now;
+      reauthAttempts = [...reauthAttempts.filter((at) => now - at < REAUTH_WARN_WINDOW), now];
+      if (reauthAttempts.length >= REAUTH_WARN_AFTER) warnAuthStatus();
       console.warn('[party] server does not recognize this session as the channel owner; reconnecting with a fresh token');
       void refresh().then((ok) => {
         if (ok && !cancelled) reconnectParty();
@@ -385,6 +408,11 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
         (msg) => {
           if (msg.type === 'ownership-denied' && msg.currentOwner === 'not-room-owner') {
             reauthenticate();
+          }
+          if (msg.type === 'ownership-granted' && reauthAttempts.length > 0) {
+            // The server knows us again: whatever the heal was fighting is over.
+            reauthAttempts = [];
+            toast.dismiss('auth-status');
           }
           if (msg.type === 'server-error') {
             console.error(`[server-error] ${msg.code}: ${msg.message}`);
@@ -474,11 +502,9 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
         () => {
           console.log('Connected to PartyKit');
           setPartyConnectionState('connected');
-          // Re-send IRC status in case IRC connected before PartySocket
-          const { localIrcConnectionState, hasLock } = stores.useChannelInfo.getState();
-          if (hasLock && localIrcConnectionState === 'connected') {
-            broadcastIrcStatus(true);
-          }
+          // No irc-status here: on a reconnect `hasLock` is still stale-true while the
+          // server has already dropped the lock, so it would only be refused. The grant
+          // effect reports chat once the lock actually comes back.
         },
         () => {
           console.log('Disconnected from PartyKit');

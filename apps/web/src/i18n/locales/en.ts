@@ -259,6 +259,8 @@ const en: TranslationKeys = {
   'toast.twitchIrc': 'Twitch IRC',
   'toast.server': 'Server',
   'toast.serverError': 'Server error',
+  'toast.authStatus': 'Your session isn\'t being accepted',
+  'toast.authStatusDesc': 'Changes you make may not be saved. Reload the page, or sign in again if it keeps happening.',
   'toast.chatBot': 'Chat bot',
   'toast.recoveredRequests': 'Recovered requests',
   'toast.added': '{count} added',
