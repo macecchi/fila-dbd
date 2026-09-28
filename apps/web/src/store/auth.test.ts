@@ -43,3 +43,52 @@ describe('getAccessToken', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe('refresh', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    useAuth.getState().logout();
+  });
+
+  it('keeps the streamer signed in when the Worker errors', async () => {
+    // Refresh runs on every reconnect near expiry: a Worker 500 must not sign every live
+    // streamer out at once.
+    signIn(tokenExpiringIn(60));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('boom', { status: 500 })));
+
+    await expect(useAuth.getState().refresh()).resolves.toBe(false);
+    expect(useAuth.getState().isAuthenticated).toBe(true);
+  });
+
+  it('signs out when the server rejects the refresh token', async () => {
+    signIn(tokenExpiringIn(60));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{"error":"invalid_refresh_token"}', { status: 401 })));
+
+    await expect(useAuth.getState().refresh()).resolves.toBe(false);
+    expect(useAuth.getState().isAuthenticated).toBe(false);
+  });
+
+  it('shares one request between concurrent callers', async () => {
+    signIn(tokenExpiringIn(60));
+    const fresh = tokenExpiringIn(3600);
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ access_token: fresh })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const results = await Promise.all([useAuth.getState().refresh(), useAuth.getState().refresh(), useAuth.getState().getAccessToken()]);
+    expect(results).toEqual([true, true, fresh]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not resurrect a session signed out while the refresh was in flight', async () => {
+    signIn(tokenExpiringIn(60));
+    let respond!: (r: Response) => void;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((r) => { respond = r; })));
+
+    const pending = useAuth.getState().refresh();
+    useAuth.getState().logout();
+    respond(new Response(JSON.stringify({ access_token: tokenExpiringIn(3600) })));
+
+    await expect(pending).resolves.toBe(false);
+    expect(useAuth.getState().accessToken).toBeNull();
+  });
+});

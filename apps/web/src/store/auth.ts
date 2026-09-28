@@ -50,6 +50,45 @@ function isTokenExpired(token: string, marginMs = 0): boolean {
   }
 }
 
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function refreshOnce(
+  get: () => AuthState,
+  set: (partial: Partial<AuthState>) => void,
+): Promise<boolean> {
+  const { refreshToken } = get();
+  if (!refreshToken) return false;
+
+  if (isTokenExpired(refreshToken)) {
+    get().logout();
+    return false;
+  }
+
+  try {
+    const res = await fetch(`${API_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+
+    if (!res.ok) {
+      // Only the server saying the refresh token is bad ends the session. A 5xx is the
+      // Worker having a bad moment — refresh runs on every reconnect, so logging out on
+      // it would sign every live streamer out at once.
+      if (res.status === 400 || res.status === 401) get().logout();
+      return false;
+    }
+
+    const data = await res.json();
+    // Signed out (or in as someone else) while this was in flight: don't resurrect it.
+    if (get().refreshToken !== refreshToken) return false;
+    set({ accessToken: data.access_token });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const useAuth = create<AuthState>()(
   persist(
     (set, get) => ({
@@ -135,33 +174,13 @@ export const useAuth = create<AuthState>()(
         }
       },
 
-      refresh: async () => {
-        const { refreshToken } = get();
-        if (!refreshToken) return false;
-
-        if (isTokenExpired(refreshToken)) {
-          get().logout();
-          return false;
+      refresh: () => {
+        // Single flight: the socket's reconnect, the self-heal and API calls can all ask at
+        // once, and parallel refreshes could interleave a logout with a late success.
+        if (!refreshInFlight) {
+          refreshInFlight = refreshOnce(get, set).finally(() => { refreshInFlight = null; });
         }
-
-        try {
-          const res = await fetch(`${API_URL}/auth/refresh`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ refresh_token: refreshToken }),
-          });
-
-          if (!res.ok) {
-            get().logout();
-            return false;
-          }
-
-          const data = await res.json();
-          set({ accessToken: data.access_token });
-          return true;
-        } catch {
-          return false;
-        }
+        return refreshInFlight;
       },
 
       getAccessToken: async () => {
