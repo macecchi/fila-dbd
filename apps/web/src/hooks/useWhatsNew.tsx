@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { toast } from 'sonner';
 import { changelog, type ChangelogEntry } from '../data/changelog';
-import { t } from '../i18n';
+import { getLocale, t, type Locale } from '../i18n';
 
 const STORAGE_KEY = 'dbd-whats-new-dismissed';
 const TOAST_ID = 'whats-new';
@@ -23,16 +23,39 @@ function dismissAll(ids: string[]) {
   } catch { /* ignore */ }
 }
 
+/**
+ * "28 de setembro" / "September 28", with the year only when it isn't this one.
+ * The date is a calendar day, so it's read as local midnight: `new Date('2026-09-28')`
+ * is UTC midnight, which Brazil (UTC-3) would render as the 27th.
+ */
+export function formatReleaseDate(date: string, locale: Locale, now = new Date()): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const day = new Date(y, m - 1, d);
+  return day.toLocaleDateString(locale, {
+    day: 'numeric',
+    month: 'long',
+    ...(y !== now.getFullYear() ? { year: 'numeric' } : {}),
+  });
+}
+
+/** Unseen entries, newest first. */
+export function unseenEntries(entries: ChangelogEntry[], dismissed: Set<string>): ChangelogEntry[] {
+  return entries.filter(e => !dismissed.has(e.id)).sort((a, b) => b.date.localeCompare(a.date));
+}
+
 function DigestBody({ entries }: { entries: ChangelogEntry[] }) {
+  const locale = getLocale();
   return (
-    <ul className="whats-new-list">
+    <div className="whats-new-list">
       {entries.map(e => (
-        <li key={e.id} className="whats-new-item">
-          <div className="whats-new-item-title">{t(e.titleKey)}</div>
-          <div className="whats-new-item-desc">{t(e.descriptionKey)}</div>
-        </li>
+        <section key={e.id} className="whats-new-item">
+          <time className="whats-new-date" dateTime={e.date}>{formatReleaseDate(e.date, locale)}</time>
+          <ul className="whats-new-lines">
+            {e.items.map(key => <li key={key}>{t(key)}</li>)}
+          </ul>
+        </section>
       ))}
-    </ul>
+    </div>
   );
 }
 
@@ -40,8 +63,7 @@ export function useWhatsNew(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
 
-    const dismissed = getDismissed();
-    const unseen = changelog.filter((entry) => !dismissed.has(entry.id));
+    const unseen = unseenEntries(changelog, getDismissed());
     if (unseen.length === 0) return;
 
     // Small delay so it doesn't compete with initial connection toasts.
