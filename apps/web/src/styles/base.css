@@ -424,8 +424,11 @@ a:hover {
   text-overflow: ellipsis;
 }
 
-.toast-digest-muted {
+/* Wraps: this is the line that names who sent the skipped messages (at most three
+   names), and cut at the action button it read "Mensagens sem personagem de Bet…". */
+.toast-digest li.toast-digest-muted {
   color: var(--text-secondary);
+  white-space: normal;
 }
 
 /* New-version toast — the Update button doubles as the auto-update countdown:
