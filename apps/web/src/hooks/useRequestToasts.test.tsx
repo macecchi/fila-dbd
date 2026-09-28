@@ -65,27 +65,39 @@ function setup(opts: { hideNonRequests?: boolean; readOnly?: boolean; initial?: 
   const openReview = vi.fn();
   let requests = opts.initial ?? [req()];
   const hideNonRequests = opts.hideNonRequests ?? true;
-  const readOnly = opts.readOnly ?? false;
+  let readOnly = opts.readOnly ?? false;
   let synced = opts.synced ?? true;
+  let channel = 'meriw_';
+  type Props = { requests: Request[]; synced: boolean; readOnly: boolean; channel: string };
   const hook = renderHook(
-    ({ requests, synced }: { requests: Request[]; synced: boolean }) => useRequestToasts(requests, update, hideNonRequests, readOnly, openReview, synced),
-    { initialProps: { requests, synced } },
+    ({ requests, synced, readOnly, channel }: Props) => useRequestToasts(requests, update, hideNonRequests, readOnly, openReview, synced, channel),
+    { initialProps: { requests, synced, readOnly, channel } },
   );
+  const render = () => hook.rerender({ requests, synced, readOnly, channel });
   const setRequests = (next: Request[]) => {
     requests = next;
-    hook.rerender({ requests, synced });
+    render();
   };
   // A sync-full: the requests store is replaced first, then the room is flagged synced.
   const sync = (next: Request[]) => {
     requests = next;
     synced = true;
-    hook.rerender({ requests, synced });
+    render();
+  };
+  // In-app navigation to another room: ChannelApp stays mounted, the stores are new
+  // (the cached queue, not yet synced).
+  const switchChannel = (next: { channel: string; cached: Request[]; readOnly: boolean }) => {
+    ({ channel, readOnly } = next);
+    requests = next.cached;
+    synced = false;
+    render();
   };
   return {
     update,
     openReview,
     setRequests,
     sync,
+    switchChannel,
     arrive: (...reqs: Request[]) => setRequests([...requests, ...reqs]),
     get requests() { return requests; },
     unmount: hook.unmount,
@@ -297,6 +309,26 @@ describe('useRequestToasts', () => {
 
       q.arrive(req());
       expect(toastMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('takes each room as a new baseline when the channel changes in place', () => {
+      // A friend's queue first (read-only), then "My queue" from the header menu.
+      const q = setup({ readOnly: true, initial: [req(), req()] });
+      const mine = [req(), req(), req()];
+      q.switchChannel({ channel: 'streamer', cached: mine, readOnly: false });
+      q.sync([...mine, req()]);
+      expect(toastMock).not.toHaveBeenCalled();
+
+      q.arrive(req());
+      expect(toastMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('drops the previous room\'s toast on a channel switch', () => {
+      const q = setup();
+      q.arrive(req());
+      const id = last()[1].id;
+      q.switchChannel({ channel: 'other', cached: [], readOnly: false });
+      expect(dismissMock).toHaveBeenCalledWith(id);
     });
 
     it('counts the first request into an empty queue', () => {

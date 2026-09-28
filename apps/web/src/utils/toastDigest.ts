@@ -61,13 +61,16 @@ export interface ToastDigest<T> {
  * animation doesn't merge into a toast that is about to unmount (sonner keeps the
  * dying toast under its id for that animation, and the update would be lost with it).
  */
+/** Batch numbers are unique across digests, so a remounted one can't reuse a dying toast's id. */
+let nextBatch = 0;
+
 export function createToastDigest<T>(
   baseId: string,
   render: DigestRender<T>,
   onTab: () => boolean = isOnTab,
 ): ToastDigest<T> {
   let items: T[] = [];
-  let batch = 0;
+  let batch = nextBatch++;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   const idOf = (n: number) => `${baseId}-${n}`;
@@ -82,7 +85,7 @@ export function createToastDigest<T>(
   const endBatch = () => {
     stopTimer();
     items = [];
-    batch++;
+    batch = nextBatch++;
   };
 
   function dismiss() {

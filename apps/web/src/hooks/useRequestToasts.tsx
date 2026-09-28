@@ -140,9 +140,11 @@ export function useRequestToasts(
   openReview: () => void,
   /** The first `sync-full` has landed (`partySynced`). */
   synced: boolean,
+  /** The room these requests belong to. */
+  channel: string,
 ) {
-  const shownToasts = useRef(new Set<number>());
-  const baselined = useRef(false);
+  /** The room whose queue is the baseline, and the ids already accounted for in it. */
+  const seen = useRef<{ channel: string; ids: Set<number> } | null>(null);
   const digest = useRef<ToastDigest<Arrival> | null>(null);
   // Toast actions run long after the render that created them.
   const latest = useRef({ update, openReview });
@@ -169,18 +171,24 @@ export function useRequestToasts(
     // only what arrives after it is news. The server applies `sync-full` to the
     // requests store before it flags the room synced, so this sees the full queue.
     // (Keying this off the first non-empty batch instead swallowed the first request
-    // into an empty queue, and the summary came out one short.)
-    if (!baselined.current) {
+    // into an empty queue, and the summary came out one short.) The same holds for each
+    // room: ChannelApp stays mounted across a channel switch (e.g. from someone's queue
+    // to "My queue"), and the new room's whole queue is not news either.
+    if (seen.current?.channel !== channel) {
+      if (seen.current) {
+        digest.current?.dismiss();
+        seen.current = null;
+      }
       if (!synced) return;
-      for (const r of requests) shownToasts.current.add(r.id);
-      baselined.current = true;
+      seen.current = { channel, ids: new Set(requests.map(r => r.id)) };
       return;
     }
+    const shown = seen.current.ids;
     // `!r.done`: a later sync-full (after a reconnect) can bring in requests another
     // window already finished while this one was away — those aren't news.
-    const ready = requests.filter(r => !shownToasts.current.has(r.id) && !r.needsIdentification && !r.done);
+    const ready = requests.filter(r => !shown.has(r.id) && !r.needsIdentification && !r.done);
     for (const req of ready) {
-      shownToasts.current.add(req.id);
+      shown.add(req.id);
       if (readOnly) continue;
       if (hideNonRequests && req.type === 'none') {
         digest.current?.add({ request: req, ignored: true });
@@ -190,5 +198,5 @@ export function useRequestToasts(
       const index = activeRequests.findIndex(r => r.id === req.id);
       digest.current?.add({ request: req, ignored: false, position: index !== -1 ? index + 1 : undefined });
     }
-  }, [requests, hideNonRequests, readOnly, synced]);
+  }, [requests, hideNonRequests, readOnly, synced, channel]);
 }

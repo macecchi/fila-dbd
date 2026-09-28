@@ -441,7 +441,7 @@ const QUEUE_EXAMPLES: QueueExample[] = [
   { character: 'Dwight Fairfield', type: 'survivor', donor: 'rafa', source: 'chat', subTier: 1, messageKey: 'landing.mockupMessage4' },
   { character: 'Wraith', type: 'killer', donor: 'lucas', source: 'donation', amount: 'R$ 15', messageKey: 'landing.mockupMessage5', buildKey: 'landing.mockupBuildLine2' },
   { character: 'Clown', type: 'killer', donor: 'duda', source: 'donation', amount: 'R$ 5', messageKey: 'landing.mockupMessage6' },
-  { character: 'Meg', type: 'survivor', donor: 'theo', source: 'chat', subTier: 2, messageKey: 'landing.mockupMessage7' },
+  { character: 'Meg Thomas', type: 'survivor', donor: 'theo', source: 'chat', subTier: 2, messageKey: 'landing.mockupMessage7' },
   { character: 'Spirit', type: 'killer', donor: 'gabi', source: 'donation', amount: 'R$ 8', messageKey: 'landing.mockupMessage8' },
   { character: 'Hillbilly', type: 'killer', donor: 'igor', source: 'resub', messageKey: 'landing.mockupMessage9' },
 ];
