@@ -103,6 +103,9 @@ cd apps/api && bunx wrangler secret put <NAME> --env production
 
 - `VITE_TWITCH_CLIENT_ID` - same Twitch app Client ID (used by frontend for OAuth redirect)
 - `VITE_API_URL` - Production Worker URL
+- `VITE_PARTY_HOST` - Production PartyKit host
+
+Pages builds (production and previews) fall back to this repo's production values for all three (`PAGES_DEFAULTS` in `apps/web/vite.config.ts`), so preview deployments work without their own copies; a dashboard value overrides. Previews therefore talk to the production API and PartyKit.
 
 **PartyKit secrets (via `bunx partykit env add`):**
 
