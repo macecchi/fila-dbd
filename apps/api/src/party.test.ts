@@ -1542,7 +1542,7 @@ describe('PartyServer telemetry', () => {
 
     await server.onConnect(new MockConnection('c1') as any, createMockContext(token) as any);
 
-    expect(spy).toHaveBeenCalledWith('auth_failed', 'fila_party_auth_failed', expect.objectContaining({
+    expect(spy).toHaveBeenCalledWith('auth_failed:true', 'fila_party_auth_failed', expect.objectContaining({
       reason: 'expired',
       claimed_login: 'testchannel',
       is_room_login: true,
@@ -1564,7 +1564,7 @@ describe('PartyServer telemetry', () => {
 
     await server.onMessage(JSON.stringify({ type: 'toggle-done', id: 1, done: true }), conn as any);
 
-    expect(spy).toHaveBeenCalledWith('rejected:not_room_owner:toggle-done', 'fila_party_mutation_rejected', {
+    expect(spy).toHaveBeenCalledWith('rejected:not_room_owner:toggle-done:false', 'fila_party_mutation_rejected', {
       code: 'not_room_owner',
       message_type: 'toggle-done',
       sender_authenticated: false,
@@ -1579,7 +1579,7 @@ describe('PartyServer telemetry', () => {
     const conn = new MockConnection('anon');
     await server.onConnect(conn as any, createMockContext() as any);
     await server.onMessage(JSON.stringify({ type: 'claim-ownership' }), conn as any);
-    expect(spy).toHaveBeenCalledWith('claim_denied', 'fila_party_claim_denied', expect.objectContaining({ sender_authenticated: false }));
+    expect(spy).toHaveBeenCalledWith('claim_denied:false', 'fila_party_claim_denied', expect.objectContaining({ sender_authenticated: false }));
   });
 
   it('reports D1 sync failures with the failure count, and the recovery', async () => {
@@ -1662,5 +1662,47 @@ describe('PartyServer telemetry', () => {
       expect(line).not.toContain(goodToken);
       expect(line).not.toContain(badToken);
     }
+  });
+});
+
+describe('PartyServer — client-controlled input stays out of telemetry keys', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('reports refused messages of unknown types as "other", in one event and one log line', async () => {
+    // The review's attack: an anonymous socket sending messages with random `type`s. Each
+    // unique type used to mint a throttle key that never expired, an unthrottled event
+    // and a log line — unbounded memory in the room and volume in PostHog.
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal('fetch', fetchMock);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const room = createMockRoom('streamer');
+    (room.env as Record<string, string>).POSTHOG_KEY = 'phc_test';
+    const server = new PartyServer(room as any);
+    await server.onStart();
+    const anon = new MockConnection('anon-1');
+    room._connections.set(anon.id, anon);
+    await server.onConnect(anon as any, createMockContext() as any);
+
+    for (let i = 0; i < 500; i++) {
+      await server.onMessage(JSON.stringify({ type: `junk-${i}-${'x'.repeat(100)}` }), anon as any);
+    }
+    server.telemetry.flush();
+
+    const events = fetchMock.mock.calls
+      .filter(([url]) => String(url).endsWith('/batch/'))
+      .flatMap(([, init]) => JSON.parse(init.body).batch)
+      .filter((e: { event: string }) => e.event === 'fila_party_mutation_rejected');
+    expect(events).toHaveLength(1);
+    expect(events[0].properties).toMatchObject({ code: 'not_room_owner', message_type: 'other', count: 1 });
+    expect(JSON.stringify(events)).not.toContain('junk-');
+
+    const rejectedLines = warn.mock.calls.filter(([line]) => String(line).includes('Rejected'));
+    expect(rejectedLines).toHaveLength(1);
+    expect(String(rejectedLines[0][0])).toContain('Rejected other from non-owner');
   });
 });

@@ -30,6 +30,8 @@ const FLUSH_DELAY_MS = 2_000;
 const MAX_BATCH = 200;
 const MAX_BUFFER = 2_000;
 const MAX_BODY = 8_000;
+// Same bound as telemetry.ts: a slow PostHog can't hold the room's fetch slots.
+const EXPORT_TIMEOUT_MS = 5_000;
 
 // OTLP severity numbers: DEBUG=5, INFO=9, WARN=13, ERROR=17.
 const SEVERITY: Record<Level, { text: string; number: number }> = {
@@ -78,6 +80,7 @@ export class RoomLogger {
   private buffer: OtlpRecord[] = [];
   private dropped = 0;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private inFlight = false;
   private readonly key: string | null;
   private readonly endpoint: string;
 
@@ -154,6 +157,13 @@ export class RoomLogger {
       this.flushTimer = null;
     }
     if (!this.key || this.buffer.length === 0) return;
+    // One export at a time: when PostHog is slow, lines wait in the (bounded) buffer
+    // instead of stacking a pending fetch per room every flush — those would queue the
+    // room's own D1 write-through and chat-confirm fetches behind them.
+    if (this.inFlight) {
+      this.scheduleFlush();
+      return;
+    }
     if (this.dropped > 0) {
       const nanos = `${Math.floor(this.now())}000000`;
       this.buffer.push({
@@ -179,15 +189,19 @@ export class RoomLogger {
         scopeLogs: [{ scope: { name: 'party.ts' }, logRecords: records }],
       }],
     };
+    this.inFlight = true;
     void this.fetcher(this.endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.key}` },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(EXPORT_TIMEOUT_MS),
     }).then(
       // Console only: shipping this through the logger would feed a PostHog outage.
       (res) => { if (!res.ok) this.sink.warn(`[${this.room}] PostHog logs export failed: ${res.status}`); },
       (e) => this.sink.warn(`[${this.room}] PostHog logs export error:`, e),
-    );
+    ).finally(() => {
+      this.inFlight = false;
+    });
     if (this.buffer.length > 0) this.scheduleFlush();
   }
 }

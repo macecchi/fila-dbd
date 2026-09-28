@@ -20,6 +20,20 @@ const SOURCES_DEFAULTS: SourcesSettings = {
 
 const CHAT_NOT_MOD_NOTIFY_INTERVAL_MS = 5 * 60 * 1000;
 
+// Types a client may legitimately send. Anything else is reported as 'other': the raw
+// value is client-controlled and ends up in telemetry throttle keys and log lines, so
+// an anonymous socket could otherwise mint unbounded keys (memory, events, log volume).
+const CLIENT_MESSAGE_TYPES: ReadonlySet<string> = new Set([
+  'add-request', 'update-request', 'toggle-done', 'reorder', 'delete-request', 'set-all',
+  'update-sources', 'irc-status', 'claim-ownership', 'release-ownership',
+]);
+export const messageTypeLabel = (type: unknown): string =>
+  typeof type === 'string' && CLIENT_MESSAGE_TYPES.has(type) ? type : 'other';
+
+// A client stuck sending refused edits logs one line per sender and code per window,
+// not one per message.
+const REJECTED_LOG_WINDOW_MS = 10_000;
+
 // DO storage takes at most 128 pairs per put() and 128 keys per delete(); over
 // that it throws. Queue-wide writes (set-all from an import, a full prune) run
 // past it on a busy room, so every multi-key write goes through these.
@@ -42,6 +56,7 @@ export default class PartyServer implements Party.Server {
   private d1SyncFailCount = 0;
   private notModNotifiedAt = 0;
   private static readonly D1_SYNC_FAIL_NOTIFY = 3;
+  private rejectedLoggedAt = new Map<string, number>();
   // Every log line goes through this: printed to the console as-is (`partykit tail`)
   // and shipped to PostHog Logs with the room id (logs.ts). Never `console.*` directly.
   readonly logger: RoomLogger;
@@ -201,9 +216,12 @@ export default class PartyServer implements Party.Server {
           // The socket carries on anonymous, and every edit it sends will be refused.
           // When the token claims to be the streamer, that's their session going silent.
           const rejected = describeRejectedToken(token);
-          this.telemetry.captureThrottled('auth_failed', 'fila_party_auth_failed', {
+          const isRoomLogin = rejected.claimed_login === roomOwner;
+          // Keyed by is_room_login: a visitor's stale token in the same window must not
+          // fold the streamer's own failure into a follow-up with the visitor's properties.
+          this.telemetry.captureThrottled(`auth_failed:${isRoomLogin}`, 'fila_party_auth_failed', {
             ...rejected,
-            is_room_login: rejected.claimed_login === roomOwner,
+            is_room_login: isRoomLogin,
             client_version: clientVersion,
           });
         }
@@ -244,6 +262,9 @@ export default class PartyServer implements Party.Server {
     const info = this.connections.get(conn.id);
     this.connections.delete(conn.id);
     this.logger.log(`${this.tag} Disconnected: ${conn.id} (${info?.user?.login ?? 'anon'}) - ${this.connections.size} remaining`);
+    for (const key of this.rejectedLoggedAt.keys()) {
+      if (key.startsWith(`${conn.id}:`)) this.rejectedLoggedAt.delete(key);
+    }
     // An empty room can be evicted: ship what's buffered while it's still alive.
     if (this.connections.size === 0) {
       this.logger.flush();
@@ -287,7 +308,8 @@ export default class PartyServer implements Party.Server {
         const denyMsg: PartyMessage = { type: 'ownership-denied', currentOwner: 'not-room-owner' };
         sender.send(JSON.stringify(denyMsg));
         this.logger.log(`${this.tag} Denied ownership to ${connInfo?.user?.login ?? sender.id}: not room owner`);
-        this.telemetry.captureThrottled('claim_denied', 'fila_party_claim_denied', this.senderProps(connInfo));
+        const senderInfo = this.senderProps(connInfo);
+        this.telemetry.captureThrottled(`claim_denied:${senderInfo.sender_is_room_owner}`, 'fila_party_claim_denied', senderInfo);
         return;
       }
       // Another window of the same streamer holds the lock: hand it over rather than
@@ -342,7 +364,7 @@ export default class PartyServer implements Party.Server {
         message: 'Você precisa estar conectado para gerenciar a fila.',
       };
       sender.send(JSON.stringify(errorMsg));
-      this.logger.warn(`${this.tag} Rejected ${msg.type} from non-lock-holder ${connInfo?.user?.login ?? sender.id}`);
+      this.logRejected('not_lock_holder', sender.id, `${this.tag} Rejected ${messageTypeLabel(msg.type)} from non-lock-holder ${connInfo?.user?.login ?? sender.id}`);
       this.reportRejected('not_lock_holder', msg.type, connInfo);
       return;
     }
@@ -355,7 +377,7 @@ export default class PartyServer implements Party.Server {
         message: 'Apenas o dono do canal pode gerenciar a fila.',
       };
       sender.send(JSON.stringify(errorMsg));
-      this.logger.warn(`${this.tag} Rejected ${msg.type} from non-owner ${connInfo?.user?.login ?? sender.id}`);
+      this.logRejected('not_room_owner', sender.id, `${this.tag} Rejected ${messageTypeLabel(msg.type)} from non-owner ${connInfo?.user?.login ?? sender.id}`);
       this.reportRejected('not_room_owner', msg.type, connInfo);
       return;
     }
@@ -818,12 +840,26 @@ export default class PartyServer implements Party.Server {
    * room has no lock holder is the streamer's own socket that lost its auth — the
    * pattern behind edits that "come back" after a reload.
    */
-  private reportRejected(code: string, messageType: string, connInfo: ConnectionInfo | undefined) {
-    this.telemetry.captureThrottled(`rejected:${code}:${messageType}`, 'fila_party_mutation_rejected', {
+  private reportRejected(code: string, messageType: unknown, connInfo: ConnectionInfo | undefined) {
+    const type = messageTypeLabel(messageType);
+    const senderInfo = this.senderProps(connInfo);
+    // The owner flag is part of the key so a stranger's refusals in the same window
+    // can't fold the streamer's own into a follow-up carrying someone else's properties.
+    this.telemetry.captureThrottled(`rejected:${code}:${type}:${senderInfo.sender_is_room_owner}`, 'fila_party_mutation_rejected', {
       code,
-      message_type: messageType,
-      ...this.senderProps(connInfo),
+      message_type: type,
+      ...senderInfo,
     });
+  }
+
+  private logRejected(code: string, senderId: string, line: string) {
+    const key = `${senderId}:${code}`;
+    const now = Date.now();
+    const last = this.rejectedLoggedAt.get(key);
+    if (last !== undefined && now - last < REJECTED_LOG_WINDOW_MS) return;
+    if (this.rejectedLoggedAt.size >= 256) this.rejectedLoggedAt.clear();
+    this.rejectedLoggedAt.set(key, now);
+    this.logger.warn(line);
   }
 
   private reportPersistFailed(op: string, e: unknown) {

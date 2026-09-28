@@ -91,12 +91,18 @@ describe('RoomLogger', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it('bounds the buffer and says how much it dropped', () => {
-    fetcher.mockReturnValue(new Promise(() => {}));
+  it('keeps one export in flight, with a timeout, and ships the rest after it', async () => {
+    let release!: (r: Response) => void;
+    fetcher.mockReturnValueOnce(new Promise<Response>((r) => { release = r; }));
     const logger = new RoomLogger('room', { POSTHOG_KEY: 'phc_test' }, fetcher, Date.now, sink);
-    // Flushes every 200 lines, so nothing is dropped at a steady rate.
+    // A batch goes out at 200 lines; while PostHog hangs, nothing stacks behind it.
     for (let i = 0; i < 450; i++) logger.log(`line ${i}`);
     logger.flush();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+
+    release({ ok: true, status: 200 } as Response);
+    await vi.runAllTimersAsync();
     const total = shipped(fetcher).reduce((n, b) => n + b.body.resourceLogs[0].scopeLogs[0].logRecords.length, 0);
     expect(total).toBe(450);
   });

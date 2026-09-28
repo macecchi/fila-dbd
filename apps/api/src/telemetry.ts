@@ -33,6 +33,12 @@ const FLUSH_DELAY_MS = 2_000;
 const MAX_BATCH = 50;
 const MAX_BUFFER = 500;
 export const THROTTLE_WINDOW_MS = 60_000;
+// Throttle keys are built from server-side vocabulary only, but a bound keeps a bug (or
+// a new key built from client input) from growing the room's memory without limit.
+export const MAX_THROTTLE_KEYS = 64;
+// A slow PostHog must not hold a room's fetch slots: the room's own D1 write-through
+// and chat-confirm fetches share the connection limit with these.
+export const EXPORT_TIMEOUT_MS = 5_000;
 
 interface ThrottleState {
   windowStart: number;
@@ -45,6 +51,7 @@ export class RoomTelemetry {
   private buffer: QueuedEvent[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private throttles = new Map<string, ThrottleState>();
+  private inFlight = false;
   private readonly key: string | null;
   private readonly host: string;
 
@@ -96,6 +103,13 @@ export class RoomTelemetry {
     if (!this.key) return;
     const now = this.now();
     const state = this.throttles.get(key);
+    if (!state && this.throttles.size >= MAX_THROTTLE_KEYS) {
+      for (const [k, s] of this.throttles) {
+        if (!s.timer && now - s.windowStart >= windowMs) this.throttles.delete(k);
+      }
+      // Still full of live windows: dropping this one keeps memory and event volume bounded.
+      if (this.throttles.size >= MAX_THROTTLE_KEYS) return;
+    }
     if (!state || now - state.windowStart >= windowMs) {
       if (state?.timer) clearTimeout(state.timer);
       this.throttles.set(key, { windowStart: now, suppressed: 0, last: properties, timer: null });
@@ -131,17 +145,27 @@ export class RoomTelemetry {
       this.flushTimer = null;
     }
     if (!this.key || this.buffer.length === 0) return;
+    // One request at a time: when PostHog is slow, events wait in the (bounded) buffer
+    // instead of stacking a new pending fetch every flush.
+    if (this.inFlight) {
+      this.scheduleFlush();
+      return;
+    }
     const batch = this.buffer.splice(0, MAX_BATCH);
+    this.inFlight = true;
     void this.fetcher(`${this.host}/batch/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ api_key: this.key, batch }),
+      signal: AbortSignal.timeout(EXPORT_TIMEOUT_MS),
     }).then(
       (res) => {
         if (!res.ok) this.warn(`[${this.room}] PostHog capture failed: ${res.status}`);
       },
       (e) => this.warn(`[${this.room}] PostHog capture error:`, e),
-    );
+    ).finally(() => {
+      this.inFlight = false;
+    });
     if (this.buffer.length > 0) this.scheduleFlush();
   }
 }

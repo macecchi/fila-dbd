@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { RoomTelemetry, describeRejectedToken, THROTTLE_WINDOW_MS } from './telemetry';
+import { RoomTelemetry, describeRejectedToken, THROTTLE_WINDOW_MS, MAX_THROTTLE_KEYS } from './telemetry';
 
 function jwt(payload: Record<string, unknown>): string {
   const b64 = (o: unknown) => btoa(JSON.stringify(o)).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
@@ -67,11 +67,12 @@ describe('RoomTelemetry', () => {
     warn.mockRestore();
   });
 
-  it('throttles a key to one event per window plus a folded count', () => {
+  it('throttles a key to one event per window plus a folded count', async () => {
     const t = new RoomTelemetry('room', { POSTHOG_KEY: 'phc_test' }, fetcher, () => Date.now());
     t.captureThrottled('rejected', 'fila_party_mutation_rejected', { message_type: 'toggle-done' });
     for (let i = 0; i < 9; i++) t.captureThrottled('rejected', 'fila_party_mutation_rejected', { message_type: 'reorder' });
     t.flush();
+    await vi.advanceTimersByTimeAsync(0); // one request in flight at a time: let it settle
 
     let events = sentBatches(fetcher).flatMap((b) => b.body.batch);
     expect(events).toHaveLength(1);
@@ -79,6 +80,7 @@ describe('RoomTelemetry', () => {
 
     vi.advanceTimersByTime(THROTTLE_WINDOW_MS);
     t.flush();
+    await vi.advanceTimersByTimeAsync(0);
     events = sentBatches(fetcher).flatMap((b) => b.body.batch);
     expect(events).toHaveLength(2);
     expect(events[1].properties).toMatchObject({ message_type: 'reorder', count: 9, throttled: true });
@@ -86,7 +88,39 @@ describe('RoomTelemetry', () => {
     // The next occurrence opens a fresh window and goes out at once.
     t.captureThrottled('rejected', 'fila_party_mutation_rejected', { message_type: 'toggle-done' });
     t.flush();
+    await vi.advanceTimersByTimeAsync(0);
     expect(sentBatches(fetcher).flatMap((b) => b.body.batch)).toHaveLength(3);
+  });
+
+  it('keeps the number of throttle keys bounded', async () => {
+    const t = new RoomTelemetry('room', { POSTHOG_KEY: 'phc_test' }, fetcher, () => Date.now());
+    for (let i = 0; i < MAX_THROTTLE_KEYS * 10; i++) t.captureThrottled(`k${i}`, 'x');
+    t.flush();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(sentBatches(fetcher).flatMap((b) => b.body.batch)).toHaveLength(MAX_THROTTLE_KEYS);
+
+    // Expired windows make room again.
+    vi.advanceTimersByTime(THROTTLE_WINDOW_MS);
+    t.captureThrottled('fresh', 'x');
+    t.flush();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sentBatches(fetcher).flatMap((b) => b.body.batch)).toHaveLength(MAX_THROTTLE_KEYS + 1);
+  });
+
+  it('keeps one capture request in flight, with a timeout, and ships the rest after it', async () => {
+    let release!: (r: Response) => void;
+    fetcher.mockReturnValueOnce(new Promise<Response>((r) => { release = r; }));
+    const t = new RoomTelemetry('room', { POSTHOG_KEY: 'phc_test' }, fetcher);
+    for (let i = 0; i < 120; i++) t.capture(`e${i}`);
+    t.flush();
+    t.flush();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+
+    release({ ok: true, status: 200 } as Response);
+    await vi.runAllTimersAsync();
+    const shipped = sentBatches(fetcher).reduce((n, b) => n + b.body.batch.length, 0);
+    expect(shipped).toBe(120);
   });
 
   it('throttles keys independently', () => {
