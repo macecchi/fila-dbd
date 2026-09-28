@@ -5,6 +5,8 @@
   "main": "src/party.ts",
   "vars": {
     "API_URL": "http://localhost:8787",
-    "INTERNAL_API_SECRET": "filadbd123"
+    "INTERNAL_API_SECRET": "filadbd123",
+    "POSTHOG_KEY": "phc_CCs7f8DwgPzVqFderx2rUX3XNS54raDHYhz8z8sxDTRW",
+    "POSTHOG_HOST": "https://us.i.posthog.com"
   }
 }

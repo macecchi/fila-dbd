@@ -1,6 +1,7 @@
 import PartySocket from 'partysocket';
 import type { Request, PartyMessage, SerializedRequest, SourcesSettings } from '../types';
 import { serializeRequest, PROTOCOL_VERSION } from '../types';
+import { realtimeTelemetry, describeSocketUrl } from './realtimeTelemetry';
 
 const PARTY_HOST = import.meta.env.VITE_PARTY_HOST || 'localhost:1999';
 
@@ -34,9 +35,11 @@ export function connectParty(
     },
   });
 
+  const current = socket;
   socket.addEventListener('message', (event) => {
     try {
       const msg = JSON.parse(event.data) as PartyMessage;
+      observe(() => realtimeTelemetry.onMessage(msg));
       onMessage(msg);
     } catch {
       // ignore invalid messages
@@ -44,10 +47,14 @@ export function connectParty(
   });
 
   socket.addEventListener('open', () => {
+    // Only whether a token was presented and its remaining TTL — never the URL.
+    observe(() => realtimeTelemetry.onOpen(describeSocketUrl(current.url)));
     onOpen?.();
   });
 
-  socket.addEventListener('close', () => {
+  socket.addEventListener('close', (event) => {
+    // A socket we closed on purpose (disconnectParty, a channel switch) isn't an outage.
+    if (current === socket) observe(() => realtimeTelemetry.onClose({ code: event.code, wasClean: event.wasClean }));
     onClose?.();
   });
 
@@ -73,7 +80,9 @@ export function isPartyConnected(): boolean {
 }
 
 function send(msg: PartyMessage): void {
-  if (socket?.readyState === WebSocket.OPEN) {
+  const open = socket?.readyState === WebSocket.OPEN;
+  observe(() => realtimeTelemetry.onSend(msg, open));
+  if (socket && open) {
     socket.send(JSON.stringify(msg));
   }
 }
@@ -124,4 +133,13 @@ export function claimOwnership(): void {
 
 export function releaseOwnership(): void {
   send({ type: 'release-ownership' });
+}
+
+// Telemetry must never break the socket path it watches.
+function observe(fn: () => void): void {
+  try {
+    fn();
+  } catch (e) {
+    console.warn('[telemetry]', e);
+  }
 }

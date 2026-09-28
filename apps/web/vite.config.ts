@@ -45,6 +45,8 @@ export default defineConfig({
           if (id.includes('node_modules/zustand')) return 'zustand';
           if (id.includes('node_modules/partysocket')) return 'partysocket';
           if (id.includes('node_modules/sonner')) return 'sonner';
+          // Lazy: services/analytics.ts imports it after first paint, when idle.
+          if (id.includes('node_modules/posthog-js') || id.includes('node_modules/@posthog/')) return 'posthog';
           return 'vendor';
         }
       }

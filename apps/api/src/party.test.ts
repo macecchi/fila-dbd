@@ -1513,3 +1513,154 @@ describe('PartyServer — closing the queue vs losing a socket', () => {
     expect(server.channel.closedByOwner).toBe(false);
   });
 });
+
+describe('PartyServer telemetry', () => {
+  let server: PartyServer;
+  let mockRoom: ReturnType<typeof createMockRoom>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRoom = createMockRoom();
+    server = new PartyServer(mockRoom as any);
+  });
+  const OWNER = {
+    sub: '123',
+    login: 'testchannel',
+    display_name: 'TestChannel',
+    profile_image_url: '',
+    exp: Math.floor(Date.now() / 1000) + 3600,
+  };
+  const expiredToken = () => {
+    const b64 = (o: unknown) => btoa(JSON.stringify(o)).replace(/=+$/, '');
+    return `${b64({ alg: 'HS256' })}.${b64({ login: 'testchannel', exp: Math.floor(Date.now() / 1000) - 120 })}.sig`;
+  };
+
+  it('reports a streamer token the server rejects at connect, without the token', async () => {
+    const spy = vi.spyOn(server.telemetry, 'captureThrottled');
+    vi.mocked(verifyJwt).mockResolvedValue(null);
+    const token = expiredToken();
+
+    await server.onConnect(new MockConnection('c1') as any, createMockContext(token) as any);
+
+    expect(spy).toHaveBeenCalledWith('auth_failed', 'fila_party_auth_failed', expect.objectContaining({
+      reason: 'expired',
+      claimed_login: 'testchannel',
+      is_room_login: true,
+    }));
+    expect(JSON.stringify(spy.mock.calls)).not.toContain(token);
+  });
+
+  it('counts the streamer connecting as themselves', async () => {
+    const spy = vi.spyOn(server.telemetry, 'capture');
+    vi.mocked(verifyJwt).mockResolvedValue(OWNER);
+    await server.onConnect(new MockConnection('c1') as any, createMockContext('ok') as any);
+    expect(spy).toHaveBeenCalledWith('fila_party_owner_connected', expect.objectContaining({ room_has_lock_holder: false }));
+  });
+
+  it('reports a refused edit from an anonymous socket with the code and room state', async () => {
+    const spy = vi.spyOn(server.telemetry, 'captureThrottled');
+    const conn = new MockConnection('anon');
+    await server.onConnect(conn as any, createMockContext() as any);
+
+    await server.onMessage(JSON.stringify({ type: 'toggle-done', id: 1, done: true }), conn as any);
+
+    expect(spy).toHaveBeenCalledWith('rejected:not_room_owner:toggle-done', 'fila_party_mutation_rejected', {
+      code: 'not_room_owner',
+      message_type: 'toggle-done',
+      sender_authenticated: false,
+      sender_login: null,
+      sender_is_room_owner: false,
+      room_has_lock_holder: false,
+    });
+  });
+
+  it('reports a claim denied as not-room-owner', async () => {
+    const spy = vi.spyOn(server.telemetry, 'captureThrottled');
+    const conn = new MockConnection('anon');
+    await server.onConnect(conn as any, createMockContext() as any);
+    await server.onMessage(JSON.stringify({ type: 'claim-ownership' }), conn as any);
+    expect(spy).toHaveBeenCalledWith('claim_denied', 'fila_party_claim_denied', expect.objectContaining({ sender_authenticated: false }));
+  });
+
+  it('reports D1 sync failures with the failure count, and the recovery', async () => {
+    vi.useFakeTimers();
+    mockRoom.env = { JWT_SECRET: 'test-secret', API_URL: 'https://api.test', INTERNAL_API_SECRET: 'secret' } as any;
+    const throttled = vi.spyOn(server.telemetry, 'captureThrottled');
+    const capture = vi.spyOn(server.telemetry, 'capture');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }));
+
+    await (server as any).syncRequestsToD1();
+    await (server as any).syncRequestsToD1();
+    expect(throttled).toHaveBeenLastCalledWith('d1:requests', 'fila_party_d1_sync_failed', expect.objectContaining({
+      target: 'requests', status: 503, fail_count: 2,
+    }));
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
+    await (server as any).syncRequestsToD1();
+    expect(capture).toHaveBeenCalledWith('fila_party_d1_sync_recovered', { target: 'requests', after_failures: 2 });
+
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('ships every console line to PostHog Logs with the room id, and never the token', async () => {
+    const shippedBodies: { body: string; room: string }[] = [];
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/i/v1/logs')) {
+        const payload = JSON.parse(String(init?.body));
+        for (const r of payload.resourceLogs[0].scopeLogs[0].logRecords) {
+          shippedBodies.push({
+            body: r.body.stringValue,
+            room: r.attributes.find((a: { key: string }) => a.key === 'room.id').value.stringValue,
+          });
+        }
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    // Its own room: timers left by earlier tests' rooms also print, but not as [logsroom].
+    const printed: string[] = [];
+    const record = (...args: unknown[]) => {
+      const line = args.map(String).join(' ');
+      if (line.startsWith('[logsroom]')) printed.push(line);
+    };
+    const spies = (['log', 'warn', 'error', 'info'] as const).map((m) => vi.spyOn(console, m).mockImplementation(record));
+
+    mockRoom = createMockRoom('logsroom');
+    mockRoom.env = { JWT_SECRET: 'test-secret', POSTHOG_KEY: 'phc_test' } as any;
+    const room = new PartyServer(mockRoom as any);
+    const goodToken = 'eyJhbGciOiJIUzI1NiJ9.eyJsb2dpbiI6InRlc3RjaGFubmVsIn0.Z29vZC1zaWduYXR1cmU';
+    const badToken = 'eyJhbGciOiJIUzI1NiJ9.eyJsb2dpbiI6InRlc3RjaGFubmVsIn0.YmFkLXNpZ25hdHVyZQ';
+
+    // The streamer, a stale-token socket of theirs, and a viewer — then everyone leaves.
+    vi.mocked(verifyJwt).mockResolvedValueOnce({ ...OWNER, login: 'logsroom' }).mockResolvedValueOnce(null);
+    const owner = new MockConnection('owner');
+    const stale = new MockConnection('stale');
+    const viewer = new MockConnection('viewer');
+    for (const c of [owner, stale, viewer]) mockRoom._connections.set(c.id, c);
+    await room.onConnect(owner as any, createMockContext(goodToken) as any);
+    await room.onConnect(stale as any, createMockContext(badToken) as any);
+    await room.onConnect(viewer as any, createMockContext() as any);
+    await room.onMessage(JSON.stringify({ type: 'claim-ownership' }), owner as any);
+    await room.onMessage(JSON.stringify({ type: 'add-request', request: createTestRequest({ id: 7 }) }), owner as any);
+    await room.onMessage(JSON.stringify({ type: 'toggle-done', id: 7, done: true }), stale as any);
+    for (const c of [viewer, stale, owner]) room.onClose(c as any);
+    // Lines logged after the empty-room flush go out with the next timed flush (2s).
+    await vi.waitFor(() => expect(shippedBodies.length).toBeGreaterThanOrEqual(printed.length), { timeout: 4000 });
+
+    spies.forEach((s) => s.mockRestore());
+    vi.unstubAllGlobals();
+
+    // Every console line made it, in order, tagged with this room.
+    expect(printed.length).toBeGreaterThan(8);
+    expect(shippedBodies.map((b) => b.body)).toEqual(expect.arrayContaining(printed));
+    expect(new Set(shippedBodies.map((b) => b.room))).toEqual(new Set(['logsroom']));
+    expect(printed.some((l) => l.includes('JWT verification failed'))).toBe(true);
+    expect(printed.some((l) => l.includes('Rejected toggle-done from non-owner'))).toBe(true);
+    // No token on either side.
+    for (const line of [...printed, ...shippedBodies.map((b) => b.body)]) {
+      expect(line).not.toContain(goodToken);
+      expect(line).not.toContain(badToken);
+    }
+  });
+});

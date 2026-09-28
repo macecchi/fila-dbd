@@ -1,5 +1,7 @@
 import type * as Party from 'partykit/server';
 import { verifyJwt, type JwtPayload } from './jwt';
+import { RoomTelemetry, describeRejectedToken } from './telemetry';
+import { RoomLogger } from './logs';
 import { MAX_PENDING_REQUESTS, PROTOCOL_VERSION, RECENT_DONE_KEPT, normalizeSourcesSettings, compareRequests } from '@filadbd/shared';
 import type { SerializedRequest, SourcesSettings, ChannelState, PartyMessage } from '@filadbd/shared';
 
@@ -40,8 +42,16 @@ export default class PartyServer implements Party.Server {
   private d1SyncFailCount = 0;
   private notModNotifiedAt = 0;
   private static readonly D1_SYNC_FAIL_NOTIFY = 3;
+  // Every log line goes through this: printed to the console as-is (`partykit tail`)
+  // and shipped to PostHog Logs with the room id (logs.ts). Never `console.*` directly.
+  readonly logger: RoomLogger;
+  // PostHog events (telemetry.ts). Both are no-ops without POSTHOG_KEY or under DEV_MODE.
+  readonly telemetry: RoomTelemetry;
 
-  constructor(public room: Party.Room) { }
+  constructor(public room: Party.Room) {
+    this.logger = new RoomLogger(room.id.toLowerCase(), room.env);
+    this.telemetry = new RoomTelemetry(room.id.toLowerCase(), room.env, undefined, undefined, (...args) => this.logger.warn(...args));
+  }
 
   private async putRequestKeys(entries: Record<string, SerializedRequest>) {
     const keys = Object.keys(entries);
@@ -59,7 +69,7 @@ export default class PartyServer implements Party.Server {
   }
 
   async onStart() {
-    console.log(`${this.tag} Starting`);
+    this.logger.log(`${this.tag} Starting`);
 
     const legacy = await this.room.storage.get<SerializedRequest[]>('requests');
     if (legacy) {
@@ -71,16 +81,16 @@ export default class PartyServer implements Party.Server {
     const storedSources = await this.room.storage.get<Partial<SourcesSettings>>('sources');
     if (storedSources) {
       this.sources = normalizeSourcesSettings(storedSources);
-      console.log(`${this.tag} Loaded sources config from DO:`, JSON.stringify(this.sources.enabled));
+      this.logger.log(`${this.tag} Loaded sources config from DO:`, JSON.stringify(this.sources.enabled));
     } else {
       const recoveredSources = await this.recoverSourcesFromD1();
       if (recoveredSources) {
         this.sources = normalizeSourcesSettings(recoveredSources);
         await this.room.storage.put('sources', this.sources);
-        console.log(`${this.tag} Recovered sources config from D1:`, JSON.stringify(this.sources.enabled));
+        this.logger.log(`${this.tag} Recovered sources config from D1:`, JSON.stringify(this.sources.enabled));
       } else {
         this.sources = SOURCES_DEFAULTS;
-        console.log(`${this.tag} Using default sources config`);
+        this.logger.log(`${this.tag} Using default sources config`);
       }
     }
   }
@@ -95,7 +105,7 @@ export default class PartyServer implements Party.Server {
     await this.putRequestKeys(entries);
     await this.room.storage.put('order', pending.map(r => r.id));
     this.requests = pending;
-    console.log(`${this.tag} Migrated ${pending.length} requests to per-key storage`);
+    this.logger.log(`${this.tag} Migrated ${pending.length} requests to per-key storage`);
   }
 
   private async loadPerKeyStorage() {
@@ -104,13 +114,13 @@ export default class PartyServer implements Party.Server {
 
     if (entries.size > 0) {
       this.requests = this.orderRequests(entries, order ?? null);
-      console.log(`${this.tag} Loaded ${this.requests.length} requests from per-key storage`);
+      this.logger.log(`${this.tag} Loaded ${this.requests.length} requests from per-key storage`);
     } else {
       const recovered = await this.recoverFromD1();
       if (recovered) {
         this.requests = recovered;
         await this.persistAll();
-        console.log(`${this.tag} Recovered ${recovered.length} requests from D1`);
+        this.logger.log(`${this.tag} Recovered ${recovered.length} requests from D1`);
       }
     }
   }
@@ -157,7 +167,7 @@ export default class PartyServer implements Party.Server {
         // Broadcast to connected clients
         const msg: PartyMessage = { type: 'sync-full', requests: this.requests, sources: this.sources, channel: this.channel };
         for (const conn of this.room.getConnections()) conn.send(JSON.stringify(msg));
-        console.log(`${this.tag} Forced D1 recovery: ${this.requests.length} requests`);
+        this.logger.log(`${this.tag} Forced D1 recovery: ${this.requests.length} requests`);
         return Response.json({ ok: true, recovered: this.requests.length });
       }
       return Response.json({ error: 'unknown_action' }, { status: 400 });
@@ -180,21 +190,37 @@ export default class PartyServer implements Party.Server {
     if (token) {
       const jwtSecret = this.room.env.JWT_SECRET as string;
       if (!jwtSecret) {
-        console.warn(`${this.tag} JWT_SECRET not configured`);
+        this.logger.warn(`${this.tag} JWT_SECRET not configured`);
+        this.telemetry.captureThrottled('config', 'fila_party_config_error', { missing: 'JWT_SECRET' });
       } else {
         user = await verifyJwt(token, jwtSecret);
         if (user) {
-          console.log(`${this.tag} Auth: ${user.login.toLowerCase()}`);
+          this.logger.log(`${this.tag} Auth: ${user.login.toLowerCase()}`);
         } else {
-          console.warn(`${this.tag} JWT verification failed for conn ${conn.id}`);
+          this.logger.warn(`${this.tag} JWT verification failed for conn ${conn.id}`);
+          // The socket carries on anonymous, and every edit it sends will be refused.
+          // When the token claims to be the streamer, that's their session going silent.
+          const rejected = describeRejectedToken(token);
+          this.telemetry.captureThrottled('auth_failed', 'fila_party_auth_failed', {
+            ...rejected,
+            is_room_login: rejected.claimed_login === roomOwner,
+            client_version: clientVersion,
+          });
         }
       }
     } else {
-      console.log(`${this.tag} Anonymous connection ${conn.id}`);
+      this.logger.log(`${this.tag} Anonymous connection ${conn.id}`);
     }
 
     this.connections.set(conn.id, { user });
-    console.log(`${this.tag} Connected: ${conn.id} (${user?.login ?? 'anon'}) v${clientVersion} - ${this.connections.size} total`);
+    if (user && user.login.toLowerCase() === roomOwner) {
+      // Denominator for the auth failures above: the streamer connecting as themselves.
+      this.telemetry.capture('fila_party_owner_connected', {
+        client_version: clientVersion,
+        room_has_lock_holder: this.activeOwnerConnId !== null,
+      });
+    }
+    this.logger.log(`${this.tag} Connected: ${conn.id} (${user?.login ?? 'anon'}) v${clientVersion} - ${this.connections.size} total`);
 
     // Protocol version check — reject clients with incompatible protocol
     const clientProto = parseInt(clientVersion, 10);
@@ -205,7 +231,7 @@ export default class PartyServer implements Party.Server {
         message: 'Nova versão disponível. Recarregue a página.',
       };
       conn.send(JSON.stringify(errorMsg));
-      console.warn(`${this.tag} Protocol mismatch: client=${clientProto}, server=${PROTOCOL_VERSION}`);
+      this.logger.warn(`${this.tag} Protocol mismatch: client=${clientProto}, server=${PROTOCOL_VERSION}`);
       return;
     }
 
@@ -217,7 +243,12 @@ export default class PartyServer implements Party.Server {
   onClose(conn: Party.Connection) {
     const info = this.connections.get(conn.id);
     this.connections.delete(conn.id);
-    console.log(`${this.tag} Disconnected: ${conn.id} (${info?.user?.login ?? 'anon'}) - ${this.connections.size} remaining`);
+    this.logger.log(`${this.tag} Disconnected: ${conn.id} (${info?.user?.login ?? 'anon'}) - ${this.connections.size} remaining`);
+    // An empty room can be evicted: ship what's buffered while it's still alive.
+    if (this.connections.size === 0) {
+      this.logger.flush();
+      this.telemetry.flush();
+    }
 
     if (this.activeOwnerConnId === conn.id) {
       this.activeOwnerConnId = null;
@@ -227,7 +258,7 @@ export default class PartyServer implements Party.Server {
   }
 
   onError(conn: Party.Connection, error: unknown) {
-    console.error(`${this.tag} Error on ${conn.id}:`, error);
+    this.logger.error(`${this.tag} Error on ${conn.id}:`, error);
     this.connections.delete(conn.id);
 
     if (this.activeOwnerConnId === conn.id) {
@@ -242,7 +273,7 @@ export default class PartyServer implements Party.Server {
     try {
       msg = JSON.parse(message);
     } catch (e) {
-      console.error(`${this.tag} Invalid JSON from ${sender.id}:`, e);
+      this.logger.error(`${this.tag} Invalid JSON from ${sender.id}:`, e);
       return;
     }
 
@@ -255,7 +286,8 @@ export default class PartyServer implements Party.Server {
       if (!isRoomOwner && !(this.isDev && connInfo?.user)) {
         const denyMsg: PartyMessage = { type: 'ownership-denied', currentOwner: 'not-room-owner' };
         sender.send(JSON.stringify(denyMsg));
-        console.log(`${this.tag} Denied ownership to ${connInfo?.user?.login ?? sender.id}: not room owner`);
+        this.logger.log(`${this.tag} Denied ownership to ${connInfo?.user?.login ?? sender.id}: not room owner`);
+        this.telemetry.captureThrottled('claim_denied', 'fila_party_claim_denied', this.senderProps(connInfo));
         return;
       }
       // Another window of the same streamer holds the lock: hand it over rather than
@@ -269,7 +301,7 @@ export default class PartyServer implements Party.Server {
             break;
           }
         }
-        console.log(`${this.tag} Transferred ownership from ${previous?.user?.login ?? this.activeOwnerConnId} to ${connInfo?.user?.login ?? sender.id}`);
+        this.logger.log(`${this.tag} Transferred ownership from ${previous?.user?.login ?? this.activeOwnerConnId} to ${connInfo?.user?.login ?? sender.id}`);
       }
       // Grant ownership
       this.activeOwnerConnId = sender.id;
@@ -285,7 +317,7 @@ export default class PartyServer implements Party.Server {
       this.needsFullSync = true;
       this.syncRequestsToD1();
       this.syncSourcesToD1();
-      console.log(`${this.tag} Granted ownership to ${login}`);
+      this.logger.log(`${this.tag} Granted ownership to ${login}`);
       return;
     }
 
@@ -297,7 +329,7 @@ export default class PartyServer implements Party.Server {
         // room back and reopen the queue behind the streamer.
         this.channel = { status: 'offline', owner: null, closedByOwner: true };
         this.flushAndSyncOffline();
-        console.log(`${this.tag} ${connInfo?.user?.login} released ownership`);
+        this.logger.log(`${this.tag} ${connInfo?.user?.login} released ownership`);
       }
       return;
     }
@@ -310,7 +342,8 @@ export default class PartyServer implements Party.Server {
         message: 'Você precisa estar conectado para gerenciar a fila.',
       };
       sender.send(JSON.stringify(errorMsg));
-      console.warn(`${this.tag} Rejected ${msg.type} from non-lock-holder ${connInfo?.user?.login ?? sender.id}`);
+      this.logger.warn(`${this.tag} Rejected ${msg.type} from non-lock-holder ${connInfo?.user?.login ?? sender.id}`);
+      this.reportRejected('not_lock_holder', msg.type, connInfo);
       return;
     }
 
@@ -322,7 +355,8 @@ export default class PartyServer implements Party.Server {
         message: 'Apenas o dono do canal pode gerenciar a fila.',
       };
       sender.send(JSON.stringify(errorMsg));
-      console.warn(`${this.tag} Rejected ${msg.type} from non-owner ${connInfo?.user?.login ?? sender.id}`);
+      this.logger.warn(`${this.tag} Rejected ${msg.type} from non-owner ${connInfo?.user?.login ?? sender.id}`);
+      this.reportRejected('not_room_owner', msg.type, connInfo);
       return;
     }
 
@@ -330,7 +364,7 @@ export default class PartyServer implements Party.Server {
     switch (msg.type) {
       case 'add-request': {
         if (this.requests.some(r => r.id === msg.request.id)) {
-          console.log(`${this.tag} ${user}: add-request #${msg.request.id} skipped (duplicate)`);
+          this.logger.log(`${this.tag} ${user}: add-request #${msg.request.id} skipped (duplicate)`);
           break;
         }
         const pendingCount = this.requests.filter(r => !r.done).length;
@@ -338,7 +372,8 @@ export default class PartyServer implements Party.Server {
           // Include the rejected id so the client can roll back its optimistic insert
           // (the reject path intentionally does not echo the add back).
           this.sendError('pending_cap', `Fila cheia (${MAX_PENDING_REQUESTS}). Marque pedidos como feitos para liberar espaço.`, msg.request.id);
-          console.warn(`${this.tag} ${user}: add-request #${msg.request.id} rejected (pending cap ${MAX_PENDING_REQUESTS})`);
+          this.logger.warn(`${this.tag} ${user}: add-request #${msg.request.id} rejected (pending cap ${MAX_PENDING_REQUESTS})`);
+          this.reportRejected('pending_cap', msg.type, connInfo);
           break;
         }
         if (this.sources.sortMode === 'fifo') {
@@ -355,7 +390,7 @@ export default class PartyServer implements Party.Server {
         this.dirtyRequestIds.add(msg.request.id);
         await this.persist();
         this.broadcast(message);
-        console.log(`${this.tag} ${user}: add-request #${msg.request.id} "${msg.request.character}" (${msg.request.source})`);
+        this.logger.log(`${this.tag} ${user}: add-request #${msg.request.id} "${msg.request.character}" (${msg.request.source})`);
         void this.sendChatConfirmation(msg.request);
         break;
       }
@@ -368,7 +403,7 @@ export default class PartyServer implements Party.Server {
           this.dirtyRequestIds.add(msg.id);
           await this.persist();
           this.broadcast(message);
-          console.log(`${this.tag} ${user}: update-request #${msg.id}`, Object.keys(msg.updates));
+          this.logger.log(`${this.tag} ${user}: update-request #${msg.id}`, Object.keys(msg.updates));
           if (before.needsIdentification && !after.needsIdentification) {
             void this.sendChatConfirmation(after);
           }
@@ -385,7 +420,7 @@ export default class PartyServer implements Party.Server {
           this.dirtyRequestIds.add(msg.id);
           await this.persist();
           this.broadcast(JSON.stringify({ type: 'toggle-done', id: msg.id, done: msg.done, doneAt: this.requests[idx].doneAt }));
-          console.log(`${this.tag} ${user}: toggle-done #${msg.id} → ${msg.done}`);
+          this.logger.log(`${this.tag} ${user}: toggle-done #${msg.id} → ${msg.done}`);
         }
         break;
       }
@@ -398,7 +433,7 @@ export default class PartyServer implements Party.Server {
           this.needsFullSync = true;
           await this.persist(true);
           this.broadcast(message);
-          console.log(`${this.tag} ${user}: reorder #${msg.fromId} → position of #${msg.toId}`);
+          this.logger.log(`${this.tag} ${user}: reorder #${msg.fromId} → position of #${msg.toId}`);
         }
         break;
       }
@@ -410,7 +445,7 @@ export default class PartyServer implements Party.Server {
           this.needsFullSync = true;
           await this.persist();
           this.broadcast(message);
-          console.log(`${this.tag} ${user}: delete-request #${msg.id}`);
+          this.logger.log(`${this.tag} ${user}: delete-request #${msg.id}`);
         }
         break;
       }
@@ -425,12 +460,13 @@ export default class PartyServer implements Party.Server {
           if (oldKeys.length > 0) await this.deleteRequestKeys(oldKeys);
           await this.persistAll();
         } catch (e) {
-          console.error(`${this.tag} SET-ALL PERSIST FAILED (${this.requests.length} requests):`, e);
+          this.logger.error(`${this.tag} SET-ALL PERSIST FAILED (${this.requests.length} requests):`, e);
+          this.reportPersistFailed('set-all', e);
           this.sendError('persist_failed', 'Erro ao salvar dados localmente. Tentando sincronizar com o banco de dados.');
         }
         this.scheduleSyncRequests();
         this.broadcast(message);
-        console.log(`${this.tag} ${user}: set-all (${msg.requests.length} requests)`);
+        this.logger.log(`${this.tag} ${user}: set-all (${msg.requests.length} requests)`);
         break;
       }
       case 'update-sources': {
@@ -439,7 +475,7 @@ export default class PartyServer implements Party.Server {
         await this.room.storage.put('sources', this.sources);
         this.syncSourcesToD1();
         this.broadcast(JSON.stringify({ ...msg, sources: normalized }));
-        console.log(`${this.tag} ${user}: update-sources`, JSON.stringify(normalized.enabled));
+        this.logger.log(`${this.tag} ${user}: update-sources`, JSON.stringify(normalized.enabled));
         break;
       }
       case 'irc-status': {
@@ -448,7 +484,7 @@ export default class PartyServer implements Party.Server {
           this.channel.status = status;
           this.broadcastChannel();
         }
-        console.log(`${this.tag} ${user}: irc-status ${msg.connected}`);
+        this.logger.log(`${this.tag} ${user}: irc-status ${msg.connected}`);
         break;
       }
     }
@@ -499,7 +535,8 @@ export default class PartyServer implements Party.Server {
       }
       this.scheduleSyncRequests(reorderOnly);
     } catch (e) {
-      console.error(`${this.tag} PERSIST FAILED (${this.requests.length} requests):`, e);
+      this.logger.error(`${this.tag} PERSIST FAILED (${this.requests.length} requests):`, e);
+      this.reportPersistFailed(reorderOnly ? 'reorder' : 'persist', e);
       this.sendError('persist_failed', 'Erro ao salvar dados localmente. Tentando sincronizar com o banco de dados.');
       this.needsFullSync = true;
       this.scheduleSyncRequests();
@@ -538,6 +575,9 @@ export default class PartyServer implements Party.Server {
         body: JSON.stringify({ requests: requestsToSync, mode }),
       });
       if (res.ok) {
+        if (this.d1SyncFailCount > 0) {
+          this.telemetry.capture('fila_party_d1_sync_recovered', { target: 'requests', after_failures: this.d1SyncFailCount });
+        }
         this.d1SyncFailCount = 0;
         // Delete done (and optionally type='none') request keys from DO (unless
         // re-dirtied during sync, or among the newest done the strip still shows)
@@ -554,25 +594,26 @@ export default class PartyServer implements Party.Server {
         this.requests = this.requests.filter(r => !shouldPrune(r) || this.dirtyRequestIds.has(r.id));
         if (this.requests.length < before) {
           await this.room.storage.put('order', this.requests.map(r => r.id));
-          console.log(`${this.tag} Pruned ${before - this.requests.length} requests (done + ${pruneDiscarded ? 'discarded' : 'none'})`);
+          this.logger.log(`${this.tag} Pruned ${before - this.requests.length} requests (done + ${pruneDiscarded ? 'discarded' : 'none'})`);
         }
-        console.log(`${this.tag} D1 synced ${requestsToSync.length} requests (${mode})`);
+        this.logger.log(`${this.tag} D1 synced ${requestsToSync.length} requests (${mode})`);
       } else {
-        console.error(`${this.tag} D1 sync requests failed: ${res.status}`);
+        this.logger.error(`${this.tag} D1 sync requests failed: ${res.status}`);
         for (const id of syncingIds) this.dirtyRequestIds.add(id);
         this.needsFullSync = true;
-        this.handleD1SyncFailure();
+        this.handleD1SyncFailure({ status: res.status, mode });
       }
     } catch (e) {
-      console.error(`${this.tag} D1 sync requests error:`, e);
+      this.logger.error(`${this.tag} D1 sync requests error:`, e);
       for (const id of syncingIds) this.dirtyRequestIds.add(id);
       this.needsFullSync = true;
-      this.handleD1SyncFailure();
+      this.handleD1SyncFailure({ status: null, mode, error: errorText(e) });
     }
   }
 
-  private handleD1SyncFailure() {
+  private handleD1SyncFailure(details: { status: number | null; mode: string; error?: string }) {
     this.d1SyncFailCount++;
+    this.reportD1Failure('requests', { ...details, fail_count: this.d1SyncFailCount, request_count: this.requests.length });
     if (this.d1SyncFailCount === PartyServer.D1_SYNC_FAIL_NOTIFY) {
       this.sendError('d1_sync_failed', 'Sincronização com o banco de dados falhou repetidamente. Dados estão seguros localmente, mas podem ser perdidos se o servidor reiniciar.');
     }
@@ -590,13 +631,15 @@ export default class PartyServer implements Party.Server {
         headers: { 'Authorization': `Bearer internal:${secret}` },
       });
       if (!res.ok) {
-        console.error(`${this.tag} D1 sources recovery failed: ${res.status}`);
+        this.logger.error(`${this.tag} D1 sources recovery failed: ${res.status}`);
+        this.reportD1Failure('recover-sources', { status: res.status });
         return null;
       }
       const data = await res.json<{ sources: Partial<SourcesSettings> | null }>();
       return data.sources;
     } catch (e) {
-      console.error(`${this.tag} D1 sources recovery error:`, e);
+      this.logger.error(`${this.tag} D1 sources recovery error:`, e);
+      this.reportD1Failure('recover-sources', { status: null, error: errorText(e) });
       return null;
     }
   }
@@ -612,13 +655,15 @@ export default class PartyServer implements Party.Server {
         headers: { 'Authorization': `Bearer internal:${secret}` },
       });
       if (!res.ok) {
-        console.error(`${this.tag} D1 recovery failed: ${res.status}`);
+        this.logger.error(`${this.tag} D1 recovery failed: ${res.status}`);
+        this.reportD1Failure('recover-requests', { status: res.status });
         return null;
       }
       const data = await res.json<{ requests: SerializedRequest[] }>();
       return data.requests.length > 0 ? data.requests : null;
     } catch (e) {
-      console.error(`${this.tag} D1 recovery error:`, e);
+      this.logger.error(`${this.tag} D1 recovery error:`, e);
+      this.reportD1Failure('recover-requests', { status: null, error: errorText(e) });
       return null;
     }
   }
@@ -638,12 +683,14 @@ export default class PartyServer implements Party.Server {
         body: JSON.stringify(this.sources),
       });
       if (!res.ok) {
-        console.error(`${this.tag} D1 sync sources failed: ${res.status}`);
+        this.logger.error(`${this.tag} D1 sync sources failed: ${res.status}`);
+        this.reportD1Failure('sources', { status: res.status });
       } else {
-        console.log(`${this.tag} D1 synced sources`);
+        this.logger.log(`${this.tag} D1 synced sources`);
       }
     } catch (e) {
-      console.error(`${this.tag} D1 sync sources error:`, e);
+      this.logger.error(`${this.tag} D1 sync sources error:`, e);
+      this.reportD1Failure('sources', { status: null, error: errorText(e) });
     }
   }
 
@@ -659,7 +706,7 @@ export default class PartyServer implements Party.Server {
 
   private sendError(code: string, message: string, id?: number) {
     this.sendToOwner({ type: 'server-error', code, message, id });
-    console.error(`${this.tag} Error sent to owner: [${code}] ${message}`);
+    this.logger.error(`${this.tag} Error sent to owner: [${code}] ${message}`);
   }
 
   // 1-based position the request will appear at in the queue users see.
@@ -715,12 +762,12 @@ export default class PartyServer implements Party.Server {
       });
 
       if (res.ok) {
-        console.log(`${this.tag} chat-confirm sent for #${req.id}`);
+        this.logger.log(`${this.tag} chat-confirm sent for #${req.id}`);
         return;
       }
 
       const body = await res.json<{ reason?: string; detail?: string }>().catch(() => ({} as { reason?: string; detail?: string }));
-      console.warn(`${this.tag} chat-confirm failed: ${body.reason ?? res.status}${body.detail ? ` (${body.detail})` : ''}`);
+      this.logger.warn(`${this.tag} chat-confirm failed: ${body.reason ?? res.status}${body.detail ? ` (${body.detail})` : ''}`);
 
       // not_mod = Helix outright rejected (bot isn't a mod). message_rejected with
       // followers_only_mode / subs_only_mode / etc. = bot got past the API check
@@ -737,7 +784,7 @@ export default class PartyServer implements Party.Server {
         }
       }
     } catch (e) {
-      console.warn(`${this.tag} chat-confirm error`, e);
+      this.logger.warn(`${this.tag} chat-confirm error`, e);
     }
   }
 
@@ -750,8 +797,45 @@ export default class PartyServer implements Party.Server {
       }
     }
     if (count > 0) {
-      console.log(`${this.tag} Broadcast to ${count} client(s)`);
+      this.logger.log(`${this.tag} Broadcast to ${count} client(s)`);
     }
+  }
+
+  // ---------- telemetry ----------
+
+  private senderProps(connInfo: ConnectionInfo | undefined) {
+    const login = connInfo?.user?.login.toLowerCase() ?? null;
+    return {
+      sender_authenticated: !!connInfo?.user,
+      sender_login: login,
+      sender_is_room_owner: login === this.room.id.toLowerCase(),
+      room_has_lock_holder: this.activeOwnerConnId !== null,
+    };
+  }
+
+  /**
+   * An edit the server refused. `not_room_owner` from an anonymous sender while the
+   * room has no lock holder is the streamer's own socket that lost its auth — the
+   * pattern behind edits that "come back" after a reload.
+   */
+  private reportRejected(code: string, messageType: string, connInfo: ConnectionInfo | undefined) {
+    this.telemetry.captureThrottled(`rejected:${code}:${messageType}`, 'fila_party_mutation_rejected', {
+      code,
+      message_type: messageType,
+      ...this.senderProps(connInfo),
+    });
+  }
+
+  private reportPersistFailed(op: string, e: unknown) {
+    this.telemetry.captureThrottled(`persist:${op}`, 'fila_party_persist_failed', {
+      op,
+      request_count: this.requests.length,
+      error: errorText(e),
+    });
+  }
+
+  private reportD1Failure(target: string, props: Record<string, unknown>) {
+    this.telemetry.captureThrottled(`d1:${target}`, 'fila_party_d1_sync_failed', { target, ...props });
   }
 
   private get tag() {
@@ -780,7 +864,7 @@ export default class PartyServer implements Party.Server {
       conn.send(msg);
       count++;
     }
-    console.log(`${this.tag} Broadcast channel state to ${count} client(s): status=${this.channel.status}, owner=${this.channel.owner?.login ?? 'null'}`);
+    this.logger.log(`${this.tag} Broadcast channel state to ${count} client(s): status=${this.channel.status}, owner=${this.channel.owner?.login ?? 'null'}`);
     if (this.channel.status !== this.lastSyncedStatus) {
       this.lastSyncedStatus = this.channel.status;
       this.syncStatusToD1();
@@ -802,10 +886,16 @@ export default class PartyServer implements Party.Server {
         body: JSON.stringify({ status: this.channel.status }),
       });
       if (!res.ok) {
-        console.error(`${this.tag} D1 sync status failed: ${res.status}`);
+        this.logger.error(`${this.tag} D1 sync status failed: ${res.status}`);
+        this.reportD1Failure('status', { status: res.status });
       }
     } catch (e) {
-      console.error(`${this.tag} D1 sync status error:`, e);
+      this.logger.error(`${this.tag} D1 sync status error:`, e);
+      this.reportD1Failure('status', { status: null, error: errorText(e) });
     }
   }
+}
+
+function errorText(e: unknown): string {
+  return (e instanceof Error ? `${e.name}: ${e.message}` : String(e)).slice(0, 200);
 }
