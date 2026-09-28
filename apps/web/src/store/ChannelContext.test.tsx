@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vite
 import { render, act } from '@testing-library/react';
 import { ChannelProvider, useChannel } from './ChannelContext';
 import { useAuth } from './auth';
-import { claimOwnership, releaseOwnership, connectParty, reconnectParty } from '../services/party';
+import { claimOwnership, releaseOwnership, connectParty, reconnectParty, broadcastIrcStatus } from '../services/party';
 import { connect as connectIrc, disconnect as disconnectIrc } from '../services/twitch';
 import { toast } from 'sonner';
 import { useQueueStatus } from '../hooks/useQueueStatus';
@@ -458,5 +458,36 @@ describe('ChannelProvider — the streamer never edits through an unauthenticate
     });
     expect(authMock.refresh).not.toHaveBeenCalled();
     expect(reconnect).not.toHaveBeenCalled();
+  });
+});
+
+describe('ChannelProvider — the channel reads live again after a reconnect', () => {
+  const ircStatus = vi.mocked(broadcastIrcStatus);
+
+  afterEach(() => vi.clearAllMocks());
+
+  it('re-reports chat as live when the lock comes back with IRC still connected', () => {
+    // The server drops ownership when the party socket closes and resets the room to
+    // 'online' on the re-claim. IRC never dropped, so nothing transitions to re-send
+    // irc-status — and every window, viewers included, showed "Conectando..." / "Fila
+    // fechada" for the rest of the stream while requests were still being taken.
+    const get = setup();
+    sync(get(), null);
+    act(() => {
+      get().useChannelInfo.getState().handlePartyMessage({ type: 'ownership-granted' } as never);
+      get().useChannelInfo.getState().setIrcConnectionState('connected');
+    });
+    expect(ircStatus).toHaveBeenLastCalledWith(true);
+    ircStatus.mockClear();
+
+    act(() => {
+      get().useChannelInfo.getState().setPartyConnectionState('disconnected');
+    });
+    sync(get(), null);
+    act(() => {
+      get().useChannelInfo.getState().handlePartyMessage({ type: 'ownership-granted' } as never);
+    });
+
+    expect(ircStatus).toHaveBeenCalledWith(true);
   });
 });

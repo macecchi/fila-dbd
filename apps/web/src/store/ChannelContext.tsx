@@ -130,6 +130,12 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
       hasAutoConnectedIrc.current = true;
       if (localIrcState === 'disconnected') {
         connectIrc(channel);
+      } else if (localIrcState === 'connected') {
+        // A re-grant after a party reconnect finds chat still joined, so nothing
+        // transitions to report it — and the server reset the room to 'online' on the
+        // claim. Without this, every window (viewers too) reads "Conectando..." for the
+        // rest of the session while requests keep coming in.
+        broadcastIrcStatus(true);
       }
     }
     // Reset when ownership is lost so next grant auto-connects again

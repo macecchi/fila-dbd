@@ -156,6 +156,11 @@ internal bookkeeping and must never surface as a mode the streamer has to notice
   additive, optional field on `ChannelState`); sessions skip the auto-reclaim while it's set,
   so nothing reopens a queue the streamer just closed. A socket that merely died leaves it
   unset, which is what makes the recovery above safe. A claim clears it.
+- **Every grant re-reports chat.** The server resets the room to `online` on each claim and
+  only an `irc-status` from the lock holder makes it `live`. A re-grant after a party reconnect
+  finds IRC still joined, so no transition fires on its own — the grant effect sends
+  `irc-status: true` itself. Without it the channel read "Conectando..." / "Fila fechada" to
+  everyone for the rest of the stream while requests kept arriving.
 - **Single-writer work follows `hasLock`**, not the UI capability: LLM identification and the
   VOD recovery scan, so a second tab never duplicates requests or burns a second round of
   tokens.
