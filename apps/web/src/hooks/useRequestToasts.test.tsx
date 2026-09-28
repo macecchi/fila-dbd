@@ -138,7 +138,7 @@ describe('useRequestToasts', () => {
     const [title, opts] = last();
     expect(title).toBe(t('toast.newRequests', { count: 3 }));
     expect(sentences(opts.description)).toEqual([
-      t('toast.newRequestsOf', { count: 3, names: t('toast.namesTwo', { a: 'Trapper', b: 'Nurse' }) }),
+      t('toast.namesTwo', { a: 'Trapper', b: 'Nurse' }),
     ]);
     expect(opts.duration).toBe(Infinity);
     expect(opts.action).toBeUndefined();
@@ -152,7 +152,7 @@ describe('useRequestToasts', () => {
     for (const character of ['Huntress', 'Slasher', 'Huntress', 'Lich', 'Nurse']) q.arrive(req({ character }));
 
     expect(sentences(last()[1].description)).toEqual([
-      t('toast.newRequestsOf', { count: 5, names: t('toast.namesMore', { a: 'Huntress', b: 'Slasher', count: 2 }) }),
+      t('toast.namesMore', { a: 'Huntress', b: 'Slasher', count: 2 }),
     ]);
   });
 
@@ -239,8 +239,9 @@ describe('useRequestToasts', () => {
       const [title, opts] = last();
       expect(title).toBe(t('toast.newRequests', { count: 2 }));
       expect(typeof opts.description).toBe('string'); // one line
+      expect(String(opts.description)).not.toContain(title); // the count lives in the title only
       expect(sentences(opts.description)).toEqual([
-        t('toast.newRequestsOf', { count: 2, names: t('toast.namesTwo', { a: 'Trapper', b: 'Nurse' }) }),
+        t('toast.namesTwo', { a: 'Trapper', b: 'Nurse' }),
         t('toast.ignoredFrom', { count: 2, names: t('toast.namesTwo', { a: 'Ana', b: 'Duda' }) }),
       ]);
       expect((opts.action as Action).label).toBe(t('toast.review'));
@@ -262,9 +263,7 @@ describe('useRequestToasts', () => {
 
       const [title, opts] = last();
       expect(title).toBe(t('toast.ignoredCount', { count: 2 }));
-      expect(sentences(opts.description)).toEqual([
-        t('toast.ignoredFrom', { count: 2, names: t('toast.namesTwo', { a: 'Ana', b: 'Bia' }) }),
-      ]);
+      expect(opts.description).toBe(t('toast.ignoredFromNames', { names: t('toast.namesTwo', { a: 'Ana', b: 'Bia' }) }));
       expect((opts.action as Action).label).toBe(t('toast.review'));
     });
 
@@ -277,7 +276,7 @@ describe('useRequestToasts', () => {
       const [title, opts] = last();
       expect(title).toBe(t('toast.newRequests', { count: 1 }));
       expect(sentences(opts.description)).toEqual([
-        t('toast.newRequestsOf', { count: 1, names: 'Trapper' }),
+        'Trapper',
         t('toast.ignoredFrom', { count: 1, names: skippedDonor }),
       ]);
       const action = opts.action as Action;
@@ -409,13 +408,10 @@ describe('joinNames', () => {
     expect(fill(ptBR['toast.ignoredFrom_plural'], { count: 4, names: fill(ptBR['toast.namesMore'], { a: 'Ana', b: 'Beto', count: 2 }) }))
       .toBe('4 mensagens sem pedidos de Ana, Beto e mais 2');
     expect(fill(ptBR['toast.ignoredFrom'], { count: 1, names: 'Ana' })).toBe('1 mensagem sem pedido de Ana');
-    expect(fill(ptBR['toast.newRequestsOf_plural'], { count: 3, names: fill(ptBR['toast.namesThree'], { a: 'Huntress', b: 'Slasher', c: 'Lich' }) }))
-      .toBe('3 novos pedidos de Huntress, Slasher e Lich');
-    expect(fill(ptBR['toast.newRequestsOf'], { count: 1, names: 'Huntress' })).toBe('1 novo pedido de Huntress');
+    expect(fill(ptBR['toast.ignoredFromNames'], { names: fill(ptBR['toast.namesTwo'], { a: 'Beto', b: 'Duda' }) })).toBe('De Beto e Duda');
     expect(fill(en['toast.ignoredFrom_plural'], { count: 4, names: fill(en['toast.namesMore'], { a: 'Ana', b: 'Beto', count: 2 }) }))
       .toBe('4 messages without requests from Ana, Beto and 2 more');
-    expect(fill(en['toast.newRequestsOf_plural'], { count: 2, names: fill(en['toast.namesTwo'], { a: 'Huntress', b: 'Lich' }) }))
-      .toBe('2 new requests for Huntress and Lich');
+    expect(fill(en['toast.ignoredFromNames'], { names: fill(en['toast.namesTwo'], { a: 'Beto', b: 'Duda' }) })).toBe('From Beto and Duda');
     expect(fill(ptBR['toast.namesThree'], { a: 'Ana', b: 'Beto', c: 'Caio' })).toBe('Ana, Beto e Caio');
     expect(fill(en['toast.namesTwo'], { a: 'Ana', b: 'Beto' })).toBe('Ana and Beto');
   });

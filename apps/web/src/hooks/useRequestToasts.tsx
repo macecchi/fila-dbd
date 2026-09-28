@@ -42,19 +42,16 @@ export function joinNames(names: readonly string[]): string {
 }
 
 /**
- * "3 novos pedidos de Huntress, Slasher e Lich": the count, and each character once.
- * Unidentified requests count but have nothing to name; with no names at all there's
- * nothing to add to the title's count.
+ * "Huntress, Slasher e Lich": each character once, under a title that already has the
+ * count. Unidentified requests count but have nothing to name.
  */
-function requestsSentence(requests: readonly Arrival[]): string | null {
+function requestNames(requests: readonly Arrival[]): string | null {
   const characters = requests.map((a) => a.request).filter((r) => r.character && r.type !== 'unknown').map((r) => r.character);
-  return characters.length > 0 ? t('toast.newRequestsOf', { count: requests.length, names: joinNames(characters) }) : null;
+  return characters.length > 0 ? joinNames(characters) : null;
 }
 
-/** "2 mensagens sem pedidos de Ana e Beto": the count, and each sender once. */
-function ignoredSentence(ignored: readonly Arrival[]): string {
-  return t('toast.ignoredFrom', { count: ignored.length, names: joinNames(ignored.map((a) => a.request.donor)) });
-}
+/** Each sender of a skipped message once. */
+const senderNames = (ignored: readonly Arrival[]) => joinNames(ignored.map((a) => a.request.donor));
 
 function singleRequestView({ request: req, position }: Arrival): DigestView {
   const title = req.source === 'manual' ? t('toast.newRequest') :
@@ -79,11 +76,12 @@ function singleIgnoredView({ request: req }: Arrival, release: () => void, actio
 
 /**
  * Everything that arrived since the streamer last saw the toast, in one toast. A single
- * arrival keeps the look it always had; more become a summary titled by the count of new
- * requests (or of skipped messages, if that's all there is), with the details in a
- * one-line description: the new requests with their characters, then the skipped
- * messages with their senders. Every view sets `description` and `action` explicitly: sonner merges an
- * update into the toast it replaces, so a field left out would keep its old value.
+ * arrival keeps the look it always had; more become a summary: the count in the title,
+ * the names in a one-line description, never the count twice.
+ *   "4 novos pedidos" / "Huntress, Trapper e Lich · 3 mensagens sem pedidos de Rafa e Beto"
+ *   "2 mensagens sem pedidos" / "De Beto e Duda"
+ * Every view sets `description` and `action` explicitly: sonner merges an update into the
+ * toast it replaces, so a field left out would keep its old value.
  */
 export function renderArrivals(items: readonly Arrival[], release: () => void, actions: ToastActions): DigestView {
   if (items.length === 1) {
@@ -100,14 +98,18 @@ export function renderArrivals(items: readonly Arrival[], release: () => void, a
 
   // Skipped messages had already qualified (a donation at or above the minimum, a
   // resub, an eligible chat command), so the streamer wants to know whose they were.
+  if (requests.length === 0) {
+    return {
+      title: t('toast.ignoredCount', { count: ignored.length }),
+      options: { description: t('toast.ignoredFromNames', { names: senderNames(ignored) }), action },
+    };
+  }
   const details = [
-    requests.length > 0 ? requestsSentence(requests) : null,
-    ignored.length > 0 ? ignoredSentence(ignored) : null,
-  ].filter((sentence) => sentence !== null);
+    requestNames(requests),
+    ignored.length > 0 ? t('toast.ignoredFrom', { count: ignored.length, names: senderNames(ignored) }) : null,
+  ].filter((part) => part !== null);
   return {
-    title: requests.length > 0
-      ? t('toast.newRequests', { count: requests.length })
-      : t('toast.ignoredCount', { count: ignored.length }),
+    title: t('toast.newRequests', { count: requests.length }),
     options: { description: details.length > 0 ? details.join(' · ') : undefined, action },
   };
 }
