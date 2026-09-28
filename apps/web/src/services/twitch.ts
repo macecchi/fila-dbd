@@ -85,14 +85,15 @@ export function connect(channel: string) {
   };
   socket.onmessage = (e) => {
     for (const line of e.data.split('\r\n')) {
-      if (line.startsWith('PING')) socket.send('PONG :tmi.twitch.tv');
-      else if (line.includes('366')) {
+      const command = ircCommand(line);
+      if (command === 'PING') socket.send('PONG :tmi.twitch.tv');
+      else if (command === '366') {
+        // End of NAMES: the JOIN went through.
         reconnectAttempts = 0;
         setIrcConnectionState('connected');
         console.log('Connected to Twitch IRC');
       }
-      else if (line.includes('USERNOTICE')) handleUserNotice(line);
-      else if (line.includes('PRIVMSG')) handleMessage(line);
+      else dispatchChatLine(line, command);
     }
   };
   socket.onclose = () => {
@@ -121,6 +122,26 @@ export function connect(channel: string) {
   socket.onerror = () => {
     console.log('Error connecting to Twitch IRC');
   };
+}
+
+/**
+ * The command of a raw IRC line (`PRIVMSG`, `USERNOTICE`, `366`, …), past its `@tags` and
+ * `:prefix`. Dispatch must go by this, never by searching the line: tags carry message ids,
+ * nonces, timestamps and user ids, and the text is whatever the chatter typed, so a substring
+ * like `366` or `PRIVMSG` shows up in ordinary messages — matching `366` anywhere used to
+ * swallow ~3% of chat, donation and resub lines as a JOIN confirmation.
+ */
+export function ircCommand(line: string): string {
+  let rest = line;
+  if (rest.startsWith('@')) rest = rest.slice(rest.indexOf(' ') + 1);
+  if (rest.startsWith(':')) rest = rest.slice(rest.indexOf(' ') + 1);
+  const end = rest.indexOf(' ');
+  return end === -1 ? rest : rest.slice(0, end);
+}
+
+function dispatchChatLine(line: string, command = ircCommand(line)) {
+  if (command === 'USERNOTICE') handleUserNotice(line);
+  else if (command === 'PRIVMSG') handleMessage(line);
 }
 
 function parseIrcTags(raw: string): Record<string, string> {
@@ -396,8 +417,7 @@ window.dbdDebug = {
   },
   raw: (ircLine: string) => {
     if (!checkWriteMode()) return;
-    if (ircLine.includes('USERNOTICE')) handleUserNotice(ircLine);
-    else if (ircLine.includes('PRIVMSG')) handleMessage(ircLine);
+    dispatchChatLine(ircLine);
   },
   review: () => window.dispatchEvent(new CustomEvent('dbd:open-review')),
   // Shows the "new version" toast with the inactivity auto-update countdown.

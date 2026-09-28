@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { handleMessage, handleUserNotice, setActiveStores } from './twitch';
+import { connect, disconnect, handleMessage, handleUserNotice, ircCommand, setActiveStores } from './twitch';
 import { identifyMultiple } from './llm';
 import type { ChannelStores } from '../store/channel';
 import type { Request } from '@filadbd/shared';
@@ -235,5 +235,92 @@ describe('request IDs are derived from the Twitch message ID alone', () => {
 
     expect(added).toHaveLength(2);
     expect(added[0].id).not.toBe(added[1].id);
+  });
+});
+
+describe('the IRC socket dispatches lines by command, not by substring', () => {
+  // Tags carry nonces, message ids, timestamps and user ids, and the text is anything the
+  // chatter typed. Matching `366` anywhere in the line took ~3% of ordinary messages for the
+  // JOIN confirmation and dropped them: their requests never reached the queue.
+  const JOINED = ':justinfan1.tmi.twitch.tv 366 justinfan1 #testchannel :End of /NAMES list';
+
+  class FakeSocket {
+    static last: FakeSocket;
+    onopen: (() => void) | null = null;
+    onmessage: ((e: { data: string }) => void) | null = null;
+    onclose: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    sent: string[] = [];
+    constructor() { FakeSocket.last = this; }
+    send(data: string) { this.sent.push(data); }
+    close() {}
+    receive(...lines: string[]) { this.onmessage?.({ data: lines.join('\r\n') + '\r\n' }); }
+  }
+
+  let added: Request[];
+  let ircStates: string[];
+
+  beforeEach(() => {
+    added = [];
+    ircStates = [];
+    vi.stubGlobal('WebSocket', FakeSocket);
+    setActiveStores({
+      useSources: {
+        getState: () => ({
+          enabled: { chat: true, resub: true },
+          chatCommand: '!fila',
+          chatTiers: [1, 2, 3],
+        }),
+      },
+      useRequests: {
+        getState: () => ({ add: (r: Request) => added.push(r) }),
+      },
+      useChannelInfo: {
+        getState: () => ({ setIrcConnectionState: (s: string) => ircStates.push(s) }),
+      },
+    } as unknown as ChannelStores);
+    connect('testchannel');
+    FakeSocket.last.receive(JOINED);
+  });
+
+  afterEach(() => {
+    disconnect();
+    setActiveStores(null);
+    vi.unstubAllGlobals();
+  });
+
+  it('reads the command past the tags and prefix', () => {
+    expect(ircCommand(JOINED)).toBe('366');
+    expect(ircCommand('PING :tmi.twitch.tv')).toBe('PING');
+    expect(ircCommand('@id=366;tmi-sent-ts=1790000366000 :bob!bob@bob.tmi.twitch.tv PRIVMSG #testchannel :366')).toBe('PRIVMSG');
+    expect(ircCommand('@msg-id=resub :tmi.twitch.tv USERNOTICE #testchannel :oi')).toBe('USERNOTICE');
+    expect(ircCommand('')).toBe('');
+  });
+
+  it('adds a chat request whose tags contain 366, without re-reporting the join', () => {
+    FakeSocket.last.receive('@badges=subscriber/1;display-name=Bob;id=a366b-1;subscriber=1;tmi-sent-ts=1790000366123;user-id=12366 :bob!bob@bob.tmi.twitch.tv PRIVMSG #testchannel :!fila Trapper');
+
+    expect(added).toHaveLength(1);
+    expect(added[0].character).toBe('Trapper');
+    expect(ircStates).toEqual(['connecting', 'connected']);
+  });
+
+  it('adds a resub whose tags contain 366', () => {
+    FakeSocket.last.receive('@msg-id=resub;display-name=Bob;msg-param-sub-plan=1000;id=f366-2 :tmi.twitch.tv USERNOTICE #testchannel :Nurse');
+
+    expect(added).toHaveLength(1);
+    expect(added[0].character).toBe('Nurse');
+  });
+
+  it('does not take a chat message that mentions USERNOTICE for a resub', () => {
+    FakeSocket.last.receive('@badges=subscriber/1;display-name=Bob;id=m-3;subscriber=1 :bob!bob@bob.tmi.twitch.tv PRIVMSG #testchannel :!fila Trapper USERNOTICE');
+
+    expect(added).toHaveLength(1);
+    expect(added[0].source).toBe('chat');
+  });
+
+  it('still answers PING', () => {
+    FakeSocket.last.receive('PING :tmi.twitch.tv');
+    expect(FakeSocket.last.sent).toContain('PONG :tmi.twitch.tv');
   });
 });
