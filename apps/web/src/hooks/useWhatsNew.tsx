@@ -24,23 +24,16 @@ function dismissAll(ids: string[]) {
 }
 
 /**
- * "28 de setembro" / "September 28", with the year only when it isn't this one.
- * The date is a calendar day, so it's read as local midnight: `new Date('2026-09-28')`
- * is UTC midnight, which Brazil (UTC-3) would render as the 27th.
+ * "28 de setembro" / "September 28", with the year only when it isn't this one. Read as
+ * local midnight (`T00:00`): a bare `2026-09-28` is UTC, i.e. the 27th in Brazil.
  */
-export function formatReleaseDate(date: string, locale: Locale, now = new Date()): string {
-  const [y, m, d] = date.split('-').map(Number);
-  const day = new Date(y, m - 1, d);
+export function formatReleaseDate(date: string, locale: Locale): string {
+  const day = new Date(`${date}T00:00`);
   return day.toLocaleDateString(locale, {
     day: 'numeric',
     month: 'long',
-    ...(y !== now.getFullYear() ? { year: 'numeric' } : {}),
+    ...(day.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}),
   });
-}
-
-/** Unseen entries, newest first. */
-export function unseenEntries(entries: ChangelogEntry[], dismissed: Set<string>): ChangelogEntry[] {
-  return entries.filter(e => !dismissed.has(e.id)).sort((a, b) => b.date.localeCompare(a.date));
 }
 
 function DigestBody({ entries }: { entries: ChangelogEntry[] }) {
@@ -63,7 +56,8 @@ export function useWhatsNew(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
 
-    const unseen = unseenEntries(changelog, getDismissed());
+    const dismissed = getDismissed();
+    const unseen = changelog.filter((entry) => !dismissed.has(entry.id));
     if (unseen.length === 0) return;
 
     // Small delay so it doesn't compete with initial connection toasts.

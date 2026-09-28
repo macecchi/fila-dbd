@@ -5,7 +5,6 @@ import { useQueueStatus } from '../hooks/useQueueStatus';
 export function SourcesBadges() {
     const { useSources, useChannelInfo } = useChannel();
     const channelStatus = useChannelInfo((s) => s.status);
-    const statusKnown = useChannelInfo((s) => s.statusKnown);
     const queueState = useQueueStatus().state;
     const sourcesEnabled = useSources((s) => s.enabled);
     const minDonation = useSources((s) => s.minDonation);
@@ -15,10 +14,9 @@ export function SourcesBadges() {
     const { t } = useTranslation();
 
     const badges = (() => {
-        // Before the server's first status, `channelStatus` is a placeholder "offline": it
-        // read "Fila fechada" on every load, open queues included. Only a queue saved closed
-        // says so early; the sources wait for the sync that brings them.
-        if (!statusKnown) return queueState === 'closed' ? [t('badges.queueClosed')] : [];
+        // Before the server's first status only a queue saved closed says so; the sources
+        // wait for the sync that brings them.
+        if (channelStatus === null) return queueState === 'closed' ? [t('badges.queueClosed')] : [];
         if (channelStatus !== 'live') return [t('badges.queueClosed')];
         const parts: string[] = [];
         if (sourcesEnabled.donation) parts.push(t('badges.donates', { amount: String(minDonation) }));

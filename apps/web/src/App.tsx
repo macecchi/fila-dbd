@@ -13,7 +13,7 @@ import { SyncSweep } from './components/SyncSweep';
 import { Toaster } from 'sonner';
 import { useWhatsNew } from './hooks/useWhatsNew';
 import { useRequestToasts } from './hooks/useRequestToasts';
-import { useQueueStatus, queueIsUp } from './hooks/useQueueStatus';
+import { useQueueStatus } from './hooks/useQueueStatus';
 import { identifyCharacter } from './services';
 import { eligibleExtras } from './services/extras';
 import { tryLocalMatch } from './data/characters';
@@ -105,6 +105,14 @@ function useAutoIdentify(
   }, [requests, update, readOnly, useSources]);
 }
 
+/** The queue panel's sync bar: only while syncing a queue that is open or coming up. */
+function QueueSyncSweep() {
+  const { useChannelInfo } = useChannel();
+  const partySynced = useChannelInfo((s) => s.partySynced);
+  const { state } = useQueueStatus();
+  return <SyncSweep active={!partySynced && (state === 'open' || state === 'connecting')} className="panel-header-sync" />;
+}
+
 function ChannelApp() {
   const { t, locale, setLocale } = useTranslation();
   const { channel, useRequests, useSources, useChannelInfo, canEditQueue } = useChannel();
@@ -124,9 +132,6 @@ function ChannelApp() {
   // Missed requests recovery state
   const ircState = useChannelInfo((s) => s.localIrcConnectionState);
   const partySynced = useChannelInfo((s) => s.partySynced);
-  // The queue's sync bar follows the header: it only runs for a queue known to be open
-  // (or coming up). For a closed one it flashed on every page load for nothing.
-  const queueState = useQueueStatus().state;
   // Work that must happen exactly once (identification, VOD scan) follows the lock,
   // so a second tab can still be a full editor.
   const hasLock = useChannelInfo((s) => s.hasLock);
@@ -320,7 +325,7 @@ function ChannelApp() {
   const hideNonRequests = useSources((s) => s.hideNonRequests);
 
   useAutoIdentify(requests, update, !hasLock, useSources);
-  useRequestToasts(requests, update, hideNonRequests, readOnly, openReview, partySynced, channel);
+  useRequestToasts(requests, update, hideNonRequests, readOnly, openReview, partySynced);
   useWhatsNew(canEditQueue);
 
   const pendingCount = requests.filter(d => !d.done && (!hideNonRequests || d.type !== 'none')).length;
@@ -350,7 +355,7 @@ function ChannelApp() {
           <Panel as="div" className="panel">
             <PanelHeader
               icon={<img src={`${import.meta.env.BASE_URL}images/IconPlayers.webp`} />}
-              indicator={<SyncSweep active={!partySynced && queueIsUp(queueState)} className="panel-header-sync" />}
+              indicator={<QueueSyncSweep />}
               actions={
                 <div className={readOnly ? 'viewer-mode' : undefined} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <button className="btn btn-ghost btn-small btn-small-icon" onClick={() => setManualOpen(true)} title={t('queue.addRequest')} disabled={readOnly}>
@@ -551,7 +556,9 @@ export function App() {
 
   return (
     <ChannelProvider channel={channel}>
-      <ChannelGate />
+      {/* Keyed: a channel switch starts the channel view fresh (its state, the toast
+          baseline, open dialogs), while the provider keeps its sockets. */}
+      <ChannelGate key={channel} />
     </ChannelProvider>
   );
 }

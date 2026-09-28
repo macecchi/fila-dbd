@@ -110,18 +110,11 @@ export const DEFAULT_CHARACTERS = {
     killers: CHARACTERS.killers.map(c => [c.name, ...c.aliases].join('/'))
 };
 
-export function getKillerPortrait(name: string): string | undefined {
-    return CHARACTERS.killers.find(k => k.name === name)?.portrait || CHARACTERS.killers.find(k => k.aliases.includes(name))?.portrait;
-}
-
-export function getSurvivorPortrait(name: string): string | undefined {
-    return CHARACTERS.survivors.find(s => s.name === name)?.portrait || CHARACTERS.survivors.find(s => s.aliases.includes(name))?.portrait;
-}
-
-export function getCharacterPortrait(name: string, type?: 'killer' | 'survivor'): string | undefined {
-    if (type === 'killer') return getKillerPortrait(name);
-    if (type === 'survivor') return getSurvivorPortrait(name);
-    return getKillerPortrait(name) ?? getSurvivorPortrait(name);
+/** A request's portrait: by name, then alias, in its role's list. Nothing for other types. */
+export function getCharacterPortrait(name: string | undefined, type: string): string | undefined {
+    if (!name || (type !== 'killer' && type !== 'survivor')) return undefined;
+    const list = CHARACTERS[type === 'killer' ? 'killers' : 'survivors'];
+    return list.find(c => c.name === name)?.portrait || list.find(c => c.aliases.includes(name))?.portrait;
 }
 
 const GENERIC_SURVIVOR_PATTERNS = [

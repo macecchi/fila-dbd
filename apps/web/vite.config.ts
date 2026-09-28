@@ -4,12 +4,11 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 const commitHash = (process.env.GITHUB_SHA ?? process.env.CF_PAGES_COMMIT_SHA)?.slice(0, 7) ?? 'dev';
 
-// Cloudflare Pages builds (CF_PAGES=1) default to the production backends. The Pages
-// dashboard sets these for the production environment only, so preview builds came out
-// with no Twitch client id and the API/PartyKit on localhost. All three are public (they
-// ship in the bundle); a dashboard value still wins. Gated on CF_PAGES rather than put
-// in .env.production so a local production build (`vite preview`) keeps talking to the
-// local Worker and PartyKit. Vite reads VITE_* from process.env after loading this file.
+// Cloudflare Pages builds (CF_PAGES=1) default to the production backends: the dashboard
+// only sets these for the production environment, not previews. All three are public (they
+// ship in the bundle); a dashboard value still wins. Not in .env.production, so a local
+// production build (`vite preview`) keeps talking to the local Worker and PartyKit. Vite
+// reads VITE_* from process.env after loading this file.
 const PAGES_DEFAULTS = {
   VITE_TWITCH_CLIENT_ID: 'dqx7wpexjk0780igjk7luea6xz3im9',
   VITE_API_URL: 'https://dbd-tracker-production.meriw.workers.dev',

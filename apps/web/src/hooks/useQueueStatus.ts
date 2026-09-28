@@ -13,40 +13,33 @@ import { useRoomInfo } from './useRoomInfo';
  */
 export type QueueState = 'open' | 'connecting' | 'closed' | 'unknown';
 
-/** Open, or on its way up: the states worth showing a loading indicator for. */
-export const queueIsUp = (state: QueueState) => state === 'open' || state === 'connecting';
-
 export function useQueueStatus(): { state: QueueState; text: string } {
   const { channel, useSources, useChannelInfo } = useChannel();
   const channelStatus = useChannelInfo((s) => s.status);
-  const statusKnown = useChannelInfo((s) => s.statusKnown);
   const hasLock = useChannelInfo((s) => s.hasLock);
   const localIrcConnectionState = useChannelInfo((s) => s.localIrcConnectionState);
-  const enabledSources = useSources((s) => s.enabled);
+  // Manual entry doesn't count: it works whether or not the channel is live. A boolean,
+  // so a sources message with the same settings doesn't re-render every caller.
+  const autoSourceOn = useSources((s) => Object.entries(s.enabled).some(([source, on]) => source !== 'manual' && on));
   // The room's last saved queue status, from the /rooms/:id request the page makes anyway.
   const savedStatus = useRoomInfo(channel).room?.status;
 
-  // Before the server's first word, only the room's last saved status says anything —
-  // our own socket opening doesn't. Counting it as "connecting" made every channel page
-  // pulse on load, only to settle on "closed" for a queue that was never open.
-  if (!statusKnown) {
+  // Before the server's first status, only the room's saved one says anything — never
+  // this window's socket opening.
+  if (channelStatus === null) {
     if (savedStatus === 'live' || savedStatus === 'online') return { state: 'connecting', text: t('status.connecting') };
     if (savedStatus === 'offline') return { state: 'closed', text: t('status.queueClosed') };
     return { state: 'unknown', text: '' };
   }
 
-  // Manual entry doesn't count: it works whether or not the channel is live.
-  const { manual, ...autoSources } = enabledSources;
-  const takingRequests = channelStatus === 'live' && Object.values(autoSources).some(Boolean);
-  if (takingRequests) {
+  if (channelStatus === 'live' && autoSourceOn) {
     return { state: 'open', text: t('status.queueOpen') };
   }
 
   // On the way up: the chat connection in the window driving it, or a channel that has an
   // owner but isn't live yet. A reconnecting socket alone isn't: `status` keeps the last
   // value the server sent, so a closed queue stays closed while it reconnects.
-  const connecting = (hasLock && localIrcConnectionState === 'connecting') || channelStatus === 'online';
-  if (connecting) {
+  if ((hasLock && localIrcConnectionState === 'connecting') || channelStatus === 'online') {
     return { state: 'connecting', text: t('status.connecting') };
   }
 

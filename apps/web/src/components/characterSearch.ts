@@ -3,7 +3,7 @@ import { CHARACTERS } from '../data/characters';
 export interface CharacterOption {
   name: string;
   type: 'killer' | 'survivor';
-  portrait?: string;
+  portrait: string;
   aliases: string[];
 }
 

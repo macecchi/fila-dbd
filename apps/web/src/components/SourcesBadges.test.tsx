@@ -36,19 +36,10 @@ describe('SourcesBadges', () => {
     await act(async () => resolveRoom({ display_name: null, avatar_url: null, status: 'live', updated_at: null }));
     expect(labels(container)).toEqual([]);
 
+    const sync = { type: 'sync-full', requests: [], sources: { enabled: { resub: true } }, channel: { status: 'live', owner: null } } as never;
     act(() => {
-      stores.useChannelInfo.getState().handlePartyMessage({
-        type: 'sync-full',
-        requests: [],
-        sources: { enabled: { resub: true } },
-        channel: { status: 'live', owner: null },
-      } as never);
-      stores.useSources.getState().handlePartyMessage({
-        type: 'sync-full',
-        requests: [],
-        sources: { enabled: { resub: true } },
-        channel: { status: 'live', owner: null },
-      } as never);
+      stores.useChannelInfo.getState().handlePartyMessage(sync);
+      stores.useSources.getState().handlePartyMessage(sync);
     });
     expect(labels(container)).toEqual([t('badges.resubs')]);
   });

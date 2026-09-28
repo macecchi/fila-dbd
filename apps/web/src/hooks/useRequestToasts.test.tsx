@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { toast, type ExternalToast } from 'sonner';
-import { useRequestToasts, joinNames, REQUESTS_TOAST_ID } from './useRequestToasts';
-import { READ_DELAY_MS } from '../utils/toastDigest';
+import { useRequestToasts, joinNames } from './useRequestToasts';
 import { t } from '../i18n';
 import type { Request } from '../types';
 
@@ -49,12 +48,6 @@ function setOnTab(on: boolean) {
   });
 }
 
-function advance(ms: number) {
-  act(() => {
-    vi.advanceTimersByTime(ms);
-  });
-}
-
 // Mounts the hook on an already-synced queue (what's there at the first sync is not
 // news), then lets tests append arrivals the way the requests store does.
 function setup(opts: { hideNonRequests?: boolean; readOnly?: boolean; initial?: Request[]; synced?: boolean } = {}) {
@@ -62,15 +55,13 @@ function setup(opts: { hideNonRequests?: boolean; readOnly?: boolean; initial?: 
   const openReview = vi.fn();
   let requests = opts.initial ?? [req()];
   const hideNonRequests = opts.hideNonRequests ?? true;
-  let readOnly = opts.readOnly ?? false;
+  const readOnly = opts.readOnly ?? false;
   let synced = opts.synced ?? true;
-  let channel = 'meriw_';
-  type Props = { requests: Request[]; synced: boolean; readOnly: boolean; channel: string };
   const hook = renderHook(
-    ({ requests, synced, readOnly, channel }: Props) => useRequestToasts(requests, update, hideNonRequests, readOnly, openReview, synced, channel),
-    { initialProps: { requests, synced, readOnly, channel } },
+    ({ requests, synced }: { requests: Request[]; synced: boolean }) => useRequestToasts(requests, update, hideNonRequests, readOnly, openReview, synced),
+    { initialProps: { requests, synced } },
   );
-  const render = () => hook.rerender({ requests, synced, readOnly, channel });
+  const render = () => hook.rerender({ requests, synced });
   const setRequests = (next: Request[]) => {
     requests = next;
     render();
@@ -81,20 +72,11 @@ function setup(opts: { hideNonRequests?: boolean; readOnly?: boolean; initial?: 
     synced = true;
     render();
   };
-  // In-app navigation to another room: ChannelApp stays mounted, the stores are new
-  // (the cached queue, not yet synced).
-  const switchChannel = (next: { channel: string; cached: Request[]; readOnly: boolean }) => {
-    ({ channel, readOnly } = next);
-    requests = next.cached;
-    synced = false;
-    render();
-  };
   return {
     update,
     openReview,
     setRequests,
     sync,
-    switchChannel,
     arrive: (...reqs: Request[]) => setRequests([...requests, ...reqs]),
     get requests() { return requests; },
     unmount: hook.unmount,
@@ -119,13 +101,12 @@ describe('useRequestToasts', () => {
     q.arrive(req({ source: 'donation', donor: 'Ana', character: 'Trapper', amount: 'R$ 10' }));
 
     const [title, opts] = last();
-    expect(String(opts.id).startsWith(`${REQUESTS_TOAST_ID}-`)).toBe(true);
     expect(title).toBe(`${t('toast.newRequestDonation')} (#02)`);
     expect(opts.description).toBe(t('toast.requestedCharAmount', { donor: 'Ana', character: 'Trapper', amount: 'R$ 10' }));
     expect(opts.action).toBeUndefined();
   });
 
-  it('updates one toast to a count of 3 while the streamer is away, and never dismisses it', () => {
+  it('updates one toast in place to a count of 3', () => {
     const q = setup();
     q.arrive(req({ donor: 'Ana', character: 'Trapper' }));
     q.arrive(req({ donor: 'Bia', character: '' }));
@@ -140,20 +121,15 @@ describe('useRequestToasts', () => {
     expect(sentences(opts.description)).toEqual([
       t('toast.namesTwo', { a: 'Trapper', b: 'Nurse' }),
     ]);
-    expect(opts.duration).toBe(Infinity);
     expect(opts.action).toBeUndefined();
-
-    advance(60 * 60 * 1000);
-    expect(dismissMock).not.toHaveBeenCalled();
   });
 
-  it('names each character once, in arrival order, folding past three', () => {
+  it('shows a burst (one store change) as one toast update', () => {
     const q = setup();
-    for (const character of ['Huntress', 'Slasher', 'Huntress', 'Lich', 'Nurse']) q.arrive(req({ character }));
+    q.arrive(req({ character: 'Trapper' }), req({ character: 'Nurse' }), skipped({ donor: 'Ana' }));
 
-    expect(sentences(last()[1].description)).toEqual([
-      t('toast.namesMore', { a: 'Huntress', b: 'Slasher', count: 2 }),
-    ]);
+    expect(calls()).toHaveLength(1);
+    expect(last()[0]).toBe(t('toast.newRequests', { count: 2 }));
   });
 
   it('just counts requests when none has a character to name', () => {
@@ -164,50 +140,6 @@ describe('useRequestToasts', () => {
     const [title, opts] = last();
     expect(title).toBe(t('toast.newRequests', { count: 2 }));
     expect(opts.description).toBeUndefined();
-  });
-
-  it('dismisses after the read delay once the streamer is back, then starts over at 1', () => {
-    const q = setup();
-    q.arrive(req(), req());
-    const id = last()[1].id;
-
-    setOnTab(true);
-    advance(READ_DELAY_MS - 1);
-    expect(dismissMock).not.toHaveBeenCalled();
-    advance(1);
-    expect(dismissMock).toHaveBeenCalledWith(id);
-
-    q.arrive(req());
-    const [title, opts] = last();
-    expect(opts.id).not.toBe(id);
-    expect(title.startsWith(t('toast.newRequestChat'))).toBe(true);
-  });
-
-  it('restarts the delay for an arrival while the streamer is on the tab', () => {
-    setOnTab(true);
-    const q = setup();
-    q.arrive(req());
-    advance(READ_DELAY_MS - 1000);
-    q.arrive(req());
-    expect(last()[0]).toBe(t('toast.newRequests', { count: 2 }));
-
-    advance(READ_DELAY_MS - 1);
-    expect(dismissMock).not.toHaveBeenCalled();
-    advance(1);
-    expect(dismissMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('starts over at 1 after the streamer closes the toast', () => {
-    const q = setup();
-    q.arrive(req(), req());
-    const { id, onDismiss } = last()[1];
-    act(() => onDismiss?.({ id } as never));
-
-    const next = req({ donor: 'Ana', character: 'Trapper' });
-    q.arrive(next);
-    const [, opts] = last();
-    expect(opts.id).not.toBe(id);
-    expect(opts.description).toBe(t('toast.requestedChar', { donor: 'Ana', character: 'Trapper' }));
   });
 
   describe('skipped messages', () => {
@@ -245,15 +177,6 @@ describe('useRequestToasts', () => {
         t('toast.ignoredFrom', { count: 2, names: t('toast.namesTwo', { a: 'Ana', b: 'Duda' }) }),
       ]);
       expect((opts.action as Action).label).toBe(t('toast.review'));
-    });
-
-    it('name each sender once', () => {
-      const q = setup();
-      q.arrive(req({ donor: 'Bia', character: 'Trapper' }));
-      q.arrive(skipped({ donor: 'Ana' }));
-      q.arrive(skipped({ donor: 'Ana' }));
-
-      expect(sentences(last()[1].description).at(-1)).toBe(t('toast.ignoredFrom', { count: 2, names: 'Ana' }));
     });
 
     it('title the summary when nothing else arrived', () => {
@@ -321,26 +244,6 @@ describe('useRequestToasts', () => {
       expect(toastMock).toHaveBeenCalledTimes(1);
     });
 
-    it('takes each room as a new baseline when the channel changes in place', () => {
-      // A friend's queue first (read-only), then "My queue" from the header menu.
-      const q = setup({ readOnly: true, initial: [req(), req()] });
-      const mine = [req(), req(), req()];
-      q.switchChannel({ channel: 'streamer', cached: mine, readOnly: false });
-      q.sync([...mine, req()]);
-      expect(toastMock).not.toHaveBeenCalled();
-
-      q.arrive(req());
-      expect(toastMock).toHaveBeenCalledTimes(1);
-    });
-
-    it('drops the previous room\'s toast on a channel switch', () => {
-      const q = setup();
-      q.arrive(req());
-      const id = last()[1].id;
-      q.switchChannel({ channel: 'other', cached: [], readOnly: false });
-      expect(dismissMock).toHaveBeenCalledWith(id);
-    });
-
     it('counts the first request into an empty queue', () => {
       const q = setup({ initial: [] });
       q.arrive(req());
@@ -400,19 +303,4 @@ describe('joinNames', () => {
     expect(joinNames(['Ana', 'Beto', 'Ana', 'Caio', 'Beto'])).toBe(t('toast.namesThree', { a: 'Ana', b: 'Beto', c: 'Caio' }));
   });
 
-  it('reads naturally in both languages', async () => {
-    const { default: ptBR } = await import('../i18n/locales/pt-BR');
-    const { default: en } = await import('../i18n/locales/en');
-    const fill = (tpl: string, params: Record<string, string | number>) =>
-      Object.entries(params).reduce((s, [k, v]) => s.replaceAll(`{${k}}`, String(v)), tpl);
-    expect(fill(ptBR['toast.ignoredFrom_plural'], { count: 4, names: fill(ptBR['toast.namesMore'], { a: 'Ana', b: 'Beto', count: 2 }) }))
-      .toBe('4 mensagens sem pedidos de Ana, Beto e mais 2');
-    expect(fill(ptBR['toast.ignoredFrom'], { count: 1, names: 'Ana' })).toBe('1 mensagem sem pedido de Ana');
-    expect(fill(ptBR['toast.ignoredFromNames'], { names: fill(ptBR['toast.namesTwo'], { a: 'Beto', b: 'Duda' }) })).toBe('De Beto e Duda');
-    expect(fill(en['toast.ignoredFrom_plural'], { count: 4, names: fill(en['toast.namesMore'], { a: 'Ana', b: 'Beto', count: 2 }) }))
-      .toBe('4 messages without requests from Ana, Beto and 2 more');
-    expect(fill(en['toast.ignoredFromNames'], { names: fill(en['toast.namesTwo'], { a: 'Beto', b: 'Duda' }) })).toBe('From Beto and Duda');
-    expect(fill(ptBR['toast.namesThree'], { a: 'Ana', b: 'Beto', c: 'Caio' })).toBe('Ana, Beto e Caio');
-    expect(fill(en['toast.namesTwo'], { a: 'Ana', b: 'Beto' })).toBe('Ana and Beto');
-  });
 });

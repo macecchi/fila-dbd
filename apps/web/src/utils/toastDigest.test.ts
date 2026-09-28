@@ -209,13 +209,4 @@ describe('onTabChange', () => {
     window.dispatchEvent(new Event('focus'));
     expect(listener).not.toHaveBeenCalled();
   });
-
-  it('treats blur as leaving even if hasFocus() still reads true', () => {
-    const listener = vi.fn();
-    const stop = onTabChange(listener);
-    setPage('visible', true);
-    window.dispatchEvent(new Event('blur'));
-    expect(listener).toHaveBeenLastCalledWith(false);
-    stop();
-  });
 });

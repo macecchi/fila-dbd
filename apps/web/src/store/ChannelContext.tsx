@@ -153,10 +153,8 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
   }, [someoneElseIsOwner]);
 
   // Request notification permission, and register for pushes once granted (reactive to
-  // permission changes). Blocked notifications are explained in Settings → Behavior, on
-  // the "Live notifications" row, never as a toast: fixing it takes the browser's site
-  // settings, not a click on a toast, and it only added to the toasts competing for the
-  // streamer's attention.
+  // permission changes). Blocked notifications are explained in Settings → Behavior, not
+  // as a toast.
   useEffect(() => {
     if (!isOwnChannel || !('Notification' in window)) return;
 

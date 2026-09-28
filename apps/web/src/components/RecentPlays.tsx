@@ -25,10 +25,6 @@ function doneTime(r: Request): number {
   return (r.doneAt ?? r.timestamp).getTime();
 }
 
-function portraitFor(r: Request) {
-  return (r.type === 'killer' || r.type === 'survivor') && r.character ? getCharacterPortrait(r.character, r.type) : undefined;
-}
-
 export function RecentPlays() {
   const { useRequests, canEditQueue } = useChannel();
   const { t } = useTranslation();
@@ -70,7 +66,7 @@ export function RecentPlays() {
               onClick={() => setHoveredId(r.id)}
               title={active ? undefined : `${r.character} — ${r.donor}`}
             >
-              <CharacterAvatar portrait={portraitFor(r)} type={r.type} size="sm" />
+              <CharacterAvatar portrait={getCharacterPortrait(r.character, r.type)} type={r.type} size="sm" />
               <div className="recent-play-reveal" aria-hidden={!active}>
                 <div className="recent-play-reveal-inner">
                   <div className="recent-play-info">

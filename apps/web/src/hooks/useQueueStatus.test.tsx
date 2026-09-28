@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { createRoomStores, type ChannelStores } from '../store/channel';
 import type { RoomInfo } from '../services/roomInfo';
-import { useQueueStatus, queueIsUp } from './useQueueStatus';
+import { useQueueStatus } from './useQueueStatus';
 
 let stores: ChannelStores;
 vi.mock('../store', () => ({ useChannel: () => ({ channel: 'streamer', ...stores }) }));
@@ -78,14 +78,5 @@ describe('useQueueStatus after a sync', () => {
     const { result } = renderHook(() => useQueueStatus());
     sync('online');
     expect(result.current.state).toBe('connecting');
-  });
-});
-
-describe('queueIsUp', () => {
-  it('is true only for a queue that is open or on its way up', () => {
-    expect(queueIsUp('open')).toBe(true);
-    expect(queueIsUp('connecting')).toBe(true);
-    expect(queueIsUp('closed')).toBe(false);
-    expect(queueIsUp('unknown')).toBe(false);
   });
 });

@@ -121,7 +121,7 @@ export const RequestsTable = forwardRef<RequestsTableHandle, Props>(function Req
         <tbody>
           {pageRows.map((r, localIdx) => {
             const globalIdx = pageOffset + localIdx;
-            const portrait = (r.type === 'killer' || r.type === 'survivor') && r.character ? getCharacterPortrait(r.character, r.type) : undefined;
+            const portrait = getCharacterPortrait(r.character, r.type);
             const isBroadcaster = r.isBroadcaster || r.source === 'manual' || (
               r.source === 'chat' &&
               typeof r.donor === 'string' &&

@@ -1,30 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent, renderHook } from '@testing-library/react';
 import { Toaster, toast } from 'sonner';
-import { useWhatsNew, formatReleaseDate, unseenEntries } from './useWhatsNew';
-import { changelog, type ChangelogEntry } from '../data/changelog';
-
-const entry = (id: string, date: string): ChangelogEntry => ({ id, date, items: ['whatsNew.performance'] });
+import { useWhatsNew, formatReleaseDate } from './useWhatsNew';
+import { changelog } from '../data/changelog';
 
 describe('formatReleaseDate', () => {
-  const now = new Date(2026, 8, 30);
+  beforeEach(() => { vi.useFakeTimers({ now: new Date(2026, 8, 30) }); });
+  afterEach(() => { vi.useRealTimers(); });
 
   it('reads the day as a calendar day, not UTC midnight', () => {
-    // `new Date('2026-09-28')` would be the 27th anywhere west of UTC.
-    expect(formatReleaseDate('2026-09-28', 'pt-BR', now)).toBe('28 de setembro');
-    expect(formatReleaseDate('2026-09-28', 'en', now)).toBe('September 28');
+    expect(formatReleaseDate('2026-09-28', 'pt-BR')).toBe('28 de setembro');
+    expect(formatReleaseDate('2026-09-28', 'en')).toBe('September 28');
   });
 
   it('adds the year only when it is not the current one', () => {
-    expect(formatReleaseDate('2025-12-01', 'pt-BR', now)).toBe('1 de dezembro de 2025');
-    expect(formatReleaseDate('2025-12-01', 'en', now)).toBe('December 1, 2025');
-  });
-});
-
-describe('unseenEntries', () => {
-  it('drops dismissed entries and puts the newest first', () => {
-    const entries = [entry('a', '2026-01-10'), entry('b', '2026-03-02'), entry('c', '2026-02-20')];
-    expect(unseenEntries(entries, new Set(['c'])).map(e => e.id)).toEqual(['b', 'a']);
+    expect(formatReleaseDate('2025-12-01', 'pt-BR')).toBe('1 de dezembro de 2025');
+    expect(formatReleaseDate('2025-12-01', 'en')).toBe('December 1, 2025');
   });
 });
 

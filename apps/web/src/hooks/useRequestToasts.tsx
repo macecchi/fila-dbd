@@ -3,17 +3,12 @@ import { t } from '../i18n';
 import type { Request } from '../types';
 import { createToastDigest, onTabChange, type DigestView, type ToastDigest } from '../utils/toastDigest';
 
-export const REQUESTS_TOAST_ID = 'new-requests';
+/** A request that joined the queue (at its 1-based `position`), or one skipped as a non-request. */
+type Arrival =
+  | { request: Request; ignored: false; position: number }
+  | { request: Request; ignored: true };
 
-export interface Arrival {
-  request: Request;
-  /** Skipped as a non-request (`hideNonRequests`), rather than queued. */
-  ignored: boolean;
-  /** 1-based place in the queue when it arrived. */
-  position?: number;
-}
-
-export interface ToastActions {
+interface ToastActions {
   /** Puts a skipped message back in the queue. */
   undo: (req: Request) => void;
   /** Opens the review dialog, which lists skipped messages and can restore them. */
@@ -53,11 +48,11 @@ function requestNames(requests: readonly Arrival[]): string | null {
 /** Each sender of a skipped message once. */
 const senderNames = (ignored: readonly Arrival[]) => joinNames(ignored.map((a) => a.request.donor));
 
-function singleRequestView({ request: req, position }: Arrival): DigestView {
+function singleRequestView({ request: req, position }: Extract<Arrival, { ignored: false }>): DigestView {
   const title = req.source === 'manual' ? t('toast.newRequest') :
     req.source === 'donation' ? t('toast.newRequestDonation') :
       req.source === 'resub' ? t('toast.newRequestResub') : t('toast.newRequestChat');
-  const titleWithPos = position !== undefined ? `${title} (#${String(position).padStart(2, '0')})` : title;
+  const titleWithPos = `${title} (#${String(position).padStart(2, '0')})`;
   const message = req.character
     ? (req.amount ? t('toast.requestedCharAmount', { donor: req.donor, character: req.character, amount: req.amount }) : t('toast.requestedChar', { donor: req.donor, character: req.character }))
     : (req.amount ? t('toast.newRequestFromAmount', { donor: req.donor, amount: req.amount }) : t('toast.newRequestFrom', { donor: req.donor }));
@@ -83,9 +78,10 @@ function singleIgnoredView({ request: req }: Arrival, release: () => void, actio
  * Every view sets `description` and `action` explicitly: sonner merges an update into the
  * toast it replaces, so a field left out would keep its old value.
  */
-export function renderArrivals(items: readonly Arrival[], release: () => void, actions: ToastActions): DigestView {
+function renderArrivals(items: readonly Arrival[], release: () => void, actions: ToastActions): DigestView {
   if (items.length === 1) {
-    return items[0].ignored ? singleIgnoredView(items[0], release, actions) : singleRequestView(items[0]);
+    const [only] = items;
+    return only.ignored ? singleIgnoredView(only, release, actions) : singleRequestView(only);
   }
   const requests = items.filter((a) => !a.ignored);
   const ignored = items.filter((a) => a.ignored);
@@ -128,22 +124,17 @@ export function useRequestToasts(
   openReview: () => void,
   /** The first `sync-full` has landed (`partySynced`). */
   synced: boolean,
-  /** The room these requests belong to. */
-  channel: string,
 ) {
-  /** The room whose queue is the baseline, and the ids already accounted for in it. */
-  const seen = useRef<{ channel: string; ids: Set<number> } | null>(null);
+  /** Ids already accounted for, from the queue as of the first sync on. */
+  const seen = useRef<Set<number> | null>(null);
   const digest = useRef<ToastDigest<Arrival> | null>(null);
-  // Toast actions run long after the render that created them.
-  const latest = useRef({ update, openReview });
-  useEffect(() => {
-    latest.current = { update, openReview };
-  });
 
+  // `update` and `openReview` are stable for the life of a room (the channel view is
+  // keyed by channel), so this runs once per room and its cleanup drops the room's toast.
   useEffect(() => {
-    const arrivals = createToastDigest<Arrival>(REQUESTS_TOAST_ID, (items, release) => renderArrivals(items, release, {
-      undo: (req) => latest.current.update(req.id, { type: 'unknown', character: '' }),
-      review: () => latest.current.openReview(),
+    const arrivals = createToastDigest<Arrival>('new-requests', (items, release) => renderArrivals(items, release, {
+      undo: (req) => update(req.id, { type: 'unknown', character: '' }),
+      review: openReview,
     }));
     digest.current = arrivals;
     const stopWatching = onTabChange((onTab) => arrivals.setOnTab(onTab));
@@ -152,39 +143,26 @@ export function useRequestToasts(
       arrivals.dismiss();
       digest.current = null;
     };
-  }, []);
+  }, [update, openReview]);
 
   useEffect(() => {
-    // What's in the queue when the first sync lands was there before this page was:
-    // only what arrives after it is news. The server applies `sync-full` to the
-    // requests store before it flags the room synced, so this sees the full queue.
-    // (Keying this off the first non-empty batch instead swallowed the first request
-    // into an empty queue, and the summary came out one short.) The same holds for each
-    // room: ChannelApp stays mounted across a channel switch (e.g. from someone's queue
-    // to "My queue"), and the new room's whole queue is not news either.
-    if (seen.current?.channel !== channel) {
-      if (seen.current) {
-        digest.current?.dismiss();
-        seen.current = null;
-      }
-      if (!synced) return;
-      seen.current = { channel, ids: new Set(requests.map(r => r.id)) };
+    // What's in the queue when the first sync lands was there before this page was: only
+    // what arrives after it is news. `sync-full` reaches the requests store before the
+    // room is flagged synced, so this sees the full queue.
+    if (!seen.current) {
+      if (synced) seen.current = new Set(requests.map(r => r.id));
       return;
     }
-    const shown = seen.current.ids;
+    const shown = seen.current;
     // `!r.done`: a later sync-full (after a reconnect) can bring in requests another
-    // window already finished while this one was away — those aren't news.
+    // window finished meanwhile — not news.
     const ready = requests.filter(r => !shown.has(r.id) && !r.needsIdentification && !r.done);
-    for (const req of ready) {
-      shown.add(req.id);
-      if (readOnly) continue;
-      if (hideNonRequests && req.type === 'none') {
-        digest.current?.add({ request: req, ignored: true });
-        continue;
-      }
-      const activeRequests = requests.filter(r => !r.done && (!hideNonRequests || r.type !== 'none'));
-      const index = activeRequests.findIndex(r => r.id === req.id);
-      digest.current?.add({ request: req, ignored: false, position: index !== -1 ? index + 1 : undefined });
-    }
-  }, [requests, hideNonRequests, readOnly, synced, channel]);
+    if (ready.length === 0) return;
+    for (const req of ready) shown.add(req.id);
+    if (readOnly) return;
+    const queue = requests.filter(r => !r.done && (!hideNonRequests || r.type !== 'none'));
+    digest.current?.add(...ready.map((req): Arrival => hideNonRequests && req.type === 'none'
+      ? { request: req, ignored: true }
+      : { request: req, ignored: false, position: queue.indexOf(req) + 1 }));
+  }, [requests, hideNonRequests, readOnly, synced]);
 }

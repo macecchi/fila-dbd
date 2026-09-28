@@ -40,14 +40,20 @@ export interface DigestView {
 export type DigestRender<T> = (items: readonly T[], release: () => void) => DigestView;
 
 export interface ToastDigest<T> {
-  /** Adds an arrival to the batch and shows it, updating the batch's toast in place. */
-  add(item: T): void;
+  /**
+   * Adds arrivals to the batch and shows it, updating the batch's toast in place — once per
+   * call, so a burst (a multi-request donation, a resync) is one toast update, not one each.
+   */
+  add(...added: T[]): void;
   /** The streamer arrived on (starts the read delay) or left (pauses it) the tab. */
   setOnTab(onTab: boolean): void;
   /** Takes the toast down now and ends the batch. */
   dismiss(): void;
   readonly count: number;
 }
+
+/** Batch numbers are unique across digests, so a remounted one can't reuse a dying toast's id. */
+let nextBatch = 0;
 
 /**
  * One toast per batch of arrivals instead of one per arrival. The toast never times
@@ -61,9 +67,6 @@ export interface ToastDigest<T> {
  * animation doesn't merge into a toast that is about to unmount (sonner keeps the
  * dying toast under its id for that animation, and the update would be lost with it).
  */
-/** Batch numbers are unique across digests, so a remounted one can't reuse a dying toast's id. */
-let nextBatch = 0;
-
 export function createToastDigest<T>(
   baseId: string,
   render: DigestRender<T>,
@@ -99,8 +102,9 @@ export function createToastDigest<T>(
     get count() {
       return items.length;
     },
-    add(item) {
-      items = [...items, item];
+    add(...added) {
+      if (added.length === 0) return;
+      items = [...items, ...added];
       const current = batch;
       const release = () => {
         if (batch === current) endBatch();

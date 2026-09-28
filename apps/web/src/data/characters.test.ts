@@ -62,11 +62,9 @@ describe('portraits', () => {
   // Listed, never imported: the keys are the files under public/ at test time.
   const onDisk = new Set(Object.keys(import.meta.glob('../../public/images/portraits/*.webp')).map(p => p.replace('../../public', '')));
 
-  it('every killer and survivor has a portrait that exists on disk', () => {
-    expect(onDisk.size).toBeGreaterThan(0);
+  it('every character\'s portrait exists on disk', () => {
     for (const c of [...CHARACTERS.killers, ...CHARACTERS.survivors]) {
-      expect(c.portrait, c.name).toMatch(/^\/images\/portraits\/[^/]+\.webp$/);
-      expect(onDisk.has(c.portrait!), c.portrait).toBe(true);
+      expect(onDisk.has(c.portrait), `${c.name}: ${c.portrait}`).toBe(true);
     }
   });
 
@@ -75,5 +73,7 @@ describe('portraits', () => {
     expect(getCharacterPortrait('Jane Hopper', 'survivor')).toBe('/images/portraits/S51_Eleven.webp');
     expect(getCharacterPortrait('Trapper', 'killer')).toBe('/images/portraits/K01_TheTrapper.webp');
     expect(getCharacterPortrait('Dwight Fairfield', 'killer')).toBeUndefined();
+    expect(getCharacterPortrait('Nurse', 'unknown')).toBeUndefined();
+    expect(getCharacterPortrait(undefined, 'killer')).toBeUndefined();
   });
 });

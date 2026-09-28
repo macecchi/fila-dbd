@@ -194,7 +194,7 @@ queue cache before reloading: `Object.keys(localStorage).filter(k => k.startsWit
 - `callLLM()` - Gemini API with model fallback/retry
 - `identifyCharacter()` - Local match first, then LLM fallback
 - `loadAndReplayVOD()` - VOD chat replay via GQL
-- `useRequestToasts()` - One toast for everything that arrives (requests + skipped `type: 'none'` messages), updated in place instead of one toast per arrival: a single arrival keeps its classic look (skipped → Undo), more become a summary titled by the count ("3 novos pedidos", or "2 mensagens sem pedidos" if that's all), the names in one description line, never the count twice: "Huntress, Slasher e Lich · 2 mensagens sem pedidos de Ana e Beto" (each character and each sender once; only skipped → "De Ana e Beto"); Revisar → review dialog. Timing lives in `createToastDigest` (`utils/toastDigest.ts`): never times out while the streamer is off the tab — visible **and** focused, since sonner only pauses on `document.hidden` and a tab visible on a second monitor behind the game timed out unseen — and leaves `READ_DELAY_MS` after they're back. Each batch gets its own id (`new-requests-<n>`): with one fixed id, an arrival during the old toast's exit animation merged into it and was lost. What's in the queue at the first party sync (`partySynced`) is the baseline — per room, since `ChannelApp` stays mounted across an in-app channel switch; everything after it counts — keying it off the first non-empty batch instead swallowed the first request into an empty queue
+- `useRequestToasts()` - One toast, updated in place, for what arrives while the page is open (requests + skipped `type: 'none'` messages): one arrival keeps its classic look, more become "3 novos pedidos" / "Huntress e Lich · 2 mensagens sem pedidos de Ana e Beto". It waits while the streamer is off the tab and goes `READ_DELAY_MS` after they're back (`utils/toastDigest.ts`). The baseline is the queue at the first party sync
 
 ## Sessions & ownership
 
@@ -214,14 +214,13 @@ internal bookkeeping and must never surface as a mode the streamer has to notice
   closed, the same for streamer and viewer, derived from `channelStatus` rather than this
   window's own sockets — so every window says the same thing. Sockets and the lock are
   internal; failures surface as toasts, not as a badge. Don't reintroduce a second
-  connection indicator. Before the server's first status (`statusKnown`) it goes by the
-  room's last saved status from `/rooms/:id` — saved open → connecting, saved closed →
-  closed, not loaded yet → `unknown` (no text, no animation). Never infer "connecting"
-  from this window's socket opening: every channel page pulsed on load that way, only to
-  settle on closed. The queue panel's sync bar follows the same rule (`queueIsUp`), and
-  what can't be known yet is held (hidden, space kept) rather than guessed and swapped:
-  the header badge, its subtitle (share link vs "last used", which needs `/rooms/:id`), the
-  avatar's fallback letter, and the panel's `SourcesBadges`.
+  connection indicator. Until the server's first status (`status` is `null`) it goes by the
+  room's last saved status from `/rooms/:id` (`useRoomInfo`) — saved open → connecting,
+  saved closed → closed, not loaded yet → `unknown` (no text, no animation). Never infer
+  "connecting" from this window's socket opening. The queue panel's sync bar follows the
+  same rule, and what can't be known yet is held (hidden, space kept) rather than guessed
+  and swapped: the header's name, badge and subtitle, the avatar's fallback letter, and
+  the panel's `SourcesBadges`.
 - **The lock transfers, it never refuses** (`party.ts` `claim-ownership`): a claim from
   another window of the same streamer hands the lock over and sends the old holder
   `ownership-denied` (which clears its lock and drops its IRC). So Open/Close the queue works
