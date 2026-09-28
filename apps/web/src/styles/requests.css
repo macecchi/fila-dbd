@@ -2,7 +2,12 @@
 
 .request-card {
   padding: var(--space-lg) var(--space-xl);
-  transition: background var(--duration-fast), opacity var(--duration-normal);
+  /* No background transition on purpose (nor an opacity one on .request-actions):
+     the hover state switches instantly. Faded, every card the pointer crossed —
+     including while scrolling under a resting pointer — repainted the page for
+     150ms and churned compositor layers, which was most of the main-thread cost of
+     hovering and scrolling the queue. The opacity transition is for .collapsed. */
+  transition: opacity var(--duration-normal);
   border-bottom: 1px solid var(--border-soft);
   position: relative;
   cursor: grab;
@@ -127,7 +132,6 @@
   padding: 0 var(--space-lg) 0 5rem;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.15s;
   z-index: 10;
   background: linear-gradient(to right, transparent, var(--bg-card-hover) 3rem);
 }
@@ -331,45 +335,55 @@
   font-style: italic;
 }
 
-/* transitions.dev "shimmer text" — a gradient band swept across the glyphs of a
+/* transitions.dev "shimmer text" — a highlight band swept across the glyphs of a
    character name while it's still being identified (no spinner, no layout cost).
-   The ::before layer duplicates the string via data-text so the gradient can be
-   clipped to it. */
+
+   Compositor-only on purpose. The band used to be a background-clip:text gradient
+   whose background-position was animated, which can't run off the main thread:
+   every frame repainted the whole document (~20ms/frame under 4x CPU throttle for
+   three shimmering names). Now SwapText renders a highlighted copy of the text
+   inside a "window": the window slides right under a static soft-edged mask while
+   the copy slides left by the same amount, so the glyphs hold still and only the
+   band moves. Both are transform animations with identical timing, which Chrome
+   runs on the compositor in lockstep — zero main-thread work per frame.
+
+   Geometry matches the old gradient: a band 0.8× the text width (linear ramps
+   either side of a peak) whose centre travels from -1× to 2× the width. */
 .t-shimmer {
   --shimmer-dur: 2000ms;
   --shimmer-base: var(--text-muted);
   --shimmer-highlight: var(--text);
-  --shimmer-band: 400%;
   position: relative;
   display: inline-block;
   color: var(--shimmer-base);
 }
 
-.t-shimmer::before {
-  content: attr(data-text);
+.t-shimmer-window {
   position: absolute;
   inset: 0;
+  overflow: hidden;
   pointer-events: none;
-  background-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    transparent 40%,
-    var(--shimmer-highlight) 50%,
-    transparent 60%,
-    transparent 100%
-  );
-  background-size: var(--shimmer-band) 100%;
-  background-repeat: no-repeat;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  animation: t-shimmer var(--shimmer-dur) linear infinite;
+  user-select: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent 10%, #000 50%, transparent 90%);
+  mask-image: linear-gradient(90deg, transparent 10%, #000 50%, transparent 90%);
+  animation: t-shimmer-window var(--shimmer-dur) linear infinite;
 }
 
-@keyframes t-shimmer {
-  0% { background-position: 100% 0; }
-  100% { background-position: 0% 0; }
+.t-shimmer-glyphs {
+  display: block;
+  white-space: nowrap;
+  color: var(--shimmer-highlight);
+  animation: t-shimmer-glyphs var(--shimmer-dur) linear infinite;
+}
+
+@keyframes t-shimmer-window {
+  from { transform: translateX(-150%); }
+  to { transform: translateX(150%); }
+}
+
+@keyframes t-shimmer-glyphs {
+  from { transform: translateX(150%); }
+  to { transform: translateX(-150%); }
 }
 
 /* transitions.dev "text states swap" — the identified character replacing the
@@ -381,8 +395,11 @@
   --text-swap-translate-y: 4px;
   --text-swap-blur: 2px;
   display: inline-block;
-  transform: translateY(0);
-  filter: blur(0);
+  /* `none` at rest, not translateY(0)/blur(0): an identity transform or filter still
+     creates a transform/effect node per card name (50+ in a busy queue), which every
+     frame's layerization has to walk. Transitions interpolate from none just the same. */
+  transform: none;
+  filter: none;
   opacity: 1;
   transition:
     transform var(--text-swap-dur) ease-in-out,
@@ -404,7 +421,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .t-shimmer::before { animation: none !important; }
+  .t-shimmer-window { display: none; }
   .t-text-swap { transition: none !important; }
 }
 
@@ -577,9 +594,9 @@
 
 .build-tooltip {
   /* Rendered in a body portal with fixed positioning (left/top set inline). The
-     request panel has `overflow: clip` and a `backdrop-filter` stacking context,
-     which would otherwise clip the tooltip on the last card and trap its z-index
-     below the footer. See CharacterAvatar.tsx. */
+     request panel has `overflow: clip` and its own stacking context, which would
+     otherwise clip the tooltip on the last card and trap its z-index below the
+     footer. See CharacterAvatar.tsx. */
   position: fixed;
   z-index: 900;
   background: rgba(20, 18, 22, 0.96);

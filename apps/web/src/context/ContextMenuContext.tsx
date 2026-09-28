@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 
 interface ContextMenuState {
   show: boolean;
@@ -8,10 +8,13 @@ interface ContextMenuState {
   isDone: boolean;
 }
 
-interface ContextMenuContextValue {
-  state: ContextMenuState;
+interface ContextMenuActions {
   show: (id: number, x: number, y: number, isDone: boolean) => void;
   hide: () => void;
+}
+
+interface ContextMenuContextValue extends ContextMenuActions {
+  state: ContextMenuState;
 }
 
 const initialState: ContextMenuState = {
@@ -22,7 +25,13 @@ const initialState: ContextMenuState = {
   isDone: false
 };
 
-const ContextMenuContext = createContext<ContextMenuContextValue | null>(null);
+// Two contexts on purpose. Every request card needs `show`, but only the menu itself
+// reads `state`. A single `{ state, show, hide }` value was a new object on every render
+// of the list (i.e. every queue change), and a context change re-renders its consumers
+// straight through `memo` — so each new request, ✓ or toast re-rendered all ~50 cards.
+// The actions object is stable for the provider's lifetime.
+const ContextMenuActionsContext = createContext<ContextMenuActions | null>(null);
+const ContextMenuStateContext = createContext<ContextMenuState | null>(null);
 
 export function ContextMenuProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<ContextMenuState>(initialState);
@@ -48,15 +57,27 @@ export function ContextMenuProvider({ children }: { children: ReactNode }) {
     };
   }, [hide]);
 
+  const actions = useMemo(() => ({ show, hide }), [show, hide]);
+
   return (
-    <ContextMenuContext.Provider value={{ state, show, hide }}>
-      {children}
-    </ContextMenuContext.Provider>
+    <ContextMenuActionsContext.Provider value={actions}>
+      <ContextMenuStateContext.Provider value={state}>
+        {children}
+      </ContextMenuStateContext.Provider>
+    </ContextMenuActionsContext.Provider>
   );
 }
 
-export function useContextMenu() {
-  const ctx = useContext(ContextMenuContext);
-  if (!ctx) throw new Error('useContextMenu must be used within ContextMenuProvider');
+/** Stable `show`/`hide` — for the cards, which must not re-render when the menu opens. */
+export function useContextMenuActions(): ContextMenuActions {
+  const ctx = useContext(ContextMenuActionsContext);
+  if (!ctx) throw new Error('useContextMenuActions must be used within ContextMenuProvider');
   return ctx;
+}
+
+export function useContextMenu(): ContextMenuContextValue {
+  const actions = useContextMenuActions();
+  const state = useContext(ContextMenuStateContext);
+  if (!state) throw new Error('useContextMenu must be used within ContextMenuProvider');
+  return { state, ...actions };
 }

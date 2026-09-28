@@ -491,9 +491,10 @@ function ChannelApp() {
         closeButton
         toastOptions={{
           style: {
-            background: 'rgba(30, 30, 30, 0.9)',
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
+            // Near-opaque instead of a 0.9 fill over a 12px backdrop blur: behind 90%
+            // cover the blur was barely visible, but every new-request toast made the
+            // compositor re-blur what sat under it for as long as it animated.
+            background: 'rgba(30, 30, 30, 0.95)',
             border: '1px solid var(--border)',
             borderRadius: '8px',
             boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',

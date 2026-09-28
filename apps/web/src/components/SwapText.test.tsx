@@ -12,35 +12,47 @@ describe('SwapText', () => {
     vi.unstubAllGlobals();
   });
 
-  it('shimmers while identifying and mirrors the text into data-text', () => {
-    render(<SwapText text="Identifying..." shimmer className="char-name" />);
-    const el = screen.getByText('Identifying...');
+  // The swapping element: its first child is the visible text node, any shimmer
+  // overlay is a separate aria-hidden child.
+  const swapEl = (container: HTMLElement) => container.querySelector('.t-text-swap') as HTMLElement;
+  const visibleText = (el: HTMLElement) => el.firstChild?.textContent;
+  const overlay = (el: HTMLElement) => el.querySelector('.t-shimmer-window');
+
+  it('shimmers while identifying with a hidden copy of the text for the band', () => {
+    const { container } = render(<SwapText text="Identifying..." shimmer className="char-name" />);
+    const el = swapEl(container);
     expect(el.className).toContain('t-shimmer');
     expect(el.className).toContain('char-name');
-    expect(el.getAttribute('data-text')).toBe('Identifying...');
+    expect(visibleText(el)).toBe('Identifying...');
+    expect(overlay(el)?.getAttribute('aria-hidden')).toBe('true');
+    expect(overlay(el)?.textContent).toBe('Identifying...');
+    // Assistive tech sees the name once.
+    expect(screen.getAllByText('Identifying...')).toHaveLength(2);
+    expect(screen.getByText('Identifying...', { ignore: '[aria-hidden] *' })).toBe(el);
   });
 
   it('swaps the text after the exit phase and drops the shimmer', () => {
-    const { rerender } = render(<SwapText text="Identifying..." shimmer />);
-    const el = screen.getByText('Identifying...');
+    const { container, rerender } = render(<SwapText text="Identifying..." shimmer />);
+    const el = swapEl(container);
 
     rerender(<SwapText text="Huntress" />);
     expect(el.className).toContain('is-exit');
-    expect(el.textContent).toBe('Identifying...');
+    expect(visibleText(el)).toBe('Identifying...');
 
     act(() => { vi.advanceTimersByTime(150); });
     expect(el.textContent).toBe('Huntress');
     expect(el.className).not.toContain('is-exit');
     expect(el.className).not.toContain('is-enter-start');
     expect(el.className).not.toContain('t-shimmer');
-    expect(el.getAttribute('data-text')).toBeNull();
+    expect(overlay(el)).toBeNull();
   });
 
   it('drops the shimmer without animating when only the shimmer flips', () => {
-    const { rerender } = render(<SwapText text="Trapper" shimmer />);
-    const el = screen.getByText('Trapper');
+    const { container, rerender } = render(<SwapText text="Trapper" shimmer />);
+    const el = swapEl(container);
     rerender(<SwapText text="Trapper" />);
     expect(el.className).not.toContain('t-shimmer');
+    expect(overlay(el)).toBeNull();
     expect(el.className).not.toContain('is-exit');
   });
 

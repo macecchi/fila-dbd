@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react';
 import type { Request } from '../types';
-import { useContextMenu } from '../context/ContextMenuContext';
+import { useContextMenuActions } from '../context/ContextMenuContext';
 import { getKillerPortrait, tryLocalMatch } from '../data/characters';
 import { CharacterAvatar } from './CharacterAvatar';
 import { SwapText } from './SwapText';
@@ -32,15 +32,17 @@ interface Props {
   exiting?: boolean;
   skipping?: boolean;
   entering?: boolean;
-  group?: { index: number; total: number };
+  /** Position within a multi-request donation (1-based) and its size. */
+  groupIndex?: number;
+  groupTotal?: number;
 }
 
 export const CharacterRequestCard = memo(function CharacterRequestCard({
   request, position, onToggleDone, onEdit,
   isDragging, isDragOver, onDragStart, onDragOver, onDragEnd, readOnly = false, exiting = false, skipping = false, entering = false,
-  group,
+  groupIndex, groupTotal,
 }: Props) {
-  const { show: showContextMenu } = useContextMenu();
+  const { show: showContextMenu } = useContextMenuActions();
   const { channel } = useChannel();
   const { t } = useTranslation();
   const r = request;
@@ -170,7 +172,7 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
               {r.source === 'donation' && renderDonationBadge()}
               {(r.source === 'chat' || r.source === 'resub') && !isBroadcaster && (r.subTier || r.source === 'resub') && renderTwitchSubBadge(r.subTier || 1)}
               {r.donor}
-              {group && <span className="donation-group-chip" title="Pedidos da mesma doação" style={{ marginLeft: '4px' }}>{group.index}/{group.total}</span>}
+              {groupIndex !== undefined && groupTotal !== undefined && <span className="donation-group-chip" title="Pedidos da mesma doação" style={{ marginLeft: '4px' }}>{groupIndex}/{groupTotal}</span>}
             </span>
             {allTerms.length > 0 ? highlightTerms(r.message, allTerms) : r.message}
             {r.source === 'donation' && isLikelyTruncatedDonation(r.message) && (
