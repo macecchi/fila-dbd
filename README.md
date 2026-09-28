@@ -110,13 +110,16 @@ cd apps/api && bunx wrangler secret put <NAME> --env production
 - `INTERNAL_API_SECRET` - same value as Cloudflare
 - `API_URL` - Production Worker URL (e.g. `https://dbd-tracker.<account>.workers.dev`)
 
-**PartyKit → PostHog (`vars` in `apps/api/partykit.json`, deployed with the code):**
+**PartyKit → PostHog (PartyKit env vars, set by the deploy workflow):**
 
 - `POSTHOG_KEY` - PostHog project token (`phc_…`). Ships every `console.*` line of `party.ts` to
   PostHog Logs (service `dbd-tracker-party`, attribute `room.id`) and the `fila_party_*` events.
-  It's the public ingestion token — the same one the web bundle carries — so it lives in `vars`,
-  not in a secret; `bunx partykit env add POSTHOG_KEY` overrides it if you ever rotate it.
-  Remove it and PartyKit logs only to the console again (`partykit tail`).
+  It's the public ingestion token — the same one the web bundle carries. ⚠️ `partykit deploy`
+  does **not** send `partykit.json` `vars` (only `--with-vars` does, and that would also push the
+  file's local-dev `API_URL`/`INTERNAL_API_SECRET`), so `.github/workflows/deploy-api.yml` stores
+  it with `bunx partykit env add` before each deploy — the same mechanism as the secrets above.
+  The copy in `partykit.json` only serves `partykit dev`, where `DEV_MODE` switches it off anyway.
+  Remove the env var and PartyKit logs only to the console again (`partykit tail`).
 - `POSTHOG_HOST` - ingestion host, default `https://us.i.posthog.com`.
 
 Both are ignored under `DEV_MODE` (`partykit dev`), so local rooms never reach the project.

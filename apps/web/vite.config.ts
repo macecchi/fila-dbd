@@ -21,7 +21,11 @@ export default defineConfig({
       srcDir: 'src',
       filename: 'sw.ts',
       injectManifest: {
-        globPatterns: ['**/*.{js,css,html,ico,png,webp,woff2}']
+        globPatterns: ['**/*.{js,css,html,ico,png,webp,woff2}'],
+        // The PostHog SDK (~100 kB gz) is loaded lazily and is best-effort: precaching it
+        // would make every visitor download it on each SW install for no offline benefit.
+        // A tab on an old version whose chunk is gone after a deploy just loses analytics.
+        globIgnores: ['**/posthog-*.js'],
       }
     })
   ],

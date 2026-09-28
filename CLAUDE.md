@@ -73,8 +73,13 @@ PartyKit has no log export, so `party.ts` logs **only** through `this.logger` (`
 `dbd-tracker-party`, with the room id in the `room.id` attribute and the console method in
 `name` (like the Worker's export). Buffered and flushed fire-and-forget every 2s / 200 lines and
 when a room's last connection closes; bodies are scrubbed of JWTs, `token=`/`code=` params and
-Bearer values as a backstop — still never log a token. Keyed by `POSTHOG_KEY` in
-`partykit.json` `vars`; off under `DEV_MODE`. Export failures go to the console only.
+Bearer values as a backstop — still never log a token. Keyed by the `POSTHOG_KEY` PartyKit env
+var, which the deploy workflow sets with `partykit env add` — ⚠️ `partykit deploy` never ships
+`partykit.json` `vars`, and `--with-vars` would also push its local-dev secrets. Off under
+`DEV_MODE`. Export failures go to the console only, and one export per room is in flight at a
+time (5s timeout) so a slow PostHog can't hold the room's D1/chat fetch slots. Client-supplied
+values (e.g. an unknown message `type`) never name a throttle key or reach a log line verbatim:
+`messageTypeLabel()` maps them to a fixed set.
 
 ## Observability (PostHog)
 
@@ -110,7 +115,7 @@ on `app = 'fila-dbd'` (every event carries it). Event names are prefixed `fila_`
   `claimed_login`, `is_room_login`), `fila_party_owner_connected`, `fila_party_claim_denied`,
   `fila_party_mutation_rejected` (`code`, `message_type`, `sender_authenticated`,
   `room_has_lock_holder`), `fila_party_persist_failed`, `fila_party_d1_sync_failed` /
-  `_recovered`. Key in `partykit.json` `vars`; off under `DEV_MODE` (i.e. `partykit dev`).
+  `_recovered`. Same `POSTHOG_KEY` env var as the logs; off under `DEV_MODE` (i.e. `partykit dev`).
   `distinct_id` is the room (= streamer login), with `$process_person_profile: false`.
 - Test locally without touching the real project: build with `VITE_POSTHOG_HOST` pointing at
   a local sink + `VITE_POSTHOG_ALLOW_LOCAL=true`, run `partykit dev --var
@@ -225,10 +230,16 @@ internal bookkeeping and must never surface as a mode the streamer has to notice
   `not_lock_holder` means another session holds the lock or ours went stale: log and nudge a
   re-claim. `not_room_owner` (and `ownership-denied` with `not-room-owner`) on the streamer's
   own channel means this socket isn't authenticated as them — force a token refresh and
-  reconnect (`reauthenticate`, throttled by `REAUTH_COOLDOWN`). Only `persist_failed` / `d1_sync_failed` are real server failures
-  (toast id `server-error`, `duration: Infinity`); `pending_cap` and `chat_send_not_mod` are
-  finite warnings under their own ids. Connection toasts own `party-status` / `irc-status` —
-  don't reuse those ids for anything else.
+  reconnect (`reauthenticate`, throttled by `REAUTH_COOLDOWN`). If that keeps failing
+  (`REAUTH_WARN_AFTER` rounds in `REAUTH_WARN_WINDOW`, or an owner session that repeatedly can't
+  get a token), a finite `auth-status` warning says edits may not be saved — the one case the
+  streamer has to act on (reload / sign in again); a grant takes it down. Only
+  `persist_failed` / `d1_sync_failed` are real server failures (toast id `server-error`,
+  `duration: Infinity`); `pending_cap` and `chat_send_not_mod` are finite warnings under their
+  own ids. Connection toasts own `party-status` / `irc-status` — don't reuse those ids for
+  anything else.
+- **`/auth/refresh` is single-flight and only a 400/401 signs out.** It runs on every reconnect
+  near expiry, so treating a Worker 5xx as "logged out" would sign every live streamer out at once.
 - **Reconnects are quiet for the first 5s** (`RECONNECT_GRACE`): both sockets recover on their
   own within a second or two, so a warning is scheduled, not shown, and the "reconnected"
   toast only follows a warning that was actually displayed.
@@ -298,6 +309,9 @@ the low bits of the hash away. Ordering comes from `position`, never from the ID
   "Live notifications" toggle (Settings → Behavior); blocks the Web Push auto-subscribe in
   `services/push.ts` on that browser (turning it off also unsubscribes locally + server-side).
   Absent = enabled.
+- `ph_<project token>_posthog` - posthog-js's own persistence (anonymous id, or the streamer's
+  Twitch login once identified), written only after the SDK loads in a production build.
+  Not app state: nothing reads it, and clearing it only resets analytics identity.
 - `fila-dbd-channels-v{N}` - landing-page featured-channels cache (stale-while-revalidate):
   the active list, the recently-active list (7-day window, closed queues) and the all-time
   channel count from `/rooms/active`. The landing merges them into one "featured" grid —
