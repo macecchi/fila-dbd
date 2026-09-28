@@ -225,6 +225,14 @@ worker renders the strings from `apps/web/src/i18n/pushCopy.ts` (the SW can't re
 app's language toggle itself). Switching the language re-registers the subscription, so
 the next push follows.
 
+### Observability
+
+Front-end errors, pageviews and the health of the streamer's realtime session go to PostHog
+(project token in `apps/web/.env.production` and `apps/api/partykit.json`, both public
+ingestion tokens). The API Worker's logs go to PostHog Logs (`apps/api/wrangler.toml`). Local
+dev never reports. See the "Observability" section of `CLAUDE.md` for the event catalogue and
+the privacy rules (tokens are scrubbed before anything is sent).
+
 ### LLM extraction evals
 
 Live evals against the real Gemini API live in `apps/api/src/gemini.eval.test.ts`. They are skipped by the default test suite (and by CI) and run on demand:

@@ -16,7 +16,7 @@ Before and after each feature or refactoring, evaluate how changes impact existi
 
 The web app is tuned for fast initial load. When modifying it, preserve these invariants and apply the same patterns to new code:
 
-- **Bundle** (`vite.config.ts` `manualChunks`): each major dep gets its own chunk (react, react-dom, zustand, partysocket, sonner), build target `esnext`. Anything on the path of a normal visit is eager in the main entry — the channel view (`ChannelApp` + its components), `LandingPage`, and `ManualEntry`: lazy-loading something that always renders just adds a round trip mid-paint, which is what we're trying to avoid. A few kB of eager JS is cheaper than that. Lazy is for what most sessions never open: the debug panel (`#debug`), the review/import/VOD dialogs, and `services/vod` (imported by the recovery effect on owner channel visits, after PartyKit sync — off the paint path, and viewers never fetch it). New major dep → add a `manualChunks` entry.
+- **Bundle** (`vite.config.ts` `manualChunks`): each major dep gets its own chunk (react, react-dom, zustand, partysocket, sonner, posthog), build target `esnext`. Anything on the path of a normal visit is eager in the main entry — the channel view (`ChannelApp` + its components), `LandingPage`, and `ManualEntry`: lazy-loading something that always renders just adds a round trip mid-paint, which is what we're trying to avoid. A few kB of eager JS is cheaper than that. Lazy is for what most sessions never open: the debug panel (`#debug`), the review/import/VOD dialogs, the PostHog SDK (~100 kB gz; `services/analytics.ts` imports it after `load`, on `requestIdleCallback`, and queues events until then — never import `posthog-js` statically), and `services/vod` (imported by the recovery effect on owner channel visits, after PartyKit sync — off the paint path, and viewers never fetch it). New major dep → add a `manualChunks` entry.
 - **Fonts**: self-hosted woff2, preloaded in `index.html`. Do NOT reintroduce Google Fonts (render-blocking).
 - **Critical CSS**: inlined in `index.html` `<head>` to paint the dark shell pre-bundle; keep in sync with the bg/text tokens in `base.css` to avoid reflow.
 - **Instant paint**: the queue hydrates from the `fila-dbd-queue` localStorage cache and mutations (add/toggleDone/reorder) are optimistic. New persisted client state → version the key + defensive reads (`store/queueCache.ts`).
@@ -66,6 +66,47 @@ bun run deploy:party # Deploy PartyKit
 account-level `posthog` OTLP destination (`[observability.logs] destinations` in
 `apps/api/wrangler.toml`). Keep observability settings in that file — every deploy overwrites
 whatever was set in the Cloudflare dashboard.
+
+## Observability (PostHog)
+
+Everything lands in PostHog project 618081 (US), which is **shared with other apps** — filter
+on `app = 'fila-dbd'` (every event carries it). Event names are prefixed `fila_`.
+
+- **Web** (`services/analytics.ts`): `posthog-js`, lazy (see Performance), keyed by
+  `VITE_POSTHOG_KEY` from `apps/web/.env.production` (the public ingestion token; a Pages env
+  var overrides it). Silent in `vite dev`, in tests, and on `localhost` even in a production
+  build unless `VITE_POSTHOG_ALLOW_LOCAL=true`. Pageviews + exception autocapture only;
+  autocapture, replay, heatmaps, surveys and flags are off **in code**, not left to the shared
+  project's remote config. Viewers are anonymous (`person_profiles: 'identified_only'`); a
+  signed-in streamer is identified by Twitch login (`main.tsx`).
+- ⚠️ **Tokens never leave the browser.** The party socket URL carries `?token=<JWT>`, the OAuth
+  callback carries `?code=&state=`, `dbd-auth` holds both tokens. `before_send` runs every
+  event through `scrubProperties()` (JWT-shaped strings, token/code/state URL params,
+  `accessToken`-style keys). Don't redact the bare `token` key — that's the SDK's project token,
+  and ingestion routes on it. New event properties: report *facts about* a token
+  (`token_present`, `token_ttl_s`), never the token or a URL containing it.
+- **Realtime health** (`services/realtimeTelemetry.ts`, fed from `services/party.ts`): only the
+  streamer's own channel reports. Every edit we send is tracked to its echo —
+  `fila_mutation_acked` / `_rejected` (with the server-error `code`) / `_unacked` (no echo in
+  15s, or the socket closed under it) / `_dropped` (sent while the socket was down). Plus
+  `fila_party_connected` (reconnect, downtime, `token_present`, `token_ttl_s`, `token_expired`),
+  `fila_party_disconnected`, `fila_claim_denied`, `fila_owner_recovered`, `fila_server_error`,
+  and `fila_sync_diverged`: a `sync-full` that undoes what this window showed (`initial: true`
+  = the queue cache, i.e. what the streamer saw before F5). Echo matching relies on the server
+  echoing edits to their sender and on `reorder` carrying its `opId` — keep both.
+- **PartyKit** (`apps/api/src/telemetry.ts`): PartyKit has no log export, so `party.ts` posts
+  events straight to PostHog's `/batch/` endpoint — buffered, fire-and-forget, never awaited by
+  storage or broadcast, throttled per room+key (one event per 60s plus a folded `count`).
+  `fila_party_auth_failed` (JWT rejected at connect: `reason` expired/invalid/malformed,
+  `claimed_login`, `is_room_login`), `fila_party_owner_connected`, `fila_party_claim_denied`,
+  `fila_party_mutation_rejected` (`code`, `message_type`, `sender_authenticated`,
+  `room_has_lock_holder`), `fila_party_persist_failed`, `fila_party_d1_sync_failed` /
+  `_recovered`. Key in `partykit.json` `vars`; off under `DEV_MODE` (i.e. `partykit dev`).
+  `distinct_id` is the room (= streamer login), with `$process_person_profile: false`.
+- Test locally without touching the real project: build with `VITE_POSTHOG_HOST` pointing at
+  a local sink + `VITE_POSTHOG_ALLOW_LOCAL=true`, run `partykit dev --var
+  POSTHOG_HOST=<sink>` (without `DEV_MODE`). Headless Chromium sets `navigator.webdriver`,
+  which posthog-js treats as a bot and drops — mask it in the test browser.
 
 ## Testing owner paths locally
 
