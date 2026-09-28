@@ -233,6 +233,8 @@ const ptBR = {
 
   // Toast messages
   'toast.ignored': 'Ignorado: {donor} — "{message}"',
+  'toast.ignoredCount': '{count} mensagem sem pedido',
+  'toast.ignoredCount_plural': '{count} mensagens sem pedidos',
   'toast.ignoredFrom': '{count} mensagem sem pedido de {names}',
   'toast.ignoredFrom_plural': '{count} mensagens sem pedidos de {names}',
   'toast.namesTwo': '{a} e {b}',

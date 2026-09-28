@@ -235,6 +235,8 @@ const en: TranslationKeys = {
 
   // Toast messages
   'toast.ignored': 'Skipped: {donor} — "{message}"',
+  'toast.ignoredCount': '{count} message without a request',
+  'toast.ignoredCount_plural': '{count} messages without requests',
   'toast.ignoredFrom': '{count} message without a request from {names}',
   'toast.ignoredFrom_plural': '{count} messages without requests from {names}',
   'toast.namesTwo': '{a} and {b}',
