@@ -262,7 +262,10 @@ export function CharacterRequestList() {
                 // Never let a just-arrived card play the enter animation while it's
                 // also exiting/skipping — the two animations fight and ghost.
                 entering={enteringIds.has(r.id) && !exiting && !skipping}
-                group={groupMap.get(r.id)}
+                // Primitives, not the map's { index, total } object: groupMap is rebuilt
+                // on every queue change, and a fresh object would defeat the card's memo.
+                groupIndex={groupMap.get(r.id)?.index}
+                groupTotal={groupMap.get(r.id)?.total}
               />
             );
           });
