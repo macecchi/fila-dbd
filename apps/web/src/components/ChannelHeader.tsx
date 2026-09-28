@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
-import { useChannel } from '../store';
+import { useAuth, useChannel } from '../store';
 import { useQueueStatus } from '../hooks/useQueueStatus';
 import { useTranslation } from '../i18n';
 import { formatRelativeTime } from '../utils/helpers';
@@ -19,12 +19,15 @@ export function ChannelHeader() {
   const queue = useQueueStatus();
 
   const { room: roomInfo, loaded: roomInfoLoaded } = useRoomInfo(channel);
+  // On your own channel your Twitch profile is already in the sign-in: no need to wait.
+  const user = useAuth((s) => s.user);
+  const self = user?.login.toLowerCase() === channel.toLowerCase() ? user : null;
 
-  const avatarUrl = roomInfo?.avatar_url || owner?.avatar;
+  const avatarUrl = self?.profile_image_url || roomInfo?.avatar_url || owner?.avatar;
   // Twitch's display name (its casing, sometimes other characters). Until it's known the
   // login holds the space, hidden: the name font is monospace, so it's the same width.
-  const nameKnown = roomInfoLoaded || !!owner?.displayName;
-  const displayName = owner?.displayName || roomInfo?.display_name || channel;
+  const nameKnown = roomInfoLoaded || !!owner?.displayName || !!self;
+  const displayName = self?.display_name || owner?.displayName || roomInfo?.display_name || channel;
   const lastActive = roomInfo?.updated_at ? new Date(roomInfo.updated_at + 'Z') : null;
   const showLastUsed = !!lastActive && queue.state === 'closed';
 
