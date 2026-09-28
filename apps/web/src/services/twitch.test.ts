@@ -390,6 +390,20 @@ describe('the IRC socket', () => {
       expect(ircStates.slice(-2)).toEqual(['disconnected', 'connecting']);
     });
 
+    // Left at 'connecting', the next grant (which connects only from 'disconnected') would
+    // never bring chat back: "Conectando..." until a reload.
+    it('disconnect() during a reconnect backoff leaves IRC disconnected', () => {
+      vi.useFakeTimers();
+      FakeSocket.last.finishClose();
+      expect(ircStates.at(-1)).toBe('connecting');
+
+      disconnect();
+      vi.advanceTimersByTime(60_000);
+
+      expect(ircStates.at(-1)).toBe('disconnected');
+      expect(FakeSocket.all).toHaveLength(1);
+    });
+
     it('a socket that drops on its own still reconnects', () => {
       vi.useFakeTimers();
       FakeSocket.last.finishClose();

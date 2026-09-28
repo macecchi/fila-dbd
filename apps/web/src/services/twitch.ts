@@ -37,16 +37,21 @@ function clearReconnect() {
 }
 
 export function disconnect() {
+  // Waiting out a reconnect backoff counts as connected-ish: `ws` is null but the state reads
+  // 'connecting', and left there the next grant (which only connects from 'disconnected')
+  // would never bring chat back.
+  const wasReconnecting = reconnectTimer !== null;
   clearReconnect();
+  if (!ws && !wasReconnecting) return;
   if (ws) {
     // Dropping the reference first is what makes this close intentional: the socket's own
     // handlers stand down once it is no longer `ws`.
     const closing = ws;
     ws = null;
     closing.close();
-    console.log('Disconnected from Twitch IRC');
-    activeStores?.useChannelInfo.getState().setIrcConnectionState('disconnected', false);
   }
+  console.log('Disconnected from Twitch IRC');
+  activeStores?.useChannelInfo.getState().setIrcConnectionState('disconnected', false);
 }
 
 /** Debug: drop the live socket as the network would, so it goes through the reconnect path. */
@@ -82,10 +87,11 @@ export function connect(channel: string) {
     socket.send('NICK justinfan' + Math.floor(Math.random() * 99999));
     socket.send(`JOIN #${ch}`);
   };
-  // A socket that was replaced or closed on purpose finishes its close handshake later, and
-  // may still deliver a few lines meanwhile: once it isn't `ws` it must not touch state, or
-  // its close drops the reference to the socket that replaced it and schedules a reconnect —
-  // leaving two sockets reading chat, one of which disconnect() can no longer reach.
+  // A socket that was replaced or closed on purpose gets its close event only after the
+  // handshake: once it isn't `ws` it must not touch state, or that close drops the reference
+  // to the socket that replaced it and schedules a reconnect — leaving two sockets reading
+  // chat, one of which disconnect() can no longer reach. (Browsers drop messages after
+  // close(), so the onmessage guard is belt and braces.)
   socket.onmessage = (e) => {
     if (socket !== ws) return;
     for (const line of e.data.split('\r\n')) {
