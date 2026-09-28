@@ -128,18 +128,37 @@ textarea {
   background: var(--green);
 }
 
+/* "Open queue" call to action, glowing for as long as the streamer's queue is closed.
+   The resting glow is static; the bright phase is a pseudo-element whose opacity
+   breathes in and out. That is the old animated box-shadow + background-color, but
+   compositor-only — those two properties repainted on every frame, indefinitely. */
 .btn-pulse {
+  position: relative;
+  isolation: isolate;
+  box-shadow: 0 0 4px 2px rgba(139, 92, 246, 0.4);
+}
+
+.btn-pulse::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: #9d75f9; /* slightly lighter than accent for extra pop */
+  box-shadow: 0 0 12px 4px rgba(139, 92, 246, 0.8);
+  opacity: 0;
+  pointer-events: none;
   animation: glow 2s ease-in-out infinite alternate;
 }
 
 @keyframes glow {
-  from {
-    box-shadow: 0 0 4px 2px rgba(139, 92, 246, 0.4);
-    background-color: var(--accent);
-  }
-  to {
-    box-shadow: 0 0 12px 4px rgba(139, 92, 246, 0.8);
-    background-color: #9d75f9; /* slightly lighter than accent for extra pop */
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-pulse::after {
+    animation: none;
   }
 }
 

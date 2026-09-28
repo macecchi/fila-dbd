@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { render, act } from '@testing-library/react';
 import { ChannelProvider, useChannel } from './ChannelContext';
-import { claimOwnership, releaseOwnership } from '../services/party';
+import { useAuth } from './auth';
+import { claimOwnership, releaseOwnership, connectParty, reconnectParty, broadcastIrcStatus } from '../services/party';
 import { connect as connectIrc, disconnect as disconnectIrc } from '../services/twitch';
 import { toast } from 'sonner';
 import { useQueueStatus } from '../hooks/useQueueStatus';
@@ -10,6 +11,7 @@ import { t } from '../i18n';
 vi.mock('../services/party', () => ({
   connectParty: vi.fn(),
   disconnectParty: vi.fn(),
+  reconnectParty: vi.fn(),
   claimOwnership: vi.fn(),
   releaseOwnership: vi.fn(),
   broadcastSetAllExtras: vi.fn(),
@@ -45,12 +47,14 @@ vi.mock('./auth', () => {
   const auth = {
     user: { login: 'streamer', display_name: 'Streamer' },
     isAuthenticated: true,
-    getAccessToken: async () => 'token',
+    getAccessToken: vi.fn(async (): Promise<string | null> => 'token'),
+    refresh: vi.fn(async () => true),
   };
-  return { useAuth: () => auth };
+  return { useAuth: Object.assign(() => auth, { auth }) };
 });
 
 const claimMock = vi.mocked(claimOwnership);
+const authMock = (useAuth as unknown as { auth: { getAccessToken: Mock; refresh: Mock } }).auth;
 
 const OWNER = { login: 'streamer', displayName: 'Streamer', avatar: '' };
 const OTHER = { login: 'streamer', displayName: 'Streamer', avatar: '' };
@@ -359,5 +363,230 @@ describe('ChannelProvider — opening and closing work from any window', () => {
 
     grant(get());
     expect(ircConnect).toHaveBeenCalledWith('streamer');
+  });
+});
+
+describe('ChannelProvider — the streamer never edits through an unauthenticated socket', () => {
+  const connect = vi.mocked(connectParty);
+  const reconnect = vi.mocked(reconnectParty);
+  const error = vi.mocked(toast.error);
+
+  afterEach(() => {
+    authMock.getAccessToken.mockImplementation(async () => 'token');
+    authMock.refresh.mockImplementation(async () => true);
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  // What the provider handed the socket: the per-connect token getter and the message handler.
+  function socketArgs() {
+    const [, getToken, onMessage] = connect.mock.calls[connect.mock.calls.length - 1];
+    return { getToken, onMessage };
+  }
+
+  it('hands the socket a token getter, so reconnects ask for a current token', async () => {
+    setup();
+    const { getToken } = socketArgs();
+
+    authMock.getAccessToken.mockResolvedValueOnce('refreshed-token');
+    await expect(getToken()).resolves.toBe('refreshed-token');
+    expect(authMock.getAccessToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails the connection attempt instead of connecting the owner anonymously', async () => {
+    setup();
+    const { getToken } = socketArgs();
+
+    // A refresh that failed on the network: no token, but still signed in.
+    authMock.getAccessToken.mockResolvedValueOnce(null);
+    await expect(getToken()).rejects.toThrow();
+  });
+
+  it('refreshes the token and reconnects when the server refuses the owner', async () => {
+    setup();
+    const { onMessage } = socketArgs();
+
+    await act(async () => {
+      onMessage({ type: 'ownership-denied', currentOwner: 'not-room-owner' });
+    });
+    expect(authMock.refresh).toHaveBeenCalledTimes(1);
+    expect(reconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats a refused edit the same way, without an error toast', async () => {
+    setup();
+    const { onMessage } = socketArgs();
+
+    await act(async () => {
+      onMessage({ type: 'server-error', code: 'not_room_owner', message: 'Apenas o dono do canal pode gerenciar a fila.' });
+    });
+    expect(authMock.refresh).toHaveBeenCalledTimes(1);
+    expect(reconnect).toHaveBeenCalledTimes(1);
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it('does not turn a server that keeps refusing into a reconnect loop', async () => {
+    vi.useFakeTimers();
+    setup();
+    const { onMessage } = socketArgs();
+    const refuse = () => onMessage({ type: 'server-error', code: 'not_room_owner', message: '' });
+
+    await act(async () => { refuse(); refuse(); refuse(); });
+    expect(authMock.refresh).toHaveBeenCalledTimes(1);
+
+    await act(async () => { vi.advanceTimersByTime(61_000); refuse(); });
+    expect(authMock.refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not reconnect when the refresh fails', async () => {
+    authMock.refresh.mockResolvedValueOnce(false);
+    setup();
+    const { onMessage } = socketArgs();
+
+    await act(async () => {
+      onMessage({ type: 'ownership-denied', currentOwner: 'not-room-owner' });
+    });
+    expect(reconnect).not.toHaveBeenCalled();
+  });
+
+  it('leaves a lock handed to another window of the streamer alone', async () => {
+    setup();
+    const { onMessage } = socketArgs();
+
+    await act(async () => {
+      onMessage({ type: 'ownership-denied', currentOwner: 'streamer' });
+    });
+    expect(authMock.refresh).not.toHaveBeenCalled();
+    expect(reconnect).not.toHaveBeenCalled();
+  });
+});
+
+describe('ChannelProvider — the channel reads live again after a reconnect', () => {
+  const ircStatus = vi.mocked(broadcastIrcStatus);
+
+  afterEach(() => vi.clearAllMocks());
+
+  it('re-reports chat as live when the lock comes back with IRC still connected', () => {
+    // The server drops ownership when the party socket closes and resets the room to
+    // 'online' on the re-claim. IRC never dropped, so nothing transitions to re-send
+    // irc-status — and every window, viewers included, showed "Conectando..." / "Fila
+    // fechada" for the rest of the stream while requests were still being taken.
+    const get = setup();
+    sync(get(), null);
+    act(() => {
+      get().useChannelInfo.getState().handlePartyMessage({ type: 'ownership-granted' } as never);
+      get().useChannelInfo.getState().setIrcConnectionState('connected');
+    });
+    expect(ircStatus).toHaveBeenLastCalledWith(true);
+    ircStatus.mockClear();
+
+    act(() => {
+      get().useChannelInfo.getState().setPartyConnectionState('disconnected');
+    });
+    sync(get(), null);
+    act(() => {
+      get().useChannelInfo.getState().handlePartyMessage({ type: 'ownership-granted' } as never);
+    });
+
+    expect(ircStatus).toHaveBeenCalledWith(true);
+  });
+});
+
+describe('ChannelProvider — a refusal the self-heal cannot fix is not silent', () => {
+  const connect = vi.mocked(connectParty);
+  const warning = vi.mocked(toast.warning);
+  const dismiss = vi.mocked(toast.dismiss);
+  const ircStatus = vi.mocked(broadcastIrcStatus);
+
+  afterEach(() => {
+    authMock.getAccessToken.mockImplementation(async () => 'token');
+    authMock.refresh.mockImplementation(async () => true);
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  function socketArgs() {
+    const [, getToken, onMessage, onOpen] = connect.mock.calls[connect.mock.calls.length - 1];
+    return { getToken, onMessage, onOpen: onOpen! };
+  }
+  const authWarnings = () => warning.mock.calls.filter(([, opts]) => (opts as { id?: string })?.id === 'auth-status');
+
+  it('warns once the heal has failed a few rounds in a row', async () => {
+    vi.useFakeTimers();
+    setup();
+    const { onMessage } = socketArgs();
+    const refuse = () => onMessage({ type: 'server-error', code: 'not_room_owner', message: '' });
+
+    await act(async () => { refuse(); });
+    await act(async () => { vi.advanceTimersByTime(61_000); refuse(); });
+    expect(authWarnings()).toHaveLength(0);
+
+    await act(async () => { vi.advanceTimersByTime(61_000); refuse(); });
+    expect(authWarnings()).toHaveLength(1);
+  });
+
+  it('takes the warning down when the server grants the lock again', async () => {
+    setup();
+    const { onMessage } = socketArgs();
+    await act(async () => { onMessage({ type: 'ownership-denied', currentOwner: 'not-room-owner' }); });
+    await act(async () => { onMessage({ type: 'ownership-granted' }); });
+    expect(dismiss).toHaveBeenCalledWith('auth-status');
+  });
+
+  it('warns when the streamer session keeps failing to get a token', async () => {
+    setup();
+    const { getToken } = socketArgs();
+    authMock.getAccessToken.mockResolvedValue(null);
+    for (let i = 0; i < 4; i++) await expect(getToken()).rejects.toThrow();
+    expect(authWarnings()).toHaveLength(0);
+    await expect(getToken()).rejects.toThrow();
+    expect(authWarnings()).toHaveLength(1);
+  });
+
+  it('answers a torn-down socket without a token lookup or an error', async () => {
+    const { unmount } = render(<ChannelProvider channel="streamer"><div /></ChannelProvider>);
+    const { getToken } = socketArgs();
+    unmount();
+    authMock.getAccessToken.mockClear();
+    await expect(getToken()).resolves.toBeNull();
+    expect(authMock.getAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('does not report chat on socket open, where the lock is only stale-true', () => {
+    const get = setup();
+    sync(get(), null);
+    act(() => {
+      get().useChannelInfo.getState().handlePartyMessage({ type: 'ownership-granted' } as never);
+      get().useChannelInfo.getState().setIrcConnectionState('connected');
+    });
+    ircStatus.mockClear();
+    act(() => { socketArgs().onOpen(); });
+    expect(ircStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe('ChannelProvider — a failed heal is reported at once', () => {
+  const connect = vi.mocked(connectParty);
+  const warning = vi.mocked(toast.warning);
+  const reconnect = vi.mocked(reconnectParty);
+
+  afterEach(() => vi.clearAllMocks());
+
+  it('warns as soon as the socket a heal reconnected is refused again', async () => {
+    // The final review measured ~2 minutes of silence here when PartyKit and the Worker
+    // disagree on JWT_SECRET: the refusals inside the cooldown never counted.
+    setup();
+    const [, , onMessage, onOpen] = connect.mock.calls[connect.mock.calls.length - 1];
+    const authWarnings = () => warning.mock.calls.filter(([, opts]) => (opts as { id?: string })?.id === 'auth-status');
+
+    await act(async () => { onMessage({ type: 'ownership-denied', currentOwner: 'not-room-owner' }); });
+    expect(reconnect).toHaveBeenCalledTimes(1);
+    expect(authWarnings()).toHaveLength(0);
+
+    act(() => { onOpen!(); }); // the healed socket is up...
+    await act(async () => { onMessage({ type: 'ownership-denied', currentOwner: 'not-room-owner' }); }); // ...and refused
+
+    expect(authWarnings()).toHaveLength(1);
+    expect(authWarnings()[0][1]).toMatchObject({ duration: Infinity });
   });
 });

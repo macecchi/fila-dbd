@@ -27,6 +27,7 @@
   "dependencies": {
     "@filadbd/shared": "workspace:*",
     "partysocket": "^1.0.2",
+    "posthog-js": "^1.434.15",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "sonner": "^2.0.8",

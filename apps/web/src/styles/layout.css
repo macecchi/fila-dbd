@@ -214,9 +214,8 @@ a.brand {
   position: sticky;
   top: 1rem;
   z-index: 10;
+  /* Opaque, so no backdrop-filter (see .panel-surface in base.css). */
   background: var(--bg-elevated);
-  backdrop-filter: blur(20px) saturate(160%);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
   border-top-left-radius: var(--radius-lg);
   border-top-right-radius: var(--radius-lg);
   box-shadow:
@@ -237,7 +236,7 @@ a.brand {
    actually scrolls — at rest the natural body bg shows through. */
 @property --queue-mask-alpha {
   syntax: "<number>";
-  inherits: true;
+  inherits: false;
   initial-value: 0;
 }
 
@@ -248,11 +247,12 @@ a.brand {
 
 @supports (animation-timeline: scroll()) {
   @media (min-width: 481px) {
-    .app {
+    /* Animated on the header itself, the only consumer, with a non-inherited
+       property. Driven from `.app` with `inherits: true`, every scroll frame
+       re-resolved style for the whole app subtree. */
+    .grid > .panel-surface > .panel-header {
       animation: queue-sticky-mask-engage linear;
       animation-timeline: scroll(root block);
-    }
-    .grid > .panel-surface > .panel-header {
       box-shadow:
         0 -1rem 0 rgb(0 0 0 / var(--queue-mask-alpha)),
         inset 0 1px 0 rgba(255, 255, 255, 0.06),

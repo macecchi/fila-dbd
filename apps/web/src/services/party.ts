@@ -1,14 +1,22 @@
 import PartySocket from 'partysocket';
 import type { Request, PartyMessage, SerializedRequest, SourcesSettings } from '../types';
 import { serializeRequest, PROTOCOL_VERSION } from '../types';
+import { realtimeTelemetry, describeSocketUrl } from './realtimeTelemetry';
 
 const PARTY_HOST = import.meta.env.VITE_PARTY_HOST || 'localhost:1999';
 
 let socket: PartySocket | null = null;
 
+/**
+ * `getToken` runs before every connection attempt, reconnects included. The server
+ * authenticates a socket once, at connect, and access tokens live an hour — a token
+ * baked into the URL once would have the socket's auto-reconnect come back anonymous
+ * after that, and the server then refuses every edit without the streamer knowing.
+ * A rejection from `getToken` fails just that attempt, and the socket retries it.
+ */
 export function connectParty(
   channel: string,
-  accessToken: string | null,
+  getToken: () => Promise<string | null>,
   onMessage: (msg: PartyMessage) => void,
   onOpen?: () => void,
   onClose?: () => void,
@@ -21,12 +29,21 @@ export function connectParty(
   socket = new PartySocket({
     host: PARTY_HOST,
     room: channel.toLowerCase(),
-    query: { ...(accessToken ? { token: accessToken } : {}), v: String(PROTOCOL_VERSION) },
+    query: async () => {
+      const token = await getToken();
+      return { ...(token ? { token } : {}), v: String(PROTOCOL_VERSION) };
+    },
   });
 
+  // Every listener checks it's still the live socket: a replaced or closed one can still
+  // fire (partysocket resolves `query` after its reconnect wait even once closed, and a
+  // failed lookup then emits close + error), and must not write over the new socket's state.
+  const current = socket;
   socket.addEventListener('message', (event) => {
+    if (current !== socket) return;
     try {
       const msg = JSON.parse(event.data) as PartyMessage;
+      observe(() => realtimeTelemetry.onMessage(msg));
       onMessage(msg);
     } catch {
       // ignore invalid messages
@@ -34,14 +51,23 @@ export function connectParty(
   });
 
   socket.addEventListener('open', () => {
+    if (current !== socket) return;
+    // Only whether a token was presented and its remaining TTL — never the URL.
+    observe(() => realtimeTelemetry.onOpen(describeSocketUrl(current.url)));
     onOpen?.();
   });
 
-  socket.addEventListener('close', () => {
+  socket.addEventListener('close', (event) => {
+    // A socket we closed on purpose (disconnectParty, a channel switch) isn't an outage.
+    if (current !== socket) return;
+    // partysocket re-emits closes it starts itself (reconnect()) as its own CloseEvent,
+    // whose `code` can arrive as the event type string rather than a number.
+    observe(() => realtimeTelemetry.onClose({ code: typeof event.code === 'number' ? event.code : undefined, wasClean: event.wasClean }));
     onClose?.();
   });
 
   socket.addEventListener('error', () => {
+    if (current !== socket) return;
     onError?.();
   });
 }
@@ -53,12 +79,19 @@ export function disconnectParty(): void {
   }
 }
 
+/** Drops the current socket and connects again, fetching a fresh token for it. */
+export function reconnectParty(): void {
+  socket?.reconnect();
+}
+
 export function isPartyConnected(): boolean {
   return socket?.readyState === WebSocket.OPEN;
 }
 
 function send(msg: PartyMessage): void {
-  if (socket?.readyState === WebSocket.OPEN) {
+  const open = socket?.readyState === WebSocket.OPEN;
+  observe(() => realtimeTelemetry.onSend(msg, open));
+  if (socket && open) {
     socket.send(JSON.stringify(msg));
   }
 }
@@ -109,4 +142,13 @@ export function claimOwnership(): void {
 
 export function releaseOwnership(): void {
   send({ type: 'release-ownership' });
+}
+
+// Telemetry must never break the socket path it watches.
+function observe(fn: () => void): void {
+  try {
+    fn();
+  } catch (e) {
+    console.warn('[telemetry]', e);
+  }
 }

@@ -21,7 +21,11 @@ export default defineConfig({
       srcDir: 'src',
       filename: 'sw.ts',
       injectManifest: {
-        globPatterns: ['**/*.{js,css,html,ico,png,webp,woff2}']
+        globPatterns: ['**/*.{js,css,html,ico,png,webp,woff2}'],
+        // The PostHog SDK (~100 kB gz) is loaded lazily and is best-effort: precaching it
+        // would make every visitor download it on each SW install for no offline benefit.
+        // A tab on an old version whose chunk is gone after a deploy just loses analytics.
+        globIgnores: ['**/posthog-*.js'],
       }
     })
   ],
@@ -45,6 +49,8 @@ export default defineConfig({
           if (id.includes('node_modules/zustand')) return 'zustand';
           if (id.includes('node_modules/partysocket')) return 'partysocket';
           if (id.includes('node_modules/sonner')) return 'sonner';
+          // Lazy: services/analytics.ts imports it after first paint, when idle.
+          if (id.includes('node_modules/posthog-js') || id.includes('node_modules/@posthog/')) return 'posthog';
           return 'vendor';
         }
       }

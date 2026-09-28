@@ -36,12 +36,56 @@ function decodeJwtPayload(token: string): JwtPayload {
   return JSON.parse(atob(payload));
 }
 
-function isTokenExpired(token: string): boolean {
+// Access tokens are refreshed this long before they expire: the server checks `exp`
+// against its own clock, a moment later, so a token only valid by this machine's
+// clock would open an unauthenticated socket.
+const ACCESS_TOKEN_EXPIRY_MARGIN_MS = 5 * 60 * 1000;
+
+function isTokenExpired(token: string, marginMs = 0): boolean {
   try {
     const { exp } = decodeJwtPayload(token);
-    return Date.now() >= exp * 1000;
+    return Date.now() + marginMs >= exp * 1000;
   } catch {
     return true;
+  }
+}
+
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function refreshOnce(
+  get: () => AuthState,
+  set: (partial: Partial<AuthState>) => void,
+): Promise<boolean> {
+  const { refreshToken } = get();
+  if (!refreshToken) return false;
+
+  if (isTokenExpired(refreshToken)) {
+    get().logout();
+    return false;
+  }
+
+  try {
+    const res = await fetch(`${API_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+
+    if (!res.ok) {
+      // Only the server saying the refresh token is bad ends the session. A 5xx is the
+      // Worker having a bad moment — refresh runs on every reconnect, so logging out on
+      // it would sign every live streamer out at once.
+      if (res.status === 400 || res.status === 401) get().logout();
+      return false;
+    }
+
+    const data = await res.json();
+    // Signed out (or in as someone else) while this was in flight: don't resurrect it.
+    if (get().refreshToken !== refreshToken) return false;
+    set({ accessToken: data.access_token });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -130,33 +174,13 @@ export const useAuth = create<AuthState>()(
         }
       },
 
-      refresh: async () => {
-        const { refreshToken } = get();
-        if (!refreshToken) return false;
-
-        if (isTokenExpired(refreshToken)) {
-          get().logout();
-          return false;
+      refresh: () => {
+        // Single flight: the socket's reconnect, the self-heal and API calls can all ask at
+        // once, and parallel refreshes could interleave a logout with a late success.
+        if (!refreshInFlight) {
+          refreshInFlight = refreshOnce(get, set).finally(() => { refreshInFlight = null; });
         }
-
-        try {
-          const res = await fetch(`${API_URL}/auth/refresh`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ refresh_token: refreshToken }),
-          });
-
-          if (!res.ok) {
-            get().logout();
-            return false;
-          }
-
-          const data = await res.json();
-          set({ accessToken: data.access_token });
-          return true;
-        } catch {
-          return false;
-        }
+        return refreshInFlight;
       },
 
       getAccessToken: async () => {
@@ -164,7 +188,7 @@ export const useAuth = create<AuthState>()(
 
         if (!accessToken) return null;
 
-        if (isTokenExpired(accessToken)) {
+        if (isTokenExpired(accessToken, ACCESS_TOKEN_EXPIRY_MARGIN_MS)) {
           const refreshed = await refresh();
           if (!refreshed) return null;
           return get().accessToken;

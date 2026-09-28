@@ -14,9 +14,10 @@ interface Props {
 }
 
 /**
- * Shell for every modal. Portals to <body> — `.panel-surface` uses
- * backdrop-filter, which would otherwise become the containing block for the
- * overlay's position: fixed — and stays mounted through the exit transition.
+ * Shell for every modal. Portals to <body> — so no ancestor that establishes a
+ * containing block for position: fixed (a filter, transform, backdrop-filter or
+ * paint containment on a panel) can capture the overlay — and stays mounted
+ * through the exit transition.
  */
 export function Dialog({ isOpen, onClose, className = '', children }: Props) {
   const [mounted, setMounted] = useState(isOpen);

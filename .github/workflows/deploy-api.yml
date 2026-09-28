@@ -72,6 +72,22 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
+      # `partykit deploy` never sends partykit.json vars (only --with-vars does, and that
+      # would also push the file's local-dev API_URL/INTERNAL_API_SECRET). Stored with
+      # `env add`, the same mechanism as the secrets, so nothing else is touched. The key
+      # is PostHog's public, write-only project token (it also ships in the web bundle).
+      # Telemetry only: never let it block a deploy.
+      - name: Set PartyKit PostHog vars
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          printf '%s' 'phc_CCs7f8DwgPzVqFderx2rUX3XNS54raDHYhz8z8sxDTRW' | bunx partykit env add POSTHOG_KEY
+          printf '%s' 'https://us.i.posthog.com' | bunx partykit env add POSTHOG_HOST
+        working-directory: apps/api
+        env:
+          PARTYKIT_LOGIN: ${{ secrets.PARTYKIT_LOGIN }}
+          PARTYKIT_TOKEN: ${{ secrets.PARTYKIT_TOKEN }}
+
       - name: Deploy PartyKit
         run: bunx partykit deploy
         working-directory: apps/api

@@ -110,6 +110,20 @@ cd apps/api && bunx wrangler secret put <NAME> --env production
 - `INTERNAL_API_SECRET` - same value as Cloudflare
 - `API_URL` - Production Worker URL (e.g. `https://dbd-tracker.<account>.workers.dev`)
 
+**PartyKit → PostHog (PartyKit env vars, set by the deploy workflow):**
+
+- `POSTHOG_KEY` - PostHog project token (`phc_…`). Ships every `console.*` line of `party.ts` to
+  PostHog Logs (service `dbd-tracker-party`, attribute `room.id`) and the `fila_party_*` events.
+  It's the public ingestion token — the same one the web bundle carries. ⚠️ `partykit deploy`
+  does **not** send `partykit.json` `vars` (only `--with-vars` does, and that would also push the
+  file's local-dev `API_URL`/`INTERNAL_API_SECRET`), so `.github/workflows/deploy-api.yml` stores
+  it with `bunx partykit env add` before each deploy — the same mechanism as the secrets above.
+  It isn't in `partykit.json`, so a local `partykit dev` never reports into the production project.
+  Remove the env var and PartyKit logs only to the console again (`partykit tail`).
+- `POSTHOG_HOST` - ingestion host, default `https://us.i.posthog.com`.
+
+Both are ignored under `DEV_MODE` (`partykit dev`), so local rooms never reach the project.
+
 **Chat confirmation bot (`@filadbd`):**
 
 Optional. Required for the "Confirm requests in chat" toggle to deliver messages.
@@ -224,6 +238,16 @@ subscription stores that language, the Worker sends it back with the push, and t
 worker renders the strings from `apps/web/src/i18n/pushCopy.ts` (the SW can't read the
 app's language toggle itself). Switching the language re-registers the subscription, so
 the next push follows.
+
+### Observability
+
+Front-end errors, pageviews and the health of the streamer's realtime session go to PostHog
+(project token in `apps/web/.env.production` and the deploy workflow's PartyKit env step, both public
+ingestion tokens). Both servers' logs go to PostHog Logs: the API Worker's as service
+`dbd-tracker-production` (`apps/api/wrangler.toml`), PartyKit's as `dbd-tracker-party`, each
+line tagged with `room.id` — `partykit tail` still shows the same output. Local dev never
+reports. See the "Observability" section of `CLAUDE.md` for the event catalogue and
+the privacy rules (tokens are scrubbed before anything is sent).
 
 ### LLM extraction evals
 

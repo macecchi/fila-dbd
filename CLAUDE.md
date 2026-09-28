@@ -16,9 +16,18 @@ Before and after each feature or refactoring, evaluate how changes impact existi
 
 The web app is tuned for fast initial load. When modifying it, preserve these invariants and apply the same patterns to new code:
 
-- **Bundle** (`vite.config.ts` `manualChunks`): each major dep gets its own chunk (react, react-dom, zustand, partysocket, sonner), build target `esnext`. Anything on the path of a normal visit is eager in the main entry — the channel view (`ChannelApp` + its components), `LandingPage`, and `ManualEntry`: lazy-loading something that always renders just adds a round trip mid-paint, which is what we're trying to avoid. A few kB of eager JS is cheaper than that. Lazy is for what most sessions never open: the debug panel (`#debug`), the review/import/VOD dialogs, and `services/vod` (imported by the recovery effect on owner channel visits, after PartyKit sync — off the paint path, and viewers never fetch it). New major dep → add a `manualChunks` entry.
+- **Bundle** (`vite.config.ts` `manualChunks`): each major dep gets its own chunk (react, react-dom, zustand, partysocket, sonner, posthog), build target `esnext`. Anything on the path of a normal visit is eager in the main entry — the channel view (`ChannelApp` + its components), `LandingPage`, and `ManualEntry`: lazy-loading something that always renders just adds a round trip mid-paint, which is what we're trying to avoid. A few kB of eager JS is cheaper than that. Lazy is for what most sessions never open: the debug panel (`#debug`), the review/import/VOD dialogs, the PostHog SDK (~100 kB gz; `services/analytics.ts` imports it after `load`, on `requestIdleCallback`, and queues events until then — never import `posthog-js` statically), and `services/vod` (imported by the recovery effect on owner channel visits, after PartyKit sync — off the paint path, and viewers never fetch it). New major dep → add a `manualChunks` entry.
 - **Fonts**: self-hosted woff2, preloaded in `index.html`. Do NOT reintroduce Google Fonts (render-blocking).
 - **Critical CSS**: inlined in `index.html` `<head>` to paint the dark shell pre-bundle; keep in sync with the bg/text tokens in `base.css` to avoid reflow.
+- **Compositing (render cost)**: streamers run the site next to a game + OBS on a busy GPU, so the channel page must stay cheap to paint and composite. Measured with Chrome traces under 4× CPU throttle + software compositing, these were the costs, so keep them out:
+  - **No `backdrop-filter` on opaque surfaces.** `--bg-elevated` is opaque, so a blur behind `.panel-surface` / the sticky queue header can never show, yet the compositor re-blurred the whole panel every frame (scroll viz time ~34s → ~4s without it). `.panel-surface` uses `isolation: isolate` to keep the stacking context the blur used to create. Toasts are a near-opaque fill for the same reason.
+  - **No `background-attachment: fixed`.** The page backdrop is a fixed `body::before` layer (rastered once, moved by the compositor). `body` itself stays transparent so it doesn't paint over it; `html` carries `--bg`.
+  - **`.scroll-mask` (body `mask-image`) is mobile-only** (≤480px, where `body` scrolls). On desktop it was a visual no-op that pushed the whole page through a masked surface.
+  - **Looping animations are transform/opacity only**, so the compositor runs them without main-thread paint: the identifying-name shimmer (`.t-shimmer`: a highlighted text copy in a masked window, counter-translated — `SwapText` renders it), `SyncSweep`, the "connecting" avatar pulse, the "Open queue" `.btn-pulse` glow. Never animate `background-position`, `box-shadow`, `background-color` or `mask-*` in a loop: each frame repaints the whole document (~20ms/frame throttled for three shimmering names before).
+  - **No hover transitions on queue cards** (`.request-card` background, `.request-actions` opacity): a card the pointer crosses — including while scrolling under a resting pointer — repainted the page for 150ms and churned layers. Hover states switch instantly.
+  - **Scroll-driven custom properties** (`animation-timeline: scroll()`) are animated on the one element that reads them, registered `inherits: false` — on `.app` with `inherits: true` every scroll frame restyled the whole app.
+  - Identity values at rest (`transform: none`, `filter: none`, not `translateY(0)` / `blur(0)`) — they still create per-element property-tree nodes.
+  - **Context values read by memoized list items must be stable.** `ContextMenuProvider` splits a stable actions context (`useContextMenuActions`, what cards use) from the menu state; one `{ state, show, hide }` object re-rendered all cards through `memo` on every queue change. Pass primitives, not per-render objects, as card props.
 - **Instant paint**: the queue hydrates from the `fila-dbd-queue` localStorage cache and mutations (add/toggleDone/reorder) are optimistic. New persisted client state → version the key + defensive reads (`store/queueCache.ts`).
 - **Scroll**: the app owns its scroll position. `index.html` sets `history.scrollRestoration='manual'` (so reload/back-forward don't re-apply the prior offset into the cache-hydrated, full-height queue), and the page resets to the top on initial load/reload + every channel change (`App` `useLayoutEffect` on `channel`) and on push navigation (`navigate()`). Use `scrollToTop()` (`utils/helpers`), which resets **both** the window **and** `document.body.scrollTop` — ⚠️ on mobile (≤480px) `body` is the scroll container (`html` is `overflow:hidden`, `body` is `overflow:auto`/`height:100dvh`), so `window.scrollTo` alone is a no-op there. A URL hash (`#faq`/`#debug`) skips the reset so anchors still position.
 - ⚠️ **PWA service worker**: custom SW at `src/sw.ts` (VitePWA `injectManifest` — it also handles Web Push for the "you're live" notification). It must keep precaching, the `index.html` navigation fallback, and the `SKIP_WAITING` message handler — the update flow below depends on them. `index.html` + all assets are precached (`registerType: 'prompt'`), so returning users get shell/asset changes only **after the SW updates** (the "new version" toast → reload). The toast self-surfaces without a reload: `main.tsx` calls `registration.update()` on `visibilitychange`/`online` + a 30-min backstop, so an open tab detects a new deploy on refocus/reconnect. A waiting SW still needs activation (skipWaiting + reload) — a plain reload won't swap it while the tab stays open: the user clicks "Update now", or the toast auto-updates after a 60s countdown that runs unconditionally (the Update button itself is the countdown bar; dismissing the toast cancels it — `components/UpdateToast.tsx`). Include this in the Release Impact Check.
@@ -66,6 +75,62 @@ bun run deploy:party # Deploy PartyKit
 account-level `posthog` OTLP destination (`[observability.logs] destinations` in
 `apps/api/wrangler.toml`). Keep observability settings in that file — every deploy overwrites
 whatever was set in the Cloudflare dashboard.
+
+PartyKit has no log export, so `party.ts` logs **only** through `this.logger` (`RoomLogger`,
+`apps/api/src/logs.ts`), never `console.*` directly: it prints the same arguments to the console
+(`partykit tail` unchanged) and ships each line over OTLP/HTTP to PostHog Logs as service
+`dbd-tracker-party`, with the room id in the `room.id` attribute and the console method in
+`name` (like the Worker's export). Buffered and flushed fire-and-forget every 2s / 200 lines and
+when a room's last connection closes; bodies are scrubbed of JWTs, `token=`/`code=` params and
+Bearer values as a backstop — still never log a token. Keyed by the `POSTHOG_KEY` PartyKit env
+var, which the deploy workflow sets with `partykit env add` — ⚠️ `partykit deploy` never ships
+`partykit.json` `vars`, and `--with-vars` would also push its local-dev secrets. Off under
+`DEV_MODE`. Export failures go to the console only, and one export per room is in flight at a
+time (5s timeout) so a slow PostHog can't hold the room's D1/chat fetch slots. Client-supplied
+values (e.g. an unknown message `type`) never name a throttle key or reach a log line verbatim:
+`messageTypeLabel()` maps them to a fixed set.
+
+## Observability (PostHog)
+
+Everything lands in PostHog project 618081 (US), which is **shared with other apps** — filter
+on `app = 'fila-dbd'` (every event carries it). Event names are prefixed `fila_`.
+
+- **Web** (`services/analytics.ts`): `posthog-js`, lazy (see Performance), keyed by
+  `VITE_POSTHOG_KEY` from `apps/web/.env.production` (the public ingestion token; a Pages env
+  var overrides it). Silent in `vite dev`, in tests, and on `localhost` even in a production
+  build unless `VITE_POSTHOG_ALLOW_LOCAL=true`. Pageviews + exception autocapture only;
+  autocapture, replay, heatmaps, surveys and flags are off **in code**, not left to the shared
+  project's remote config. Viewers are anonymous (`person_profiles: 'identified_only'`); a
+  signed-in streamer is identified by Twitch login (`main.tsx`).
+- ⚠️ **Tokens never leave the browser.** The party socket URL carries `?token=<JWT>`, the OAuth
+  callback carries `?code=&state=`, `dbd-auth` holds both tokens. `before_send` runs every
+  event through `scrubProperties()` (JWT-shaped strings, token/code/state URL params,
+  `accessToken`-style keys). Don't redact the bare `token` key — that's the SDK's project token,
+  and ingestion routes on it. New event properties: report *facts about* a token
+  (`token_present`, `token_ttl_s`), never the token or a URL containing it.
+- **Realtime health** (`services/realtimeTelemetry.ts`, fed from `services/party.ts`): only the
+  streamer's own channel reports. Every edit we send is tracked to its echo —
+  `fila_mutation_acked` / `_rejected` (with the server-error `code`) / `_unacked` (no echo in
+  15s, or the socket closed under it) / `_dropped` (sent while the socket was down). Plus
+  `fila_party_connected` (reconnect, downtime, `token_present`, `token_ttl_s`, `token_expired`),
+  `fila_party_disconnected`, `fila_claim_denied`, `fila_owner_recovered`, `fila_server_error`,
+  and `fila_sync_diverged`: a `sync-full` that undoes what this window showed (`initial: true`
+  = the queue cache, i.e. what the streamer saw before F5). Echo matching relies on the server
+  echoing edits to their sender and on `reorder` carrying its `opId` — keep both.
+- **PartyKit** (`apps/api/src/telemetry.ts`): PartyKit has no log export, so `party.ts` posts
+  events straight to PostHog's `/batch/` endpoint — buffered, fire-and-forget, never awaited by
+  storage or broadcast, throttled per room+key (one event per 60s plus a folded `count`).
+  `fila_party_auth_failed` (JWT rejected at connect: `reason` expired/invalid/malformed,
+  `claimed_login`, `is_room_login`), `fila_party_owner_connected`, `fila_party_claim_denied`,
+  `fila_party_mutation_rejected` (`code`, `message_type`, `sender_authenticated`,
+  `room_has_lock_holder`), `fila_party_persist_failed`, `fila_party_d1_sync_failed` /
+  `_recovered`. Same `POSTHOG_KEY` env var as the logs; off under `DEV_MODE` (i.e. `partykit dev`).
+  `distinct_id` is the room (= streamer login), with `$process_person_profile: false`.
+- Test locally without touching the real project: build with `VITE_POSTHOG_HOST` pointing at
+  a local sink + `VITE_POSTHOG_ALLOW_LOCAL=true`, run `partykit dev --var POSTHOG_KEY=phc_test
+  --var POSTHOG_HOST=<sink>` (without `DEV_MODE`; the key is deliberately not in `partykit.json`).
+  posthog-js drops headless browsers as bots: mask `navigator.webdriver` **and**
+  `navigator.userAgentData`, and set a non-headless user agent, in the test browser.
 
 ## Testing owner paths locally
 
@@ -156,15 +221,36 @@ internal bookkeeping and must never surface as a mode the streamer has to notice
   additive, optional field on `ChannelState`); sessions skip the auto-reclaim while it's set,
   so nothing reopens a queue the streamer just closed. A socket that merely died leaves it
   unset, which is what makes the recovery above safe. A claim clears it.
+- **Every grant re-reports chat.** The server resets the room to `online` on each claim and
+  only an `irc-status` from the lock holder makes it `live`. A re-grant after a party reconnect
+  finds IRC still joined, so no transition fires on its own — the grant effect sends
+  `irc-status: true` itself. Without it the channel read "Conectando..." / "Fila fechada" to
+  everyone for the rest of the stream while requests kept arriving.
 - **Single-writer work follows `hasLock`**, not the UI capability: LLM identification and the
   VOD recovery scan, so a second tab never duplicates requests or burns a second round of
   tokens.
-- **Authority `server-error` codes are not failures.** `not_room_owner` / `not_lock_holder`
-  mean another session holds the lock or ours went stale; log and nudge a re-claim, never
-  raise an error toast. Only `persist_failed` / `d1_sync_failed` are real server failures
-  (toast id `server-error`, `duration: Infinity`); `pending_cap` and `chat_send_not_mod` are
-  finite warnings under their own ids. Connection toasts own `party-status` / `irc-status` —
-  don't reuse those ids for anything else.
+- ⚠️ **Every (re)connect presents a current token.** Access tokens live an hour and the party
+  server authenticates a socket only at connect, so `connectParty` takes a token *getter* that
+  partysocket runs before each attempt (`query` as an async function), and `getAccessToken`
+  refreshes 5 min before `exp`. A token baked into the URL once is how a reconnect an hour into
+  a stream came back anonymous: every ✓ was refused while the optimistic UI showed it landed,
+  and a reload brought the whole queue back. The owner's session never connects anonymously —
+  no token fails the attempt and the socket retries it.
+- **Authority `server-error` codes are not failures, and never an error toast.**
+  `not_lock_holder` means another session holds the lock or ours went stale: log and nudge a
+  re-claim. `not_room_owner` (and `ownership-denied` with `not-room-owner`) on the streamer's
+  own channel means this socket isn't authenticated as them — force a token refresh and
+  reconnect (`reauthenticate`, throttled by `REAUTH_COOLDOWN`). If that keeps failing
+  (the socket a heal reconnected is refused again, `REAUTH_WARN_AFTER` rounds in
+  `REAUTH_WARN_WINDOW`, or an owner session that repeatedly can't get a token), an
+  `auth-status` warning says edits may not be saved. It stays up (`duration: Infinity`) until a
+  grant takes it down — the one state the streamer has to act on (reload / sign in again). Only
+  `persist_failed` / `d1_sync_failed` are real server failures (toast id `server-error`,
+  `duration: Infinity`); `pending_cap` and `chat_send_not_mod` are finite warnings under their
+  own ids. Connection toasts own `party-status` / `irc-status` — don't reuse those ids for
+  anything else.
+- **`/auth/refresh` is single-flight and only a 400/401 signs out.** It runs on every reconnect
+  near expiry, so treating a Worker 5xx as "logged out" would sign every live streamer out at once.
 - **Reconnects are quiet for the first 5s** (`RECONNECT_GRACE`): both sockets recover on their
   own within a second or two, so a warning is scheduled, not shown, and the "reconnected"
   toast only follows a warning that was actually displayed.
@@ -234,6 +320,9 @@ the low bits of the hash away. Ordering comes from `position`, never from the ID
   "Live notifications" toggle (Settings → Behavior); blocks the Web Push auto-subscribe in
   `services/push.ts` on that browser (turning it off also unsubscribes locally + server-side).
   Absent = enabled.
+- `ph_<project token>_posthog` - posthog-js's own persistence (anonymous id, or the streamer's
+  Twitch login once identified), written only after the SDK loads in a production build.
+  Not app state: nothing reads it, and clearing it only resets analytics identity.
 - `fila-dbd-channels-v{N}` - landing-page featured-channels cache (stale-while-revalidate):
   the active list, the recently-active list (7-day window, closed queues) and the all-time
   channel count from `/rooms/active`. The landing merges them into one "featured" grid —
