@@ -194,6 +194,7 @@ queue cache before reloading: `Object.keys(localStorage).filter(k => k.startsWit
 - `callLLM()` - Gemini API with model fallback/retry
 - `identifyCharacter()` - Local match first, then LLM fallback
 - `loadAndReplayVOD()` - VOD chat replay via GQL
+- `useRequestToasts()` - One toast for everything that arrives (requests + skipped `type: 'none'` messages), updated in place instead of one toast per arrival: a single arrival keeps its classic look (skipped → Undo), more become a summary ("3 novos pedidos", newest lines, a "Mensagens sem personagem de Ana e Beto" line, Revisar → review dialog). Timing lives in `createToastDigest` (`utils/toastDigest.ts`): never times out while the streamer is off the tab — visible **and** focused, since sonner only pauses on `document.hidden` and a tab visible on a second monitor behind the game timed out unseen — and leaves `READ_DELAY_MS` after they're back. Each batch gets its own id (`new-requests-<n>`): with one fixed id, an arrival during the old toast's exit animation merged into it and was lost
 
 ## Sessions & ownership
 
@@ -276,7 +277,7 @@ the low bits of the hash away. Ordering comes from `position`, never from the ID
   reload. They are excluded from `order` and from the pending cap, and every list that
   renders the queue filters `!r.done` — so don't "fix" a done request showing up in the
   room state, and DO add that filter to anything new that consumes the requests store
-  (`useRequestToasts` in `App.tsx` needs it). Raising the constant grows DO storage and
+  (`hooks/useRequestToasts.tsx` needs it). Raising the constant grows DO storage and
   the full-sync statement (see the 100-param D1 limit).
 - ⚠️ **D1 cannot tell a completed request from a deleted one, and the recovery
   endpoint must stay pending-only because of it.** `deleted_at` exists in the schema

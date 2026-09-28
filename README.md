@@ -29,7 +29,7 @@ Use our [Discord](https://discord.gg/hXsAgk5KnX) or GitHub to send feedback, sug
 
 You need to keep the site open to receive requests.
 
-**Notifications**: we only show a small notice on the page when a new request is received. Enable browser notifications to get alerts when there's an issue — and to get a push when your stream goes live reminding you to open your queue (works even with the site closed).
+**Notifications**: we only show a small notice on the page when new requests arrive — a single notice that keeps count while you're away (in a match, say) and clears a few seconds after you're back on the tab. Enable browser notifications to get alerts when there's an issue — and to get a push when your stream goes live reminding you to open your queue (works even with the site closed).
 
 #### Request sources
 
@@ -298,7 +298,7 @@ Use o nosso [Discord](https://discord.gg/hXsAgk5KnX) ou o próprio GitHub para m
 
 É preciso estar com o site aberto para receber pedidos.
 
-**Notificações**: só mostramos um pequeno aviso na página quando um novo pedido é recebido. Ative as notificações do navegador para receber alertas quando houver algum problema — e para receber um aviso quando sua live começar lembrando de abrir sua fila (funciona mesmo com o site fechado).
+**Notificações**: só mostramos um pequeno aviso na página quando chegam novos pedidos — um único aviso que vai somando enquanto você está fora (numa partida, por exemplo) e some alguns segundos depois que você volta para a aba. Ative as notificações do navegador para receber alertas quando houver algum problema — e para receber um aviso quando sua live começar lembrando de abrir sua fila (funciona mesmo com o site fechado).
 
 #### Fontes de pedidos
 

@@ -409,6 +409,25 @@ a:hover {
     0 0 0 4px rgba(139, 92, 246, 0.55);
 }
 
+/* Request summary toast ("3 novos pedidos") — the newest arrivals one per line,
+   then muted "+N mais" / skipped-count lines. Lines clip instead of wrapping so
+   a long message can't grow the toast. */
+.toast-digest {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+}
+
+.toast-digest li {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.toast-digest-muted {
+  color: var(--text-secondary);
+}
+
 /* New-version toast — the Update button doubles as the auto-update countdown:
    a thin bar along its bottom edge depletes over the delay, then the app
    reloads itself. */
