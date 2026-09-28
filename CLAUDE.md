@@ -221,7 +221,9 @@ internal bookkeeping and must never surface as a mode the streamer has to notice
   same rule, and what can't be known yet is held (hidden, space kept) rather than guessed
   and swapped: the header's name, badge and subtitle, the avatar's fallback letter, and
   the panel's `SourcesBadges`. On the streamer's own channel the name and avatar come from
-  the sign-in (`dbd-auth`), so they don't wait.
+  the sign-in (`dbd-auth`), so they don't wait. Queue cards play their enter animation only
+  for what arrives after the first sync (`CharacterRequestList`), never for the queue the
+  page loads with.
 - **The lock transfers, it never refuses** (`party.ts` `claim-ownership`): a claim from
   another window of the same streamer hands the lock over and sends the old holder
   `ownership-denied` (which clears its lock and drops its IRC). So Open/Close the queue works
