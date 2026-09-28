@@ -138,9 +138,11 @@ export function useRequestToasts(
   hideNonRequests: boolean,
   readOnly: boolean,
   openReview: () => void,
+  /** The first `sync-full` has landed (`partySynced`). */
+  synced: boolean,
 ) {
   const shownToasts = useRef(new Set<number>());
-  const isFirstLoad = useRef(true);
+  const baselined = useRef(false);
   const digest = useRef<ToastDigest<Arrival> | null>(null);
   // Toast actions run long after the render that created them.
   const latest = useRef({ update, openReview });
@@ -163,13 +165,23 @@ export function useRequestToasts(
   }, []);
 
   useEffect(() => {
-    // `!r.done` matters: the room keeps the newest done requests in sync-full, and a
-    // stale localStorage cache can flip `isFirstLoad` before that arrives — without
-    // this guard those land as "new request" toasts for something already finished.
+    // What's in the queue when the first sync lands was there before this page was:
+    // only what arrives after it is news. The server applies `sync-full` to the
+    // requests store before it flags the room synced, so this sees the full queue.
+    // (Keying this off the first non-empty batch instead swallowed the first request
+    // into an empty queue, and the summary came out one short.)
+    if (!baselined.current) {
+      if (!synced) return;
+      for (const r of requests) shownToasts.current.add(r.id);
+      baselined.current = true;
+      return;
+    }
+    // `!r.done`: a later sync-full (after a reconnect) can bring in requests another
+    // window already finished while this one was away — those aren't news.
     const ready = requests.filter(r => !shownToasts.current.has(r.id) && !r.needsIdentification && !r.done);
     for (const req of ready) {
       shownToasts.current.add(req.id);
-      if (isFirstLoad.current || readOnly) continue;
+      if (readOnly) continue;
       if (hideNonRequests && req.type === 'none') {
         digest.current?.add({ request: req, ignored: true });
         continue;
@@ -178,6 +190,5 @@ export function useRequestToasts(
       const index = activeRequests.findIndex(r => r.id === req.id);
       digest.current?.add({ request: req, ignored: false, position: index !== -1 ? index + 1 : undefined });
     }
-    if (ready.length > 0) isFirstLoad.current = false;
-  }, [requests, hideNonRequests, readOnly]);
+  }, [requests, hideNonRequests, readOnly, synced]);
 }

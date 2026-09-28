@@ -58,26 +58,34 @@ function advance(ms: number) {
   });
 }
 
-// Mounts the hook on an already-loaded queue (first-load toasts are suppressed), then
-// lets tests append arrivals the way the requests store does.
-function setup(opts: { hideNonRequests?: boolean; readOnly?: boolean; initial?: Request[] } = {}) {
+// Mounts the hook on an already-synced queue (what's there at the first sync is not
+// news), then lets tests append arrivals the way the requests store does.
+function setup(opts: { hideNonRequests?: boolean; readOnly?: boolean; initial?: Request[]; synced?: boolean } = {}) {
   const update = vi.fn();
   const openReview = vi.fn();
   let requests = opts.initial ?? [req()];
   const hideNonRequests = opts.hideNonRequests ?? true;
   const readOnly = opts.readOnly ?? false;
+  let synced = opts.synced ?? true;
   const hook = renderHook(
-    ({ requests }: { requests: Request[] }) => useRequestToasts(requests, update, hideNonRequests, readOnly, openReview),
-    { initialProps: { requests } },
+    ({ requests, synced }: { requests: Request[]; synced: boolean }) => useRequestToasts(requests, update, hideNonRequests, readOnly, openReview, synced),
+    { initialProps: { requests, synced } },
   );
   const setRequests = (next: Request[]) => {
     requests = next;
-    hook.rerender({ requests });
+    hook.rerender({ requests, synced });
+  };
+  // A sync-full: the requests store is replaced first, then the room is flagged synced.
+  const sync = (next: Request[]) => {
+    requests = next;
+    synced = true;
+    hook.rerender({ requests, synced });
   };
   return {
     update,
     openReview,
     setRequests,
+    sync,
     arrive: (...reqs: Request[]) => setRequests([...requests, ...reqs]),
     get requests() { return requests; },
     unmount: hook.unmount,
@@ -278,6 +286,25 @@ describe('useRequestToasts', () => {
     it('stays quiet for the queue that is already there on first load', () => {
       setup({ initial: [req(), req(), skipped()] });
       expect(toastMock).not.toHaveBeenCalled();
+    });
+
+    it('stays quiet until the first sync, and takes the synced queue as the baseline', () => {
+      const cached = [req(), req()];
+      const q = setup({ initial: cached, synced: false });
+      q.setRequests([...cached, req()]); // the cache, still settling before the sync
+      q.sync([...cached, req(), req({ done: true, doneAt: new Date() })]);
+      expect(toastMock).not.toHaveBeenCalled();
+
+      q.arrive(req());
+      expect(toastMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('counts the first request into an empty queue', () => {
+      const q = setup({ initial: [] });
+      q.arrive(req());
+      q.arrive(req());
+      expect(toastMock).toHaveBeenCalledTimes(2);
+      expect(last()[0]).toBe(t('toast.newRequests', { count: 2 }));
     });
 
     it('stays quiet for viewers (read-only)', () => {

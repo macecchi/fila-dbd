@@ -316,7 +316,7 @@ function ChannelApp() {
   const hideNonRequests = useSources((s) => s.hideNonRequests);
 
   useAutoIdentify(requests, update, !hasLock, useSources);
-  useRequestToasts(requests, update, hideNonRequests, readOnly, openReview);
+  useRequestToasts(requests, update, hideNonRequests, readOnly, openReview, partySynced);
   useWhatsNew(canEditQueue);
 
   const pendingCount = requests.filter(d => !d.done && (!hideNonRequests || d.type !== 'none')).length;
