@@ -203,8 +203,19 @@ a.channel-header-live:hover {
   color: var(--text-muted);
 }
 
-/* Not known yet which line this is (share link or "last used"): keep its space, show nothing. */
-.channel-header-sub.is-pending {
+/* The share link and "last used" stack in one cell (see ChannelHeader). */
+.channel-header-sub {
+  display: grid;
+}
+
+.channel-header-sub > * {
+  grid-area: 1 / 1;
+}
+
+/* Not known yet (the name, which subtitle line): keep the space, show nothing. */
+.channel-header-sub.is-pending,
+.channel-header-sub .is-hidden,
+.channel-header-name-link.is-pending {
   visibility: hidden;
 }
 

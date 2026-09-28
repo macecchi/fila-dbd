@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react';
 import { useChannel } from '../store';
 import { t } from '../i18n';
-import { fetchRoomInfo } from '../services/roomInfo';
+import { useRoomInfo } from './useRoomInfo';
 
 /**
  * The one thing anyone — streamer or viewer — actually wants to know: is the queue taking
@@ -17,20 +16,6 @@ export type QueueState = 'open' | 'connecting' | 'closed' | 'unknown';
 /** Open, or on its way up: the states worth showing a loading indicator for. */
 export const queueIsUp = (state: QueueState) => state === 'open' || state === 'connecting';
 
-/** The room's last saved queue status (`/rooms/:id`, the same memoized request the channel gate makes). */
-function useSavedStatus(channel: string, wanted: boolean): string | null {
-  const [saved, setSaved] = useState<{ channel: string; status: string | null } | null>(null);
-  useEffect(() => {
-    if (!wanted) return;
-    let cancelled = false;
-    fetchRoomInfo(channel).then((room) => {
-      if (!cancelled) setSaved({ channel, status: room?.status ?? null });
-    });
-    return () => { cancelled = true; };
-  }, [channel, wanted]);
-  return saved?.channel === channel ? saved.status : null;
-}
-
 export function useQueueStatus(): { state: QueueState; text: string } {
   const { channel, useSources, useChannelInfo } = useChannel();
   const channelStatus = useChannelInfo((s) => s.status);
@@ -38,7 +23,8 @@ export function useQueueStatus(): { state: QueueState; text: string } {
   const hasLock = useChannelInfo((s) => s.hasLock);
   const localIrcConnectionState = useChannelInfo((s) => s.localIrcConnectionState);
   const enabledSources = useSources((s) => s.enabled);
-  const savedStatus = useSavedStatus(channel, !statusKnown);
+  // The room's last saved queue status, from the /rooms/:id request the page makes anyway.
+  const savedStatus = useRoomInfo(channel).room?.status;
 
   // Before the server's first word, only the room's last saved status says anything —
   // our own socket opening doesn't. Counting it as "connecting" made every channel page

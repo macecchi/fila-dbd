@@ -5,7 +5,7 @@ import { CharacterRequestList } from './components/CharacterRequestList';
 import { LandingPage } from './components/LandingPage';
 import { ManualEntry } from './components/ManualEntry';
 import { UnregisteredChannel } from './components/UnregisteredChannel';
-import { fetchRoomInfo, type RoomInfo } from './services/roomInfo';
+import { useRoomInfo } from './hooks/useRoomInfo';
 import { SourcesBadges } from './components/SourcesBadges';
 import { SettingsPanel } from './components/SettingsPanel';
 import { Panel, PanelHeader } from './components/Panel';
@@ -563,14 +563,7 @@ export function App() {
 // path that creates the room, so it must always get the full app.
 function ChannelGate() {
   const { channel, canEditQueue } = useChannel();
-  const [room, setRoom] = useState<RoomInfo | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setRoom(null);
-    fetchRoomInfo(channel).then((r) => { if (!cancelled) setRoom(r); });
-    return () => { cancelled = true; };
-  }, [channel]);
+  const { room } = useRoomInfo(channel);
 
   // `registered === false` only — a failed lookup or an older API without the
   // flag must never block a real channel.
