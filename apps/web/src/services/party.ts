@@ -7,15 +7,6 @@ const PARTY_HOST = import.meta.env.VITE_PARTY_HOST || 'localhost:1999';
 
 let socket: PartySocket | null = null;
 
-// Telemetry must never break the socket path it watches.
-function observe(fn: () => void): void {
-  try {
-    fn();
-  } catch (e) {
-    console.warn('[telemetry]', e);
-  }
-}
-
 export function connectParty(
   channel: string,
   accessToken: string | null,
@@ -127,4 +118,13 @@ export function claimOwnership(): void {
 
 export function releaseOwnership(): void {
   send({ type: 'release-ownership' });
+}
+
+// Telemetry must never break the socket path it watches.
+function observe(fn: () => void): void {
+  try {
+    fn();
+  } catch (e) {
+    console.warn('[telemetry]', e);
+  }
 }
