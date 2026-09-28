@@ -36,10 +36,15 @@ function decodeJwtPayload(token: string): JwtPayload {
   return JSON.parse(atob(payload));
 }
 
-function isTokenExpired(token: string): boolean {
+// Access tokens are refreshed this long before they expire: the server checks `exp`
+// against its own clock, a moment later, so a token only valid by this machine's
+// clock would open an unauthenticated socket.
+const ACCESS_TOKEN_EXPIRY_MARGIN_MS = 5 * 60 * 1000;
+
+function isTokenExpired(token: string, marginMs = 0): boolean {
   try {
     const { exp } = decodeJwtPayload(token);
-    return Date.now() >= exp * 1000;
+    return Date.now() + marginMs >= exp * 1000;
   } catch {
     return true;
   }
@@ -164,7 +169,7 @@ export const useAuth = create<AuthState>()(
 
         if (!accessToken) return null;
 
-        if (isTokenExpired(accessToken)) {
+        if (isTokenExpired(accessToken, ACCESS_TOKEN_EXPIRY_MARGIN_MS)) {
           const refreshed = await refresh();
           if (!refreshed) return null;
           return get().accessToken;

@@ -159,9 +159,18 @@ internal bookkeeping and must never surface as a mode the streamer has to notice
 - **Single-writer work follows `hasLock`**, not the UI capability: LLM identification and the
   VOD recovery scan, so a second tab never duplicates requests or burns a second round of
   tokens.
-- **Authority `server-error` codes are not failures.** `not_room_owner` / `not_lock_holder`
-  mean another session holds the lock or ours went stale; log and nudge a re-claim, never
-  raise an error toast. Only `persist_failed` / `d1_sync_failed` are real server failures
+- ⚠️ **Every (re)connect presents a current token.** Access tokens live an hour and the party
+  server authenticates a socket only at connect, so `connectParty` takes a token *getter* that
+  partysocket runs before each attempt (`query` as an async function), and `getAccessToken`
+  refreshes 5 min before `exp`. A token baked into the URL once is how a reconnect an hour into
+  a stream came back anonymous: every ✓ was refused while the optimistic UI showed it landed,
+  and a reload brought the whole queue back. The owner's session never connects anonymously —
+  no token fails the attempt and the socket retries it.
+- **Authority `server-error` codes are not failures, and never an error toast.**
+  `not_lock_holder` means another session holds the lock or ours went stale: log and nudge a
+  re-claim. `not_room_owner` (and `ownership-denied` with `not-room-owner`) on the streamer's
+  own channel means this socket isn't authenticated as them — force a token refresh and
+  reconnect (`reauthenticate`, throttled by `REAUTH_COOLDOWN`). Only `persist_failed` / `d1_sync_failed` are real server failures
   (toast id `server-error`, `duration: Infinity`); `pending_cap` and `chat_send_not_mod` are
   finite warnings under their own ids. Connection toasts own `party-status` / `irc-status` —
   don't reuse those ids for anything else.

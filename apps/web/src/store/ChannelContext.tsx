@@ -2,7 +2,7 @@
 import { createContext, useContext, useMemo, useEffect, useRef, useState, useCallback } from 'react';
 import { createRoomStores, type ChannelStores } from './channel';
 import { setActiveStores, connect as connectIrc, disconnect as disconnectIrc } from '../services/twitch';
-import { connectParty, disconnectParty, broadcastIrcStatus, claimOwnership, releaseOwnership } from '../services/party';
+import { connectParty, disconnectParty, reconnectParty, broadcastIrcStatus, claimOwnership, releaseOwnership } from '../services/party';
 import { useAuth } from './auth';
 import { toast } from 'sonner';
 import { MAX_PENDING_REQUESTS } from '@filadbd/shared';
@@ -12,6 +12,10 @@ import { syncPushSubscription } from '../services/push';
 
 // Set by the service worker on the URL it opens from a notification click (sw.ts).
 const OPEN_QUEUE_PARAM = 'open-queue';
+
+// At most one forced token refresh + reconnect per window of this, so a server that
+// keeps refusing the streamer can't turn the self-heal into a reconnect loop.
+const REAUTH_COOLDOWN = 60_000;
 
 // Persisted opt-out for the "notifications blocked" warning toast: once the user
 // dismisses it, we never show it again (per browser).
@@ -60,7 +64,7 @@ interface ChannelProviderProps {
 }
 
 export function ChannelProvider({ channel, children }: ChannelProviderProps) {
-  const { user, isAuthenticated, getAccessToken } = useAuth();
+  const { user, isAuthenticated, getAccessToken, refresh } = useAuth();
   const isOwnChannel = (import.meta.env.DEV && isAuthenticated && !!user) || (isAuthenticated && !!user && channel.toLowerCase() === user.login.toLowerCase());
   const stores = useMemo(() => createRoomStores(channel), [channel]);
 
@@ -326,16 +330,42 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
 
     let cancelled = false;
 
-    async function connect() {
+    // Runs before every connection attempt, so a reconnect presents a current token.
+    // The streamer's own session never falls back to an anonymous socket: the server
+    // would refuse every edit while the optimistic ✓ stays on screen. A missing token
+    // (a refresh that failed on the network) fails the attempt, and the socket retries.
+    const getToken = async () => {
       const token = await getAccessToken();
-      if (cancelled) return;
+      if (!token && isOwnChannel) throw new Error('No access token for the channel owner');
+      return token;
+    };
 
+    // The server only refuses the room owner when this socket isn't authenticated as
+    // them — typically a token it no longer accepts. Everything this window sends would
+    // be dropped, so refresh the token (even one this clock still calls valid) and
+    // reconnect instead of carrying on.
+    let lastReauthAt = 0;
+    const reauthenticate = () => {
+      if (!isOwnChannel) return;
+      const now = Date.now();
+      if (now - lastReauthAt < REAUTH_COOLDOWN) return;
+      lastReauthAt = now;
+      console.warn('[party] server does not recognize this session as the channel owner; reconnecting with a fresh token');
+      void refresh().then((ok) => {
+        if (ok && !cancelled) reconnectParty();
+      });
+    };
+
+    function connect() {
       console.log('Connecting to PartyKit...');
       setPartyConnectionState('connecting');
       connectParty(
         channel,
-        token,
+        getToken,
         (msg) => {
+          if (msg.type === 'ownership-denied' && msg.currentOwner === 'not-room-owner') {
+            reauthenticate();
+          }
           if (msg.type === 'server-error') {
             console.error(`[server-error] ${msg.code}: ${msg.message}`);
             // Let the requests store roll back an optimistic add the server rejected.
@@ -346,10 +376,14 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
               sendPushNotification(t('push.newVersionTitle'), t('push.newVersion'));
               return;
             }
-            // Authority rejections mean another session holds the lock, or ours went
-            // stale across a reconnect — not something to alarm the streamer with. The
-            // claim effect takes the room back once it's free; just nudge it.
-            if (msg.code === 'not_room_owner' || msg.code === 'not_lock_holder') {
+            if (msg.code === 'not_room_owner') {
+              reauthenticate();
+              return;
+            }
+            // Another session holds the lock, or ours went stale across a reconnect —
+            // not something to alarm the streamer with. The claim effect takes the room
+            // back once it's free; just nudge it.
+            if (msg.code === 'not_lock_holder') {
               if (isOwnChannel && !stores.useChannelInfo.getState().owner) {
                 claimOwnership();
               }
@@ -444,7 +478,7 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
       disconnectParty();
       setPartyConnectionState('disconnected');
     };
-  }, [channel, isOwnChannel, stores, getAccessToken]);
+  }, [channel, isOwnChannel, stores, getAccessToken, refresh]);
 
   // Every session of the streamer manages the queue: the server authorizes mutations per
   // room owner, not per lock holder, so no window needs a read-only mode.

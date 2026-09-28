@@ -6,9 +6,16 @@ const PARTY_HOST = import.meta.env.VITE_PARTY_HOST || 'localhost:1999';
 
 let socket: PartySocket | null = null;
 
+/**
+ * `getToken` runs before every connection attempt, reconnects included. The server
+ * authenticates a socket once, at connect, and access tokens live an hour — a token
+ * baked into the URL once would have the socket's auto-reconnect come back anonymous
+ * after that, and the server then refuses every edit without the streamer knowing.
+ * A rejection from `getToken` fails just that attempt, and the socket retries it.
+ */
 export function connectParty(
   channel: string,
-  accessToken: string | null,
+  getToken: () => Promise<string | null>,
   onMessage: (msg: PartyMessage) => void,
   onOpen?: () => void,
   onClose?: () => void,
@@ -21,7 +28,10 @@ export function connectParty(
   socket = new PartySocket({
     host: PARTY_HOST,
     room: channel.toLowerCase(),
-    query: { ...(accessToken ? { token: accessToken } : {}), v: String(PROTOCOL_VERSION) },
+    query: async () => {
+      const token = await getToken();
+      return { ...(token ? { token } : {}), v: String(PROTOCOL_VERSION) };
+    },
   });
 
   socket.addEventListener('message', (event) => {
@@ -51,6 +61,11 @@ export function disconnectParty(): void {
     socket.close();
     socket = null;
   }
+}
+
+/** Drops the current socket and connects again, fetching a fresh token for it. */
+export function reconnectParty(): void {
+  socket?.reconnect();
 }
 
 export function isPartyConnected(): boolean {
