@@ -14,6 +14,9 @@ import { fetchRoomInfo } from '../services/roomInfo';
  */
 export type QueueState = 'open' | 'connecting' | 'closed' | 'unknown';
 
+/** Open, or on its way up: the states worth showing a loading indicator for. */
+export const queueIsUp = (state: QueueState) => state === 'open' || state === 'connecting';
+
 /** The room's last saved queue status (`/rooms/:id`, the same memoized request the channel gate makes). */
 function useSavedStatus(channel: string, wanted: boolean): string | null {
   const [saved, setSaved] = useState<{ channel: string; status: string | null } | null>(null);

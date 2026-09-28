@@ -218,7 +218,7 @@ internal bookkeeping and must never surface as a mode the streamer has to notice
   room's last saved status from `/rooms/:id` — saved open → connecting, saved closed →
   closed, not loaded yet → `unknown` (no text, no animation). Never infer "connecting"
   from this window's socket opening: every channel page pulsed on load that way, only to
-  settle on closed.
+  settle on closed. The queue panel's sync bar follows the same rule (`queueIsUp`).
 - **The lock transfers, it never refuses** (`party.ts` `claim-ownership`): a claim from
   another window of the same streamer hands the lock over and sends the old holder
   `ownership-denied` (which clears its lock and drops its IRC). So Open/Close the queue works

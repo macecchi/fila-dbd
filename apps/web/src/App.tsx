@@ -13,6 +13,7 @@ import { SyncSweep } from './components/SyncSweep';
 import { Toaster } from 'sonner';
 import { useWhatsNew } from './hooks/useWhatsNew';
 import { useRequestToasts } from './hooks/useRequestToasts';
+import { useQueueStatus, queueIsUp } from './hooks/useQueueStatus';
 import { identifyCharacter } from './services';
 import { eligibleExtras } from './services/extras';
 import { tryLocalMatch } from './data/characters';
@@ -123,6 +124,9 @@ function ChannelApp() {
   // Missed requests recovery state
   const ircState = useChannelInfo((s) => s.localIrcConnectionState);
   const partySynced = useChannelInfo((s) => s.partySynced);
+  // The queue's sync bar follows the header: it only runs for a queue known to be open
+  // (or coming up). For a closed one it flashed on every page load for nothing.
+  const queueState = useQueueStatus().state;
   // Work that must happen exactly once (identification, VOD scan) follows the lock,
   // so a second tab can still be a full editor.
   const hasLock = useChannelInfo((s) => s.hasLock);
@@ -346,7 +350,7 @@ function ChannelApp() {
           <Panel as="div" className="panel">
             <PanelHeader
               icon={<img src={`${import.meta.env.BASE_URL}images/IconPlayers.webp`} />}
-              indicator={<SyncSweep active={!partySynced} className="panel-header-sync" />}
+              indicator={<SyncSweep active={!partySynced && queueIsUp(queueState)} className="panel-header-sync" />}
               actions={
                 <div className={readOnly ? 'viewer-mode' : undefined} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <button className="btn btn-ghost btn-small btn-small-icon" onClick={() => setManualOpen(true)} title={t('queue.addRequest')} disabled={readOnly}>
