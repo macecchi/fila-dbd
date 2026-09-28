@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { handleMessage, handleUserNotice, setActiveStores } from './twitch';
+import { connect, disconnect, handleMessage, handleUserNotice, ircCommand, setActiveStores, simulateDisconnect } from './twitch';
 import { identifyMultiple } from './llm';
 import type { ChannelStores } from '../store/channel';
 import type { Request } from '@filadbd/shared';
@@ -235,5 +235,193 @@ describe('request IDs are derived from the Twitch message ID alone', () => {
 
     expect(added).toHaveLength(2);
     expect(added[0].id).not.toBe(added[1].id);
+  });
+});
+
+describe('ircCommand', () => {
+  it('reads the command past the tags and prefix', () => {
+    expect(ircCommand(':justinfan1.tmi.twitch.tv 366 justinfan1 #testchannel :End of /NAMES list')).toBe('366');
+    expect(ircCommand('PING :tmi.twitch.tv')).toBe('PING');
+    expect(ircCommand(':tmi.twitch.tv RECONNECT')).toBe('RECONNECT');
+    expect(ircCommand('@id=366;tmi-sent-ts=1790000366000 :bob!bob@bob.tmi.twitch.tv PRIVMSG #testchannel :366')).toBe('PRIVMSG');
+    expect(ircCommand('@msg-id=resub :tmi.twitch.tv USERNOTICE #testchannel :oi')).toBe('USERNOTICE');
+    expect(ircCommand('')).toBe('');
+  });
+});
+
+describe('the IRC socket', () => {
+  // Tags carry nonces, message ids, timestamps and user ids, and the text is anything the
+  // chatter typed. Matching `366` anywhere in the line took ~3% of ordinary messages for the
+  // JOIN confirmation and dropped them: their requests never reached the queue.
+  const JOINED = ':justinfan1.tmi.twitch.tv 366 justinfan1 #testchannel :End of /NAMES list';
+  const chat = (id: string, text: string) =>
+    `@badges=subscriber/1;display-name=Bob;id=${id};subscriber=1 :bob!bob@bob.tmi.twitch.tv PRIVMSG #testchannel :${text}`;
+
+  // Like a browser WebSocket, close() only starts the handshake: onclose fires later.
+  class FakeSocket {
+    static all: FakeSocket[] = [];
+    static get last() { return FakeSocket.all[FakeSocket.all.length - 1]; }
+    onopen: (() => void) | null = null;
+    onmessage: ((e: { data: string }) => void) | null = null;
+    onclose: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    sent: string[] = [];
+    closed = false;
+    constructor() { FakeSocket.all.push(this); }
+    send(data: string) { this.sent.push(data); }
+    close() { this.closed = true; }
+    finishClose() { this.onclose?.(); }
+    receive(...lines: string[]) { this.onmessage?.({ data: lines.join('\r\n') + '\r\n' }); }
+  }
+
+  let added: Request[];
+  let ircStates: string[];
+
+  beforeEach(() => {
+    added = [];
+    ircStates = [];
+    FakeSocket.all = [];
+    vi.stubGlobal('WebSocket', FakeSocket);
+    setActiveStores({
+      useSources: {
+        getState: () => ({
+          enabled: { chat: true, resub: true, donation: true },
+          chatCommand: '!fila',
+          chatTiers: [1, 2, 3],
+          minDonation: 5,
+        }),
+      },
+      useRequests: {
+        getState: () => ({ add: (r: Request) => added.push(r) }),
+      },
+      useChannelInfo: {
+        getState: () => ({ setIrcConnectionState: (s: string) => ircStates.push(s) }),
+      },
+    } as unknown as ChannelStores);
+    connect('testchannel');
+    FakeSocket.last.receive(JOINED);
+  });
+
+  afterEach(() => {
+    disconnect();
+    setActiveStores(null);
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  describe('dispatches lines by command, not by substring', () => {
+    it('adds a chat request whose tags contain 366, without re-reporting the join', () => {
+      FakeSocket.last.receive('@badges=subscriber/1;display-name=Bob;id=a366b-1;subscriber=1;tmi-sent-ts=1790000366123;user-id=12366 :bob!bob@bob.tmi.twitch.tv PRIVMSG #testchannel :!fila Trapper');
+
+      expect(added).toHaveLength(1);
+      expect(added[0].character).toBe('Trapper');
+      expect(ircStates).toEqual(['connecting', 'connected']);
+    });
+
+    it('adds a donation whose text contains 366', () => {
+      FakeSocket.last.receive('@display-name=livepix;color=#FF0000;id=d-1 :livepix!livepix@livepix.tmi.twitch.tv PRIVMSG #testchannel :Bob doou R$ 366,00: Trapper');
+
+      expect(added).toHaveLength(1);
+      expect(added[0].source).toBe('donation');
+      expect(added[0].character).toBe('Trapper');
+    });
+
+    it('adds a resub whose tags contain 366', () => {
+      FakeSocket.last.receive('@msg-id=resub;display-name=Bob;msg-param-sub-plan=1000;id=f366-2 :tmi.twitch.tv USERNOTICE #testchannel :Nurse');
+
+      expect(added).toHaveLength(1);
+      expect(added[0].character).toBe('Nurse');
+    });
+
+    it('leaves the connection state alone on other lines containing 366', () => {
+      FakeSocket.last.receive('@emote-only=0;followers-only=-1;r9k=0;room-id=123366;slow=0;subs-only=0 :tmi.twitch.tv ROOMSTATE #testchannel');
+
+      expect(ircStates).toEqual(['connecting', 'connected']);
+    });
+
+    it('does not take a chat message that mentions USERNOTICE for a resub', () => {
+      FakeSocket.last.receive(chat('m-3', '!fila Trapper USERNOTICE'));
+
+      expect(added).toHaveLength(1);
+      expect(added[0].source).toBe('chat');
+    });
+
+    it('still answers PING', () => {
+      FakeSocket.last.receive('PING :tmi.twitch.tv');
+      expect(FakeSocket.last.sent).toContain('PONG :tmi.twitch.tv');
+    });
+  });
+
+  describe('lifecycle', () => {
+    // A replaced socket's close lands after connect() returns. It used to drop the reference
+    // to its replacement and schedule a reconnect: two sockets read chat, and disconnect()
+    // could reach only one of them.
+    it('a socket replaced by connect() stands down when its close lands', () => {
+      vi.useFakeTimers();
+      const old = FakeSocket.last;
+      connect('testchannel');
+      const current = FakeSocket.last;
+      expect(old.closed).toBe(true);
+
+      old.receive(chat('late-1', '!fila Nurse'));
+      old.finishClose();
+      vi.advanceTimersByTime(60_000);
+
+      expect(FakeSocket.all).toHaveLength(2);
+      expect(added).toHaveLength(0);
+      expect(ircStates.at(-1)).toBe('connecting');
+
+      current.receive(JOINED, chat('m-4', '!fila Trapper'));
+      expect(added).toHaveLength(1);
+
+      disconnect();
+      expect(current.closed).toBe(true);
+    });
+
+    it('a quick disconnect + connect keeps the new socket', () => {
+      vi.useFakeTimers();
+      const old = FakeSocket.last;
+      disconnect();
+      connect('testchannel');
+      old.finishClose();
+      vi.advanceTimersByTime(60_000);
+
+      expect(FakeSocket.all).toHaveLength(2);
+      expect(ircStates.slice(-2)).toEqual(['disconnected', 'connecting']);
+    });
+
+    // Left at 'connecting', the next grant (which connects only from 'disconnected') would
+    // never bring chat back: "Conectando..." until a reload.
+    it('disconnect() during a reconnect backoff leaves IRC disconnected', () => {
+      vi.useFakeTimers();
+      FakeSocket.last.finishClose();
+      expect(ircStates.at(-1)).toBe('connecting');
+
+      disconnect();
+      vi.advanceTimersByTime(60_000);
+
+      expect(ircStates.at(-1)).toBe('disconnected');
+      expect(FakeSocket.all).toHaveLength(1);
+    });
+
+    it('a socket that drops on its own still reconnects', () => {
+      vi.useFakeTimers();
+      FakeSocket.last.finishClose();
+      expect(ircStates.at(-1)).toBe('connecting');
+
+      vi.advanceTimersByTime(2_000);
+      expect(FakeSocket.all).toHaveLength(2);
+    });
+
+    it('simulateDisconnect goes through the reconnect path', () => {
+      vi.useFakeTimers();
+      const old = FakeSocket.last;
+      simulateDisconnect();
+      expect(old.closed).toBe(true);
+
+      old.finishClose();
+      vi.advanceTimersByTime(2_000);
+      expect(FakeSocket.all).toHaveLength(2);
+    });
   });
 });

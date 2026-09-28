@@ -185,6 +185,7 @@ queue cache before reloading: `Object.keys(localStorage).filter(k => k.startsWit
 ## Key functions
 
 - `connect()` - Twitch IRC WebSocket
+- `ircCommand()` - Command of a raw IRC line (past tags/prefix). The socket dispatches by it, never by substring: tags and chat text routinely contain `366`/`USERNOTICE`
 - `handleMessage()` - Parse donation bots (LivePix, StreamElements, etc.) + chat commands
 - `isDonateBot()` - Check if username is a known donation bot
 - `parseDonationMessage()` - Extract donor, amount, message from donation bot text
