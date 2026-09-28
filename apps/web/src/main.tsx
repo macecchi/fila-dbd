@@ -3,6 +3,8 @@ import { registerSW } from 'virtual:pwa-register';
 import { App } from './App';
 import { I18nProvider } from './i18n';
 import { showNewVersionToast } from './components/UpdateToast';
+import { initAnalytics, identify, resetIdentity } from './services/analytics';
+import { useAuth } from './store/auth';
 
 const UPDATE_CHECK_BACKSTOP = 30 * 60 * 1000; // 30-min periodic fallback
 
@@ -52,6 +54,13 @@ window.__triggerSWUpdate = async () => {
   // No waiting SW (already activated via another tab, or absent) — plain reload.
   window.location.reload();
 };
+
+// PostHog loads after first paint, when idle (services/analytics.ts). Streamers are
+// identified by their Twitch login while signed in; viewers stay anonymous.
+initAnalytics();
+const syncIdentity = (login: string | undefined) => (login ? identify(login) : resetIdentity());
+syncIdentity(useAuth.getState().user?.login);
+useAuth.subscribe((s) => syncIdentity(s.user?.login));
 
 const root = document.getElementById('root');
 if (root) {

@@ -9,6 +9,7 @@ import { MAX_PENDING_REQUESTS } from '@filadbd/shared';
 import { t, useTranslation } from '../i18n';
 import { showNewVersionToast } from '../components/UpdateToast';
 import { syncPushSubscription } from '../services/push';
+import { realtimeTelemetry } from '../services/realtimeTelemetry';
 
 // Set by the service worker on the URL it opens from a notification click (sw.ts).
 const OPEN_QUEUE_PARAM = 'open-queue';
@@ -68,6 +69,19 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
     setActiveStores(stores);
     return () => setActiveStores(null);
   }, [stores]);
+
+  // Realtime health telemetry reads the session from here. Declared before the socket
+  // effect so the context is in place for the first open and sync-full.
+  useEffect(() => {
+    realtimeTelemetry.setContext({
+      channel,
+      isOwner: isOwnChannel,
+      getHasLock: () => stores.useChannelInfo.getState().hasLock,
+      getRoomHasOwner: () => stores.useChannelInfo.getState().owner !== null,
+      getRequests: () => stores.useRequests.getState().requests,
+    });
+    return () => realtimeTelemetry.setContext(null);
+  }, [channel, isOwnChannel, stores]);
 
   // Subscribe to ownership state
   const hasLock = stores.useChannelInfo((s) => s.hasLock);
