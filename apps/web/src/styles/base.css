@@ -116,6 +116,26 @@
 
 body {
   font-family: 'DM Sans', 'DM Sans Fallback', -apple-system, sans-serif;
+  /* Transparent on purpose: the page backdrop is body::before below, and an opaque
+     body background would paint over it (a negative z-index layer sits under the
+     root stacking context's block backgrounds). `html` carries --bg (index.html). */
+  background-color: transparent;
+  color: var(--text);
+  min-height: 100vh;
+  line-height: 1.5;
+}
+
+/* Page backdrop, pinned to the viewport. Same pixels as the old body
+   `background-attachment: fixed`, but on its own fixed layer: that property makes
+   Chrome repaint and re-raster the whole viewport background on every scroll frame
+   (main-thread scrolling), while a fixed element is rastered once and only moved by
+   the compositor. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background-color: var(--bg);
   background-image:
     linear-gradient(rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.85)),
@@ -123,10 +143,6 @@ body {
   background-position: center;
   background-repeat: no-repeat;
   background-size: cover;
-  background-attachment: fixed;
-  color: var(--text);
-  min-height: 100vh;
-  line-height: 1.5;
 }
 
 @media (max-width: 480px) {
@@ -138,11 +154,14 @@ body {
 
   body {
     background-color: #000;
-    background-image: none;
     height: 100dvh;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
+  }
+
+  body::before {
+    display: none;
   }
 }
 
@@ -174,19 +193,19 @@ a:hover {
   100% { --scroll-mask-b-from: 100%; }
 }
 
+/* Mobile only: that's where `body` is the scroller and the fade has a URL bar to
+   meet. On wider viewports the mask was a no-op visually (fully opaque) yet still
+   forced the entire page through a masked offscreen surface on every frame. */
 @supports (animation-timeline: scroll()) {
-  .scroll-mask {
-    mask-image: linear-gradient(
-      to bottom, black, black var(--scroll-mask-b-from), transparent
-    );
-    animation: scroll-mask-y-scroll linear;
-    animation-timeline: scroll(self block);
-  }
-}
-
-@media (max-width: 480px) {
-  body {
-    --scroll-mask-fade-from-b: calc(100% - 64px);
+  @media (max-width: 480px) {
+    .scroll-mask {
+      --scroll-mask-fade-from-b: calc(100% - 64px);
+      mask-image: linear-gradient(
+        to bottom, black, black var(--scroll-mask-b-from), transparent
+      );
+      animation: scroll-mask-y-scroll linear;
+      animation-timeline: scroll(self block);
+    }
   }
 }
 
@@ -195,8 +214,13 @@ a:hover {
 .panel-surface {
   background: var(--bg-elevated);
   border-radius: var(--radius-lg);
-  backdrop-filter: blur(20px) saturate(160%);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  /* No backdrop-filter: --bg-elevated is opaque, so a blur behind it can never show,
+     yet it made the compositor re-blur the panel's whole visible area on every frame
+     anything under or inside it changed (scroll, hover, a new request).
+     `isolation` keeps the stacking context the backdrop-filter used to create (the
+     sticky header and card overlays stack inside the panel, not against the page),
+     without the compositing cost. */
+  isolation: isolate;
 }
 
 .panel-surface > .panel-body {
@@ -218,17 +242,35 @@ a:hover {
    absolutely positions its slot so toggling never shifts layout. */
 .sync-sweep {
   display: block;
+  position: relative;
+  overflow: hidden;
   width: 100%;
   height: 2px;
   border-radius: 999px;
-  background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%);
-  background-size: 200% 100%;
   opacity: 0;
   transition: opacity 0.25s ease;
 }
 
+/* The moving gradient lives on a strip 7× the bar's width that slides under it. Same
+   pixels as sweeping `background-position` across the bar (a 2×-wide tile travelling
+   3 bar-widths per cycle), but a transform runs on the compositor — background-position
+   repainted on every frame for as long as the queue was syncing. */
+.sync-sweep::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -300%;
+  width: 700%;
+  background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%);
+  background-size: calc(100% / 3.5) 100%;
+}
+
 .sync-sweep.is-active {
   opacity: 0.85;
+}
+
+.sync-sweep.is-active::before {
   animation: syncSweep 1.1s linear infinite;
 }
 
@@ -252,15 +294,22 @@ a:hover {
 
 @media (prefers-reduced-motion: reduce) {
   .sync-sweep.is-active {
-    animation: none;
     background: var(--accent);
     opacity: 0.4;
   }
+
+  .sync-sweep.is-active::before {
+    animation: none;
+    display: none;
+  }
 }
 
+/* In bar widths: the tile offset goes -1.5 → +1.5, as the old 150% → -150%
+   background-position did; the strip starts 3 widths left, so it moves -2.5 → +0.5
+   (percentages are of the 7-wide strip). */
 @keyframes syncSweep {
-  from { background-position: 150% 0; }
-  to { background-position: -150% 0; }
+  from { transform: translateX(calc(-2.5 / 7 * 100%)); }
+  to { transform: translateX(calc(0.5 / 7 * 100%)); }
 }
 
 .mono {

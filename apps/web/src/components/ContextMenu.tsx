@@ -26,9 +26,10 @@ export function ContextMenu({ onToggleDone, onRerun, onSkip, onEdit }: Props) {
 
   if (!state.show) return null;
 
-  // Portal to body so position:fixed anchors to the viewport. The request-list
-  // panel has backdrop-filter, which establishes a containing block and would
-  // otherwise pull the menu away from the cursor toward the panel's origin.
+  // Portal to body so position:fixed anchors to the viewport even if an ancestor
+  // panel gains a containing block for fixed elements (filter, transform,
+  // backdrop-filter, paint containment), which would pull the menu toward the
+  // panel's origin instead of the cursor.
   return createPortal(
     <div
       className="context-menu show"

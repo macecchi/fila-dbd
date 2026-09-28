@@ -4,9 +4,11 @@ import { flushSync } from 'react-dom';
 /**
  * Text that animates when it changes (transitions.dev "text states swap"): the
  * old string exits up with a blur, the new one enters from below. While
- * `shimmer` is on, a gradient band sweeps across the glyphs
+ * `shimmer` is on, a highlight band sweeps across the glyphs
  * (transitions.dev "shimmer text") to signal work in progress — used for
- * requests whose character is still being identified.
+ * requests whose character is still being identified. The band is a
+ * compositor-only animation over a highlighted copy of the text (see
+ * `.t-shimmer` in requests.css).
  *
  * The swap is driven imperatively (class toggles + a forced reflow) because the
  * enter phase needs the new text painted in its "below" position *before* the
@@ -71,11 +73,15 @@ export function SwapText({ text, shimmer = false, className = '' }: Props) {
     <span
       ref={ref}
       className={`t-text-swap${shown.shimmer ? ' t-shimmer' : ''}${className ? ` ${className}` : ''}`}
-      // The shimmer's ::before layer re-renders the same glyphs to clip the
-      // gradient onto them, so it needs a copy of the visible string.
-      data-text={shown.shimmer ? shown.text : undefined}
     >
       {shown.text}
+      {shown.shimmer && (
+        // Highlighted copy of the glyphs for the compositor-driven band (see
+        // .t-shimmer in requests.css). Decorative: hidden from assistive tech.
+        <span className="t-shimmer-window" aria-hidden="true">
+          <span className="t-shimmer-glyphs">{shown.text}</span>
+        </span>
+      )}
     </span>
   );
 }

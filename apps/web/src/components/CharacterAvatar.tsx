@@ -89,8 +89,8 @@ export function CharacterAvatar({ portrait, type, size = 'md', extras }: Props) 
     onMouseLeave: handleMouseLeave,
   };
 
-  // Rendered into a body portal so the panel's `overflow: clip` / backdrop-filter
-  // can't clip it or trap its stacking. Mounted (hidden) before coords resolve so
+  // Rendered into a body portal so the panel's `overflow: clip` and stacking
+  // contexts can't clip it or trap its z-index. Mounted (hidden) before coords resolve so
   // useLayoutEffect can measure it.
   const tooltipNode = build && showTooltip
     ? createPortal(
