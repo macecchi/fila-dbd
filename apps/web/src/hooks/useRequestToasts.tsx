@@ -5,9 +5,6 @@ import { createToastDigest, onTabChange, type DigestView, type ToastDigest } fro
 
 export const REQUESTS_TOAST_ID = 'new-requests';
 
-/** Lines a summary lists (newest first); older ones fold into "+N more". */
-const DIGEST_LINES = 3;
-
 export interface Arrival {
   request: Request;
   /** Skipped as a non-request (`hideNonRequests`), rather than queued. */
@@ -25,27 +22,9 @@ export interface ToastActions {
 
 const truncate = (text: string, max: number) => (text.length > max ? text.slice(0, max) + '…' : text);
 
-interface Line { key: number | string; text: string; muted?: boolean }
-
-function SummaryLines({ lines }: { lines: Line[] }) {
-  return (
-    <ul className="toast-digest">
-      {lines.map((line) => <li key={line.key} className={line.muted ? 'toast-digest-muted' : undefined}>{line.text}</li>)}
-    </ul>
-  );
-}
-
-/** The newest few items as lines, plus "+N more" for the rest. */
-function recentLines(items: readonly Arrival[], text: (req: Request) => string): Line[] {
-  const lines: Line[] = items.slice(-DIGEST_LINES).reverse().map(({ request: r }) => ({ key: r.id, text: text(r) }));
-  const more = items.length - lines.length;
-  if (more > 0) lines.push({ key: 'more', text: t('toast.more', { count: more }), muted: true });
-  return lines;
-}
-
 /**
- * Senders in arrival order, each once: "Ana", "Ana e Beto", "Ana, Beto e Caio", and past
- * three "Ana, Beto e mais 2".
+ * Names in arrival order, each once: "Ana", "Ana e Beto", "Ana, Beto e Caio", and past
+ * three "Ana, Beto e mais 2". Used for senders and for characters alike.
  */
 export function joinNames(names: readonly string[]): string {
   const seen = new Set<string>();
@@ -62,8 +41,20 @@ export function joinNames(names: readonly string[]): string {
   return t('toast.namesMore', { a, b, count: unique.length - 2 });
 }
 
-const requestLine = (r: Request) => t('toast.digestRequest', { donor: r.donor, character: r.character || '?' });
-const ignoredLine = (r: Request) => t('toast.digestIgnored', { donor: r.donor, message: truncate(r.message, 40) });
+/** "3 novos pedidos de Huntress, Slasher e Lich": the count, and each character once. */
+function requestsSentence(requests: readonly Arrival[]): string {
+  const count = requests.length;
+  // Unidentified requests have no character to name; they still count.
+  const characters = requests.map((a) => a.request).filter((r) => r.character && r.type !== 'unknown').map((r) => r.character);
+  return characters.length > 0
+    ? t('toast.newRequestsOf', { count, names: joinNames(characters) })
+    : t('toast.newRequests', { count });
+}
+
+/** "2 mensagens sem pedidos de Ana e Beto": the count, and each sender once. */
+function ignoredSentence(ignored: readonly Arrival[]): string {
+  return t('toast.ignoredFrom', { count: ignored.length, names: joinNames(ignored.map((a) => a.request.donor)) });
+}
 
 function singleRequestView({ request: req, position }: Arrival): DigestView {
   const title = req.source === 'manual' ? t('toast.newRequest') :
@@ -88,11 +79,11 @@ function singleIgnoredView({ request: req }: Arrival, release: () => void, actio
 
 /**
  * Everything that arrived since the streamer last saw the toast, in one toast. A single
- * arrival keeps the look it always had; more become a summary titled by the request
- * count, with skipped messages folded into one line naming their senders (or into the
- * title, if that's all there is). Every view sets `description` and `action`
- * explicitly: sonner merges an update into the toast it replaces, so a field left out
- * would keep its old value.
+ * arrival keeps the look it always had; more become a two-sentence summary: the new
+ * requests with their characters as the title, the skipped messages with their senders
+ * as the description (or as the title, if that's all there is). Every view sets
+ * `description` and `action` explicitly: sonner merges an update into the toast it
+ * replaces, so a field left out would keep its old value.
  */
 export function renderArrivals(items: readonly Arrival[], release: () => void, actions: ToastActions): DigestView {
   if (items.length === 1) {
@@ -107,22 +98,14 @@ export function renderArrivals(items: readonly Arrival[], release: () => void, a
     ? { label: t('toast.review'), onClick: () => { release(); actions.review(); } }
     : undefined;
 
-  if (requests.length === 0) {
-    return {
-      title: t('toast.ignoredCount', { count: ignored.length }),
-      options: { description: <SummaryLines lines={recentLines(ignored, ignoredLine)} />, action },
-    };
-  }
-  const lines = recentLines(requests, requestLine);
   // Skipped messages had already qualified (a donation at or above the minimum, a
   // resub, an eligible chat command), so the streamer wants to know whose they were.
-  if (ignored.length > 0) {
-    const names = joinNames(ignored.map((a) => a.request.donor));
-    lines.push({ key: 'ignored', text: t('toast.ignoredFrom', { count: ignored.length, names }), muted: true });
+  if (requests.length === 0) {
+    return { title: ignoredSentence(ignored), options: { description: undefined, action } };
   }
   return {
-    title: t('toast.newRequests', { count: requests.length }),
-    options: { description: <SummaryLines lines={lines} />, action },
+    title: requestsSentence(requests),
+    options: { description: ignored.length > 0 ? ignoredSentence(ignored) : undefined, action },
   };
 }
 

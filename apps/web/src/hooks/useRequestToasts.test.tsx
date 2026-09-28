@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, render, act } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { renderHook, act } from '@testing-library/react';
 import { toast, type ExternalToast } from 'sonner';
 import { useRequestToasts, joinNames, REQUESTS_TOAST_ID } from './useRequestToasts';
 import { READ_DELAY_MS } from '../utils/toastDigest';
@@ -36,13 +35,6 @@ type Call = [string, ExternalToast];
 type Action = { label: string; onClick: (e: unknown) => void };
 const calls = () => toastMock.mock.calls as Call[];
 const last = () => calls().at(-1)!;
-
-function lines(description: ExternalToast['description']) {
-  const { container, unmount } = render(<>{description as ReactNode}</>);
-  const text = [...container.querySelectorAll('li')].map((li) => li.textContent);
-  unmount();
-  return text;
-}
 
 function setOnTab(on: boolean) {
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
@@ -137,13 +129,10 @@ describe('useRequestToasts', () => {
     expect(calls()).toHaveLength(3);
     expect(new Set(calls().map(([, o]) => o.id)).size).toBe(1);
 
+    // Bia's request has no character yet: it counts, but there's nothing to name.
     const [title, opts] = last();
-    expect(title).toBe(t('toast.newRequests', { count: 3 }));
-    expect(lines(opts.description)).toEqual([
-      t('toast.digestRequest', { donor: 'Caio', character: 'Nurse' }),
-      t('toast.digestRequest', { donor: 'Bia', character: '?' }),
-      t('toast.digestRequest', { donor: 'Ana', character: 'Trapper' }),
-    ]);
+    expect(title).toBe(t('toast.newRequestsOf', { count: 3, names: t('toast.namesTwo', { a: 'Trapper', b: 'Nurse' }) }));
+    expect(opts.description).toBeUndefined();
     expect(opts.duration).toBe(Infinity);
     expect(opts.action).toBeUndefined();
 
@@ -151,13 +140,19 @@ describe('useRequestToasts', () => {
     expect(dismissMock).not.toHaveBeenCalled();
   });
 
-  it('lists the newest 3 and folds the rest into "+N more"', () => {
+  it('names each character once, in arrival order, folding past three', () => {
     const q = setup();
-    for (let i = 0; i < 5; i++) q.arrive(req());
+    for (const character of ['Huntress', 'Slasher', 'Huntress', 'Lich', 'Nurse']) q.arrive(req({ character }));
 
-    const text = lines(last()[1].description);
-    expect(text).toHaveLength(4);
-    expect(text[3]).toBe(t('toast.more', { count: 2 }));
+    expect(last()[0]).toBe(t('toast.newRequestsOf', { count: 5, names: t('toast.namesMore', { a: 'Huntress', b: 'Slasher', count: 2 }) }));
+  });
+
+  it('just counts requests when none has a character to name', () => {
+    const q = setup();
+    q.arrive(req({ character: '', type: 'unknown' }));
+    q.arrive(req({ character: '', type: 'unknown' }));
+
+    expect(last()[0]).toBe(t('toast.newRequests', { count: 2 }));
   });
 
   it('dismisses after the read delay once the streamer is back, then starts over at 1', () => {
@@ -183,7 +178,7 @@ describe('useRequestToasts', () => {
     q.arrive(req());
     advance(READ_DELAY_MS - 1000);
     q.arrive(req());
-    expect(last()[0]).toBe(t('toast.newRequests', { count: 2 }));
+    expect(last()[0]).toBe(t('toast.newRequestsOf', { count: 2, names: 'Nurse' }));
 
     advance(READ_DELAY_MS - 1);
     expect(dismissMock).not.toHaveBeenCalled();
@@ -222,7 +217,7 @@ describe('useRequestToasts', () => {
       expect(last()[1].id).not.toBe(opts.id);
     });
 
-    it('share the one toast with requests: titled by the request count, with a skipped line', () => {
+    it('share the one toast with requests: the requests as the title, the senders as the description', () => {
       const q = setup();
       q.arrive(skipped({ donor: 'Ana', message: 'oi' }));
       q.arrive(req({ donor: 'Bia', character: 'Trapper' }));
@@ -231,22 +226,18 @@ describe('useRequestToasts', () => {
 
       expect(new Set(calls().map(([, o]) => o.id)).size).toBe(1);
       const [title, opts] = last();
-      expect(title).toBe(t('toast.newRequests', { count: 2 }));
-      expect(lines(opts.description)).toEqual([
-        t('toast.digestRequest', { donor: 'Caio', character: 'Nurse' }),
-        t('toast.digestRequest', { donor: 'Bia', character: 'Trapper' }),
-        t('toast.ignoredFrom', { count: 2, names: t('toast.namesTwo', { a: 'Ana', b: 'Duda' }) }),
-      ]);
+      expect(title).toBe(t('toast.newRequestsOf', { count: 2, names: t('toast.namesTwo', { a: 'Trapper', b: 'Nurse' }) }));
+      expect(opts.description).toBe(t('toast.ignoredFrom', { count: 2, names: t('toast.namesTwo', { a: 'Ana', b: 'Duda' }) }));
       expect((opts.action as Action).label).toBe(t('toast.review'));
     });
 
-    it('name each sender once in the summary line', () => {
+    it('name each sender once', () => {
       const q = setup();
       q.arrive(req({ donor: 'Bia', character: 'Trapper' }));
       q.arrive(skipped({ donor: 'Ana' }));
       q.arrive(skipped({ donor: 'Ana' }));
 
-      expect(lines(last()[1].description).at(-1)).toBe(t('toast.ignoredFrom', { count: 2, names: 'Ana' }));
+      expect(last()[1].description).toBe(t('toast.ignoredFrom', { count: 2, names: 'Ana' }));
     });
 
     it('title the summary when nothing else arrived', () => {
@@ -255,11 +246,9 @@ describe('useRequestToasts', () => {
       q.arrive(skipped({ donor: 'Bia', message: 'gg' }));
 
       const [title, opts] = last();
-      expect(title).toBe(t('toast.ignoredCount', { count: 2 }));
-      expect(lines(opts.description)).toEqual([
-        t('toast.digestIgnored', { donor: 'Bia', message: 'gg' }),
-        t('toast.digestIgnored', { donor: 'Ana', message: 'oi' }),
-      ]);
+      expect(title).toBe(t('toast.ignoredFrom', { count: 2, names: t('toast.namesTwo', { a: 'Ana', b: 'Bia' }) }));
+      expect(opts.description).toBeUndefined();
+      expect((opts.action as Action).label).toBe(t('toast.review'));
     });
 
     it('turn Undo into Review once the toast summarizes more than one arrival', () => {
@@ -268,7 +257,7 @@ describe('useRequestToasts', () => {
       q.arrive(req({ donor: 'Bia', character: 'Trapper' }));
 
       const [title, opts] = last();
-      expect(title).toBe(t('toast.newRequests', { count: 1 }));
+      expect(title).toBe(t('toast.newRequestsOf', { count: 1, names: 'Trapper' }));
       const action = opts.action as Action;
       expect(action.label).toBe(t('toast.review'));
       act(() => action.onClick({}));
@@ -336,7 +325,7 @@ describe('useRequestToasts', () => {
       q.arrive(req());
       q.arrive(req());
       expect(toastMock).toHaveBeenCalledTimes(2);
-      expect(last()[0]).toBe(t('toast.newRequests', { count: 2 }));
+      expect(last()[0]).toBe(t('toast.newRequestsOf', { count: 2, names: 'Nurse' }));
     });
 
     it('stays quiet for viewers (read-only)', () => {
@@ -395,10 +384,16 @@ describe('joinNames', () => {
     const { default: en } = await import('../i18n/locales/en');
     const fill = (tpl: string, params: Record<string, string | number>) =>
       Object.entries(params).reduce((s, [k, v]) => s.replaceAll(`{${k}}`, String(v)), tpl);
-    expect(fill(ptBR['toast.ignoredFrom_plural'], { names: fill(ptBR['toast.namesMore'], { a: 'Ana', b: 'Beto', count: 2 }) }))
-      .toBe('Mensagens sem personagem de Ana, Beto e mais 2');
-    expect(fill(en['toast.ignoredFrom_plural'], { names: fill(en['toast.namesMore'], { a: 'Ana', b: 'Beto', count: 2 }) }))
-      .toBe('Messages without a character from Ana, Beto and 2 more');
+    expect(fill(ptBR['toast.ignoredFrom_plural'], { count: 4, names: fill(ptBR['toast.namesMore'], { a: 'Ana', b: 'Beto', count: 2 }) }))
+      .toBe('4 mensagens sem pedidos de Ana, Beto e mais 2');
+    expect(fill(ptBR['toast.ignoredFrom'], { count: 1, names: 'Ana' })).toBe('1 mensagem sem pedido de Ana');
+    expect(fill(ptBR['toast.newRequestsOf_plural'], { count: 3, names: fill(ptBR['toast.namesThree'], { a: 'Huntress', b: 'Slasher', c: 'Lich' }) }))
+      .toBe('3 novos pedidos de Huntress, Slasher e Lich');
+    expect(fill(ptBR['toast.newRequestsOf'], { count: 1, names: 'Huntress' })).toBe('1 novo pedido de Huntress');
+    expect(fill(en['toast.ignoredFrom_plural'], { count: 4, names: fill(en['toast.namesMore'], { a: 'Ana', b: 'Beto', count: 2 }) }))
+      .toBe('4 messages without requests from Ana, Beto and 2 more');
+    expect(fill(en['toast.newRequestsOf_plural'], { count: 2, names: fill(en['toast.namesTwo'], { a: 'Huntress', b: 'Lich' }) }))
+      .toBe('2 new requests for Huntress and Lich');
     expect(fill(ptBR['toast.namesThree'], { a: 'Ana', b: 'Beto', c: 'Caio' })).toBe('Ana, Beto e Caio');
     expect(fill(en['toast.namesTwo'], { a: 'Ana', b: 'Beto' })).toBe('Ana and Beto');
   });

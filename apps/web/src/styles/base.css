@@ -409,28 +409,6 @@ a:hover {
     0 0 0 4px rgba(139, 92, 246, 0.55);
 }
 
-/* Request summary toast ("3 novos pedidos") — the newest arrivals one per line,
-   then muted "+N mais" / skipped-count lines. Lines clip instead of wrapping so
-   a long message can't grow the toast. */
-.toast-digest {
-  list-style: none;
-  margin: 2px 0 0;
-  padding: 0;
-}
-
-.toast-digest li {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-/* Wraps: this is the line that names who sent the skipped messages (at most three
-   names), and cut at the action button it read "Mensagens sem personagem de Bet…". */
-.toast-digest li.toast-digest-muted {
-  color: var(--text-secondary);
-  white-space: normal;
-}
-
 /* New-version toast — the Update button doubles as the auto-update countdown:
    a thin bar along its bottom edge depletes over the delay, then the app
    reloads itself. */
