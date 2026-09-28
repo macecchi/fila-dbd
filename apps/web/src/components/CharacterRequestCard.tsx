@@ -1,7 +1,7 @@
 import { memo, useMemo } from 'react';
 import type { Request } from '../types';
 import { useContextMenuActions } from '../context/ContextMenuContext';
-import { getKillerPortrait, tryLocalMatch } from '../data/characters';
+import { getCharacterPortrait, tryLocalMatch } from '../data/characters';
 import { CharacterAvatar } from './CharacterAvatar';
 import { SwapText } from './SwapText';
 import { useTranslation } from '../i18n';
@@ -46,7 +46,7 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
   const { channel } = useChannel();
   const { t } = useTranslation();
   const r = request;
-  const portrait = r.type === 'killer' && r.character ? getKillerPortrait(r.character) : null;
+  const portrait = (r.type === 'killer' || r.type === 'survivor') && r.character ? getCharacterPortrait(r.character, r.type) : null;
   const isIdentifying = r.needsIdentification || r.character === 'Identificando...' || r.character === 'Identifying...';
   const isValidating = r.validating;
   const charDisplay = isIdentifying ? t('card.identifying') :

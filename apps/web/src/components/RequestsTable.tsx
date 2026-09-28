@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useImperativeHandle, forwardRef, type ReactNode, type MouseEvent } from 'react';
 import { CharacterAvatar } from './CharacterAvatar';
-import { getKillerPortrait } from '../data/characters';
+import { getCharacterPortrait } from '../data/characters';
 import { useTranslation } from '../i18n';
 import { getLocale } from '../i18n';
 import type { Request } from '../types';
@@ -121,7 +121,7 @@ export const RequestsTable = forwardRef<RequestsTableHandle, Props>(function Req
         <tbody>
           {pageRows.map((r, localIdx) => {
             const globalIdx = pageOffset + localIdx;
-            const portrait = r.type === 'killer' && r.character ? getKillerPortrait(r.character) : undefined;
+            const portrait = (r.type === 'killer' || r.type === 'survivor') && r.character ? getCharacterPortrait(r.character, r.type) : undefined;
             const isBroadcaster = r.isBroadcaster || r.source === 'manual' || (
               r.source === 'chat' &&
               typeof r.donor === 'string' &&

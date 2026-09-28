@@ -13,7 +13,7 @@ export function getAllCharacterNames(): CharacterOption[] {
     names.push({ name: char.name, type: 'killer', portrait: char.portrait, aliases: char.aliases });
   }
   for (const char of CHARACTERS.survivors) {
-    names.push({ name: char.name, type: 'survivor', aliases: char.aliases });
+    names.push({ name: char.name, type: 'survivor', portrait: char.portrait, aliases: char.aliases });
   }
   return names;
 }

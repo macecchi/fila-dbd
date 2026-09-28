@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Request } from '../types';
 import { useChannel } from '../store';
 import { useTranslation, getLocale } from '../i18n';
-import { getKillerPortrait } from '../data/characters';
+import { getCharacterPortrait } from '../data/characters';
 import { CharacterAvatar } from './CharacterAvatar';
 import { formatRelativeTime } from '../utils/helpers';
 
@@ -26,7 +26,7 @@ function doneTime(r: Request): number {
 }
 
 function portraitFor(r: Request) {
-  return r.type === 'killer' && r.character ? getKillerPortrait(r.character) ?? undefined : undefined;
+  return (r.type === 'killer' || r.type === 'survivor') && r.character ? getCharacterPortrait(r.character, r.type) : undefined;
 }
 
 export function RecentPlays() {

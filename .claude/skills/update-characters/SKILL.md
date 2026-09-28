@@ -1,6 +1,6 @@
 ---
 name: update-characters
-description: Check the Dead by Daylight wiki for new playable characters (released or on the PTB) and add any missing ones to the character base, including killer portraits. Use when asked to update/sync the character database or check for new DBD characters.
+description: Check the Dead by Daylight wiki for new playable characters (released or on the PTB) and add any missing ones to the character base, including their portraits. Use when asked to update/sync the character database or check for new DBD characters.
 ---
 
 # Update DBD character base from the wiki
@@ -19,17 +19,17 @@ Adds newly announced Dead by Daylight characters to `packages/shared/src/charact
 For each new character, follow the existing entry style:
 
 - **Killers**: `{ name, aliases, portrait }`. Aliases should include: the official PT-BR localized name (the userbase is Brazilian — check the wiki or use the obvious translation, e.g. Judgment → "Julgamento"), common community nicknames, licensed-character real names (e.g. "Jason Voorhees"), and frequent misspellings (e.g. "Judgement"). Avoid aliases that are everyday words in English or Portuguese chat (e.g. "Art", "Campeão") — matching is word-boundary based and such aliases cause false positives on ordinary messages.
-- **Survivors**: `{ name, aliases }`. Aliases are usually empty for originals; add well-known alternate names for licensed characters (e.g. Eleven → "Jane Hopper").
+- **Survivors**: `{ name, aliases, portrait }`. Aliases are usually empty for originals; add well-known alternate names for licensed characters (e.g. Eleven → "Jane Hopper").
 - Append at the end of the respective array, preserving release order.
 
-## 3. Killer portrait
+## 3. Portraits (killers AND survivors)
 
-1. On the wiki, the killer page references a portrait file like `K##_TheName_Portrait.png` (the `K##` index continues the sequence — check the highest existing file in `apps/web/public/images/portraits/`, and it must match the wiki's index).
-2. Download the original: `https://deadbydaylight.wiki.gg/images/K##_TheName_Portrait.png?format=original` (verify it's a real PNG with `file`).
-3. Convert to the repo format (200×200 webp): `cwebp -quiet -resize 200 200 -q 85 in.png -o apps/web/public/images/portraits/K##_TheName.webp` (note: no `_Portrait` suffix in the repo filename).
-4. Reference it in the entry as `/images/portraits/K##_TheName.webp`.
+Every character has a portrait; a test (`apps/web/src/data/characters.test.ts`) fails if an entry lacks one or its file is missing.
 
-Survivors have no portraits in this app.
+1. On the wiki, the character page references a portrait file like `K##_TheName_Portrait.png` / `S##_FirstLast_Portrait.png` (the index continues the sequence — check the highest existing file in `apps/web/public/images/portraits/`, and it must match the wiki's index; probe with a HEAD request if unsure).
+2. Download the original: `https://deadbydaylight.wiki.gg/images/<wiki filename>?format=original` (verify it's a real PNG with `file`).
+3. Convert to the repo format (200×200 webp): `cwebp -quiet -resize 200 200 -q 85 in.png -o apps/web/public/images/portraits/<Name>.webp` (note: no `_Portrait` suffix in the repo filename).
+4. Reference it in the entry as `portrait: "/images/portraits/<Name>.webp"`.
 
 ## 4. Verify
 
@@ -42,7 +42,7 @@ bun run typecheck
 Sanity-check matching (from `packages/shared/`):
 
 ```bash
-bun -e "import {tryLocalMatch, getKillerPortrait} from './src/characters.ts'; console.log(tryLocalMatch('<new name>'), tryLocalMatch('<pt-br alias>'), getKillerPortrait('<new killer name>'))"
+bun -e "import {tryLocalMatch, getCharacterPortrait} from './src/characters.ts'; console.log(tryLocalMatch('<new name>'), tryLocalMatch('<pt-br alias>'), getCharacterPortrait('<new name>'))"
 ```
 
 If running locally with a browser available, also confirm the webp serves/renders via the `web` launch config.

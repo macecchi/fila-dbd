@@ -3,7 +3,7 @@ import { useAuth } from '../store';
 import { useTranslation } from '../i18n';
 import type { TranslationKeys } from '../i18n/locales/pt-BR';
 import { formatRelativeTime, handleLinkClick, navigate } from '../utils/helpers';
-import { getKillerPortrait } from '../data/characters';
+import { getCharacterPortrait } from '../data/characters';
 import { CharacterAvatar } from './CharacterAvatar';
 import { SyncSweep } from './SyncSweep';
 import { loadCachedChannels, saveCachedChannels, type ActiveRoom, type RecentRoom } from '../store/channelsCache';
@@ -438,7 +438,7 @@ const QUEUE_EXAMPLES: QueueExample[] = [
   { character: 'Trapper', type: 'killer', donor: 'carol', source: 'donation', amount: 'R$ 30', messageKey: 'landing.mockupMessage1', buildKey: 'landing.mockupBuildLine' },
   { character: 'Nurse', type: 'killer', donor: 'mateus', source: 'donation', amount: 'R$ 10', messageKey: 'landing.mockupMessage2' },
   { character: 'Huntress', type: 'killer', donor: 'bia', source: 'resub', messageKey: 'landing.mockupMessage3' },
-  { character: 'Dwight', type: 'survivor', donor: 'rafa', source: 'chat', subTier: 1, messageKey: 'landing.mockupMessage4' },
+  { character: 'Dwight Fairfield', type: 'survivor', donor: 'rafa', source: 'chat', subTier: 1, messageKey: 'landing.mockupMessage4' },
   { character: 'Wraith', type: 'killer', donor: 'lucas', source: 'donation', amount: 'R$ 15', messageKey: 'landing.mockupMessage5', buildKey: 'landing.mockupBuildLine2' },
   { character: 'Clown', type: 'killer', donor: 'duda', source: 'donation', amount: 'R$ 5', messageKey: 'landing.mockupMessage6' },
   { character: 'Meg', type: 'survivor', donor: 'theo', source: 'chat', subTier: 2, messageKey: 'landing.mockupMessage7' },
@@ -469,7 +469,7 @@ interface MockCardProps {
 
 function MockCard({ example, position, entering, exiting, onDone }: MockCardProps) {
   const { t } = useTranslation();
-  const portrait = example.type === 'killer' ? getKillerPortrait(example.character) : undefined;
+  const portrait = getCharacterPortrait(example.character, example.type);
   const build = example.buildKey ? t(example.buildKey) : undefined;
   const badge = badgeFor(example);
   const className = [
