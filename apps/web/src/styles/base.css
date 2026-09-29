@@ -47,6 +47,9 @@
   --bg-elevated: #0e0f10;
   --bg-card: #222;
   --bg-card-hover: #111;
+  --page-backdrop:
+    linear-gradient(rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.85)),
+    url('/images/bg.webp');
 
   /* Borders */
   --border: #33333375;
@@ -137,9 +140,7 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background-color: var(--bg);
-  background-image:
-    linear-gradient(rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.85)),
-    url('/images/bg.webp');
+  background-image: var(--page-backdrop);
   background-position: center;
   background-repeat: no-repeat;
   background-size: cover;

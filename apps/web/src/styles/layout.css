@@ -246,33 +246,41 @@ a.brand {
   }
 }
 
-/* Mask the 1rem gap above the sticky queue header with the page bg color
-   so the scrolling list doesn't bleed through. Only engaged once the page
-   actually scrolls — at rest the natural body bg shows through. */
-@property --queue-mask-alpha {
-  syntax: "<number>";
-  inherits: false;
-  initial-value: 0;
-}
-
-@keyframes queue-sticky-mask-engage {
-  0%, 0.5% { --queue-mask-alpha: 0; }
-  3%, 100% { --queue-mask-alpha: 1; }
-}
-
-@supports (animation-timeline: scroll()) {
-  @media (min-width: 481px) {
-    /* Animated on the header itself, the only consumer, with a non-inherited
-       property. Driven from `.app` with `inherits: true`, every scroll frame
-       re-resolved style for the whole app subtree. */
+/* The 1rem gap above the stuck queue header must not show the list scrolling under
+   it. Rather than paint a colour over it (the page backdrop is a textured image, so
+   any solid reads as a bar), a viewport-pinned copy of the backdrop, clipped to that
+   strip, covers it while the header is stuck. No animation, and nothing is painted
+   until then. Without scroll-state queries the header sticks flush to the top instead. */
+@media (min-width: 481px) {
+  @supports (container-type: scroll-state) {
     .grid > .panel-surface > .panel-header {
-      animation: queue-sticky-mask-engage linear;
-      animation-timeline: scroll(root block);
-      box-shadow:
-        0 -1rem 0 rgb(0 0 0 / var(--queue-mask-alpha)),
-        inset 0 1px 0 rgba(255, 255, 255, 0.06),
-        inset 1px 0 0 rgba(255, 255, 255, 0.025),
-        inset -1px 0 0 rgba(255, 255, 255, 0.025);
+      container-type: scroll-state;
+    }
+
+    .grid > .panel-surface > .panel-header::before {
+      content: '';
+      display: none;
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-color: var(--bg);
+      background-image: var(--page-backdrop);
+      background-position: center;
+      background-repeat: no-repeat;
+      background-size: cover;
+      clip-path: inset(0 0 calc(100% - 1rem) 0);
+    }
+
+    @container scroll-state(stuck: top) {
+      .grid > .panel-surface > .panel-header::before {
+        display: block;
+      }
+    }
+  }
+
+  @supports not (container-type: scroll-state) {
+    .grid > .panel-surface > .panel-header {
+      top: 0;
     }
   }
 }
