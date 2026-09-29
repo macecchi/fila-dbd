@@ -324,6 +324,9 @@ the low bits of the hash away. Ordering comes from `position`, never from the ID
   the requests store on boot so the queue paints before PartyKit `sync-full`, which then
   replaces it (authoritative). Versioned + defensively parsed (`store/queueCache.ts`); bump the
   version to invalidate on a shape change. Never authoritative — DO remains source of truth.
+- `fila-dbd-sidebar-hidden-v1` - set to `'1'` when the streamer hides the settings side column
+  (`ChannelApp`; the queue takes the full width, a button in the queue header brings it back).
+  Per-browser UI preference; absent = shown.
 - `fila-dbd-live-notif-disabled-v1` - set to `'1'` when the streamer turns off the
   "Live notifications" toggle (Settings → Behavior); blocks the Web Push auto-subscribe in
   `services/push.ts` on that browser (turning it off also unsubscribes locally + server-side).

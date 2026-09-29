@@ -154,8 +154,13 @@ a.brand {
   align-self: start;
 }
 
-.grid:not(:has(.sidebar)) {
+.grid:not(:has(.sidebar)),
+.grid:has(> .sidebar.collapsed) {
   grid-template-columns: minmax(0, 1fr);
+}
+
+.sidebar.collapsed {
+  display: none;
 }
 
 @media (max-width: 800px) {
@@ -165,6 +170,15 @@ a.brand {
 
   .sidebar {
     position: static;
+  }
+
+  .sidebar.collapsed {
+    display: flex;
+  }
+
+  .sidebar .sidebar-collapse-btn,
+  .panel-actions .sidebar-show-btn {
+    display: none;
   }
 
   .header {
@@ -179,7 +193,8 @@ a.brand {
 }
 
 @media (max-width: 600px) {
-  .sidebar {
+  .sidebar,
+  .sidebar.collapsed {
     display: none;
   }
 }

@@ -98,6 +98,8 @@ const ptBR = {
   'extras.build.name': 'Pedidos com build',
   'extras.build.desc': 'Donates podem incluir uma build no pedido.',
   'settings.title': 'Configurações',
+  'settings.hide': 'Ocultar configurações',
+  'settings.show': 'Mostrar configurações',
   'settings.section.sources': 'Fontes',
   'settings.section.order': 'Ordenação',
   'settings.section.behavior': 'Comportamento',

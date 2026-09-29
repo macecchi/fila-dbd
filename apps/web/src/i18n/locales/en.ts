@@ -100,6 +100,8 @@ const en: TranslationKeys = {
   'extras.build.name': 'Build requests',
   'extras.build.desc': 'Donations can include a build with their request.',
   'settings.title': 'Settings',
+  'settings.hide': 'Hide settings',
+  'settings.show': 'Show settings',
   'settings.section.sources': 'Sources',
   'settings.section.order': 'Order',
   'settings.section.behavior': 'Behavior',

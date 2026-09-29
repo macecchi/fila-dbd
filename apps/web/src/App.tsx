@@ -113,6 +113,16 @@ function QueueSyncSweep() {
   return <SyncSweep active={!partySynced && (state === 'open' || state === 'connecting')} className="panel-header-sync" />;
 }
 
+const SIDEBAR_HIDDEN_KEY = 'fila-dbd-sidebar-hidden-v1';
+
+function readSidebarHidden() {
+  try {
+    return localStorage.getItem(SIDEBAR_HIDDEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 function ChannelApp() {
   const { t, locale, setLocale } = useTranslation();
   const { channel, useRequests, useSources, useChannelInfo, canEditQueue } = useChannel();
@@ -120,6 +130,14 @@ function ChannelApp() {
   const update = useRequests((s) => s.update);
   const setAll = useRequests((s) => s.setAll);
   const [manualOpen, setManualOpen] = useState(false);
+  const [sidebarHidden, setSidebarHidden] = useState(readSidebarHidden);
+  const setSidebar = useCallback((hidden: boolean) => {
+    setSidebarHidden(hidden);
+    try {
+      if (hidden) localStorage.setItem(SIDEBAR_HIDDEN_KEY, '1');
+      else localStorage.removeItem(SIDEBAR_HIDDEN_KEY);
+    } catch { /* storage unavailable */ }
+  }, []);
   const [reviewOpen, setReviewOpen] = useState(false);
   const openReview = useCallback(() => setReviewOpen(true), []);
 
@@ -369,6 +387,14 @@ function ChannelApp() {
                       <path d="M3 9h18M9 3v18" />
                     </svg>
                   </button>
+                  {sidebarHidden && !readOnly && (
+                    <button className="btn btn-ghost btn-small btn-small-icon sidebar-show-btn" onClick={() => setSidebar(false)} title={t('settings.show')} aria-label={t('settings.show')}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                        <circle cx="12" cy="12" r="3" />
+                        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H2a2 2 0 010-4h.09A1.65 1.65 0 003.6 8a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H8a1.65 1.65 0 001-1.51V2a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V8a1.65 1.65 0 001.51 1H22a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
               }
             >
@@ -382,8 +408,8 @@ function ChannelApp() {
           </Panel>
 
           {!readOnly && (
-            <aside className="sidebar">
-              <SettingsPanel onRecover={() => setVodSelectOpen(true)} onReview={() => setReviewOpen(true)} />
+            <aside className={`sidebar${sidebarHidden ? ' collapsed' : ''}`}>
+              <SettingsPanel onCollapse={() => setSidebar(true)} onRecover={() => setVodSelectOpen(true)} onReview={() => setReviewOpen(true)} />
             </aside>
           )}
         </main>
