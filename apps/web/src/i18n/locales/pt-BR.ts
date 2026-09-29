@@ -148,7 +148,9 @@ const ptBR = {
 
   // Character request list — empty states
   'empty.owner.title': 'Tudo pronto!',
-  'empty.owner.desc': 'Sua fila está conectada e aguardando pedidos. Compartilhe o link do seu canal para os viewers começarem a pedir.',
+  'empty.owner.desc': 'Sua fila está aberta e aguardando pedidos por {sources}.',
+  'empty.owner.descNoSources': 'Sua fila está aberta e aguardando pedidos.',
+  'empty.owner.manual': 'Você também pode adicionar pedidos manualmente no botão + acima.',
   'empty.viewer.title': 'Faça seu pedido!',
   'empty.viewer.desc': 'A fila está aberta e aguardando. Peça seu personagem por:',
   'empty.viewer.donation': 'Donate a partir de R$ {amount}',

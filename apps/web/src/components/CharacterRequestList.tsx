@@ -117,7 +117,7 @@ export function CharacterRequestList() {
     toggleDone(id);
   }, [toggleDone, readOnly]);
 
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
 
   const rerunExtraction = useCallback(async (id: number) => {
     const request = requests.find(r => r.id === id);
@@ -218,10 +218,17 @@ export function CharacterRequestList() {
       );
     }
     if (isOwnChannel) {
+      const sourceNames = (['donation', 'chat', 'resub'] as const)
+        .filter((k) => sourcesEnabled[k])
+        .map((k) => t(`sources.${k}`).toLowerCase());
+      const sources = new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' }).format(sourceNames);
       return (
         <div className="empty queue-empty">
           <h3 className="queue-empty-title">{t('empty.owner.title')}</h3>
-          <p className="queue-empty-desc">{t('empty.owner.desc')}</p>
+          <p className="queue-empty-desc">
+            {sourceNames.length > 0 ? t('empty.owner.desc', { sources }) : t('empty.owner.descNoSources')}{' '}
+            {t('empty.owner.manual')}
+          </p>
         </div>
       );
     }

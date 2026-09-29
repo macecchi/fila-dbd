@@ -150,7 +150,9 @@ const en: TranslationKeys = {
 
   // Character request list — empty states
   'empty.owner.title': 'All set!',
-  'empty.owner.desc': 'Your queue is connected and waiting for requests. Share your channel link so viewers can start requesting.',
+  'empty.owner.desc': 'Your queue is open and waiting for requests via {sources}.',
+  'empty.owner.descNoSources': 'Your queue is open and waiting for requests.',
+  'empty.owner.manual': 'You can also add requests manually with the + button above.',
   'empty.viewer.title': 'Make your request!',
   'empty.viewer.desc': 'The queue is open and waiting. Request your character via:',
   'empty.viewer.donation': 'A donation of R$ {amount} or more',
