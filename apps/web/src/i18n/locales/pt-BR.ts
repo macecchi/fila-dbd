@@ -199,6 +199,7 @@ const ptBR = {
   'menu.startQueue': 'Começar minha fila',
   'menu.goToQueue': 'Ir para minha fila',
   'menu.helpFaq': 'Ajuda / FAQ',
+  'menu.discord': 'Discord',
 
   // Manual entry
   'manual.title': 'Adicionar Pedido Manual',

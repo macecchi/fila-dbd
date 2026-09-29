@@ -201,6 +201,7 @@ const en: TranslationKeys = {
   'menu.startQueue': 'Start my queue',
   'menu.goToQueue': 'Go to my queue',
   'menu.helpFaq': 'Help / FAQ',
+  'menu.discord': 'Discord',
 
   // Manual entry
   'manual.title': 'Add Manual Request',

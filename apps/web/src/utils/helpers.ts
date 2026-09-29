@@ -45,11 +45,18 @@ export function scrollToTop() {
   document.body.scrollTop = 0;
 }
 
+function scrollToHash(hash: string, triesLeft = 20) {
+  const el = document.getElementById(decodeURIComponent(hash.slice(1)));
+  if (el) el.scrollIntoView();
+  else if (triesLeft > 0) requestAnimationFrame(() => scrollToHash(hash, triesLeft - 1));
+}
+
 export function navigate(path: string) {
   if (path === window.location.pathname) return;
   window.history.pushState(null, '', path);
   scrollToTop();
   window.dispatchEvent(new PopStateEvent('popstate'));
+  if (window.location.hash.length > 1) scrollToHash(window.location.hash);
 }
 
 export function handleLinkClick(e: React.MouseEvent<HTMLAnchorElement>) {
