@@ -34,13 +34,11 @@ export function ChannelHeader() {
   const [copied, setCopied] = useState(false);
   const shareUrl = `${window.location.origin}${import.meta.env.BASE_URL}${channel}`;
 
-  const handleCopyLink = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
+  const handleCopyLink = useCallback(() => {
     navigator.clipboard.writeText(shareUrl)
       .then(() => {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
-        toast.success(t('toast.linkCopied'));
       })
       .catch(() => toast.error(t('toast.error')));
   }, [shareUrl, t]);
@@ -101,10 +99,10 @@ export function ChannelHeader() {
               wide as the wider of them and switching never resizes it. Held until it's known
               which one it is: a closed queue reads "last used", which needs the room info. */}
           <span className={`channel-header-sub${queue.state === 'unknown' || (queue.state === 'closed' && !roomInfoLoaded) ? ' is-pending' : ''}`}>
-            <a href={shareUrl} className={`channel-header-share${showLastUsed ? ' is-hidden' : ''}`} onClick={handleCopyLink}>
+            <button type="button" className={`channel-header-share${showLastUsed ? ' is-hidden' : ''}`} onClick={handleCopyLink}>
               {new URL(shareUrl).href.replace(/https?:\/\//, '')}
               <span className="channel-header-share-hint">{copied ? t('header.copied') : t('header.clickToCopy')}</span>
-            </a>
+            </button>
             {lastActive && (
               <span className={showLastUsed ? undefined : 'is-hidden'}>{t('header.lastUsed', { time: formatRelativeTime(lastActive) })}</span>
             )}

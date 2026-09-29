@@ -286,7 +286,6 @@ const ptBR = {
   'toast.queueFull': 'Fila cheia ({max})',
   'toast.queueFullDesc': 'Marque pedidos como feitos para liberar espaço.',
   'toast.error': 'Erro',
-  'toast.linkCopied': 'Link copiado',
   'toast.sourcesUpdated': 'Configurações da fila atualizadas',
   'toast.sourcesAccepting': 'Aceitando: {sources}.',
   'toast.sourcesDonations': 'donates (R$ {amount}+)',

@@ -222,6 +222,12 @@ a.channel-header-live:hover {
 .channel-header-share {
   color: var(--text-muted);
   position: relative;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 /* Out of flow on purpose: revealing the hint used to widen the profile column,

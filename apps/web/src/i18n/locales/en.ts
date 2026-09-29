@@ -288,7 +288,6 @@ const en: TranslationKeys = {
   'toast.queueFull': 'Queue full ({max})',
   'toast.queueFullDesc': 'Mark requests as done to free up space.',
   'toast.error': 'Error',
-  'toast.linkCopied': 'Link copied to clipboard',
   'toast.sourcesUpdated': 'Queue settings updated',
   'toast.sourcesAccepting': 'Now accepting: {sources}.',
   'toast.sourcesDonations': 'donations (R$ {amount}+)',
