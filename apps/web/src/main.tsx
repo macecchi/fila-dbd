@@ -7,6 +7,7 @@ import { initAnalytics, identify, resetIdentity } from './services/analytics';
 import { useAuth } from './store/auth';
 
 const UPDATE_CHECK_BACKSTOP = 30 * 60 * 1000; // 30-min periodic fallback
+const UPDATE_RETRY_DELAY = 15 * 1000;
 
 // Single reload point for SW updates — everything else just posts SKIP_WAITING
 // and waits for this event. The `refreshing` flag dedupes across tabs.
@@ -26,7 +27,15 @@ registerSW({
     // won't discover updates on its own. Re-check on tab focus, reconnect,
     // and a periodic backstop.
     if (!registration) return;
-    const check = () => { if (navigator.onLine) registration.update(); };
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const check = () => {
+      if (!navigator.onLine) return;
+      clearTimeout(retry);
+      registration.update().catch(() => {
+        // Only a second failure in a row is reported (unhandled → PostHog); a blip on wake just retries.
+        retry = setTimeout(() => { if (navigator.onLine) registration.update(); }, UPDATE_RETRY_DELAY);
+      });
+    };
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') check();
     });
