@@ -22,15 +22,27 @@ if ('serviceWorker' in navigator) {
 
 registerSW({
   immediate: true,
-  onRegisteredSW(_swScriptUrl, registration) {
+  onRegisteredSW(swScriptUrl, initialRegistration) {
     // SPA navigation never re-fetches sw.js, so a tab left open for hours
     // won't discover updates on its own. Re-check on tab focus, reconnect,
     // and a periodic backstop.
-    if (!registration) return;
+    if (!initialRegistration) return;
+    let registration = initialRegistration;
     let retry: ReturnType<typeof setTimeout> | undefined;
     const check = () => {
       if (!navigator.onLine) return;
       clearTimeout(retry);
+      // The browser can drop the registration under an open tab (Safari evicting
+      // site data, the user clearing it, an unregister from another tab). The
+      // object we hold then has no worker left, and update() rejects with
+      // InvalidStateError ("newestWorker is null") on every check, forever.
+      // Register again instead: sw.ts never calls clients.claim(), so the fresh
+      // worker only takes over on the next load and this tab isn't reloaded.
+      if (!registration.installing && !registration.waiting && !registration.active) {
+        navigator.serviceWorker.register(swScriptUrl, { scope: registration.scope })
+          .then((fresh) => { registration = fresh; });
+        return;
+      }
       registration.update().catch(() => {
         // Only a second failure in a row is reported (unhandled → PostHog); a blip on wake just retries.
         retry = setTimeout(() => { if (navigator.onLine) registration.update(); }, UPDATE_RETRY_DELAY);
