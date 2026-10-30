@@ -154,18 +154,6 @@ describe('room transport', () => {
     expect(messages).toEqual([expect.objectContaining({ type: 'server-error', code: 'version_mismatch' })]);
   });
 
-  it('checks back sooner while the Worker identifies a request', async () => {
-    handler = () => full(1, [{ id: 7, done: false, needsIdentification: true }]);
-    connect();
-    await flush();
-    await vi.advanceTimersByTimeAsync(1_500);
-    expect(polls()).toHaveLength(2);
-    handler = () => full(2, [{ id: 7, done: false, needsIdentification: false }]);
-    await vi.advanceTimersByTimeAsync(1_500);
-    await vi.advanceTimersByTimeAsync(1_500);
-    expect(polls()).toHaveLength(3);
-  });
-
   it('stops for good once disconnected', async () => {
     handler = () => full(1);
     const { messages } = connect();

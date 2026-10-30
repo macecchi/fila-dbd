@@ -317,7 +317,7 @@ roomsSync.get("/:roomId/state", async (c) => {
       ]);
       row = await loadRoom(db, roomId);
       // The heartbeat is also when what an add left unidentified gets retried.
-      if (row && !row.closed_by_owner) c.executionCtx.waitUntil(identifyPending(c.env, roomId, user!));
+      if (row && !row.closed_by_owner) c.executionCtx.waitUntil(identifyPending(c.env, c.executionCtx, roomId, user!));
     }
   }
 
@@ -444,7 +444,18 @@ export async function applyOp(
       const version = (results[3].results?.[0] as { version: number } | undefined)?.version;
       console.log(`${tag} add-request #${req.id} "${req.character}" (${req.source})`);
       // Only the inserter identifies it, so the LLM runs once however many windows sent it.
-      if (req.needsIdentification) ctx.waitUntil(identifyRequest(env, roomId, req.id, user));
+      // Synchronously: the answer goes back as a full sync (a donation may have split into
+      // several requests), and while this window waits the Worker has no time limit.
+      if (req.needsIdentification) {
+        const identified = await identifyRequest(env, ctx, roomId, req.id, user);
+        if (identified !== null) {
+          const room = await loadRoom(db, roomId);
+          const sync: PartyMessage = {
+            type: "sync-full", requests: await loadQueue(db, roomId, Date.now()), sources: roomSources(room), channel: channelState(room, Date.now()),
+          };
+          return { version: identified, messages: [msg, sync] };
+        }
+      }
       const notice = await confirmInChat(env, ctx, roomId, sources, req, next);
       return { version, messages: [msg, ...notice] };
     }
@@ -590,8 +601,8 @@ async function confirmInChat(
 
 // Identification. A request that needs the LLM (`needs_identification = 1`: a donation,
 // resub or chat message the local match couldn't settle) is identified here, never by a
-// client. The add that inserted it starts the call after the response; the streamer's
-// heartbeats retry whatever that left behind (the Worker was cut off, Gemini failed).
+// client. The add that inserted it runs the call before answering; the streamer's
+// heartbeats retry whatever that left behind (the window went away, Gemini failed).
 // `identifying_at` is the claim, so one call runs per row at a time.
 //
 // A donation that pays for several requests ("2 de trapper e 1 de nurse") is one row
@@ -602,17 +613,18 @@ const IDENTIFYING = new Set(["Identificando...", "Identifying..."]);
 type Identified = Pick<SerializedRequest, "character" | "type" | "matchedTerm" | "extras">;
 
 /** Identifies the requests the heartbeat finds waiting: never started, failed, or abandoned. */
-export async function identifyPending(env: RoomsEnv, roomId: string, user: JwtPayload, now = Date.now()): Promise<void> {
+export async function identifyPending(env: RoomsEnv, ctx: Ctx, roomId: string, user: JwtPayload, now = Date.now()): Promise<void> {
   const { results } = await env.DB.prepare(
     `SELECT id FROM requests
      WHERE room_id = ? AND needs_identification = 1 AND done = 0 AND deleted_at IS NULL
        AND identify_attempts < ? AND (identifying_at IS NULL OR identifying_at < ?)
      ORDER BY position LIMIT 5`
   ).bind(roomId, IDENTIFY_MAX_ATTEMPTS, now - IDENTIFY_TTL_MS).all<{ id: number }>();
-  await Promise.all((results ?? []).map((r) => identifyRequest(env, roomId, r.id, user)));
+  await Promise.all((results ?? []).map((r) => identifyRequest(env, ctx, roomId, r.id, user)));
 }
 
-export async function identifyRequest(env: RoomsEnv, roomId: string, id: number, user: JwtPayload): Promise<void> {
+/** The room's version once this request was identified, or null when nothing was written. */
+export async function identifyRequest(env: RoomsEnv, ctx: Ctx, roomId: string, id: number, user: JwtPayload): Promise<number | null> {
   const db = env.DB;
   const tag = `[${roomId}]`;
   const claim = Date.now();
@@ -622,7 +634,7 @@ export async function identifyRequest(env: RoomsEnv, roomId: string, id: number,
        AND identify_attempts < ?4 AND (identifying_at IS NULL OR identifying_at < ?5)
      RETURNING *`
   ).bind(claim, roomId, id, IDENTIFY_MAX_ATTEMPTS, claim - IDENTIFY_TTL_MS).first();
-  if (!row) return;
+  if (!row) return null;
   const req = rowToRequest(row, roomId);
   const lastAttempt = (row.identify_attempts as number) >= IDENTIFY_MAX_ATTEMPTS;
   const sources = roomSources(await loadRoom(db, roomId));
@@ -644,7 +656,7 @@ export async function identifyRequest(env: RoomsEnv, roomId: string, id: number,
       if (!lastAttempt) {
         // Free the claim; the next heartbeat retries.
         await db.prepare(`UPDATE requests SET identifying_at = NULL WHERE ${ours}`).bind(roomId, id, claim).run();
-        return;
+        return null;
       }
     }
   }
@@ -653,12 +665,12 @@ export async function identifyRequest(env: RoomsEnv, roomId: string, id: number,
     // Out of attempts (or calls): keep the local guess if there was one, and let the
     // streamer sort it out.
     const leftover: Identified = { character: IDENTIFYING.has(req.character) ? "" : req.character, type: req.type };
-    await db.batch([
+    const done = await db.batch([
       db.prepare(`UPDATE requests SET character = ?, needs_identification = 0, identifying_at = NULL WHERE ${ours}`)
         .bind(leftover.character, roomId, id, claim),
       bumpVersion(db, roomId),
     ]);
-    return;
+    return versionOf(done[1]);
   }
 
   const identified: Identified[] = (found.length ? found : [{ character: "", type: "none" as const }]).slice(0, maxCount).map((c) => {
@@ -692,14 +704,15 @@ export async function identifyRequest(env: RoomsEnv, roomId: string, id: number,
     writeOrder(db, roomId, order),
     bumpVersion(db, roomId),
   ]);
-  if (!results[0].results?.length) return; // edited, played or deleted meanwhile
+  const version = versionOf(results[results.length - 1]);
+  if (!results[0].results?.length) return version; // edited, played or deleted meanwhile
   const added = split.filter((_, i) => results[i + 1].results?.length);
   if (added.length < split.length) console.warn(`${tag} #${id}: ${split.length - added.length} split requests dropped (pending cap)`);
   console.log(`${tag} identified #${id} → ${[first, ...added].map((r) => r.character || r.type).join(", ")}`);
 
   const after = await loadPending(db, roomId);
-  const confirmations: Promise<unknown>[] = [];
-  const collect = { waitUntil: (p: Promise<unknown>) => void confirmations.push(p) };
-  for (const r of [first, ...added]) await confirmInChat(env, collect, roomId, sources, r, after, false);
-  await Promise.all(confirmations);
+  for (const r of [first, ...added]) await confirmInChat(env, ctx, roomId, sources, r, after, false);
+  return version;
 }
+
+const versionOf = (result: D1Result) => (result.results?.[0] as { version: number } | undefined)?.version ?? null;

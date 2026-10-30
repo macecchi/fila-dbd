@@ -287,11 +287,16 @@ describe('identification', () => {
     }));
     await op({ type: 'update-sources', sources: { minDonation: 5 } as never });
     const donation = unidentified({ source: 'donation', amount: 'R$ 15', amountVal: 15, message: '2 de trapper e 1 de nurse' });
-    await op({ type: 'add-request', request: donation });
+    const added = op({ type: 'add-request', request: donation });
+    await vi.waitFor(() => expect(answer).toBeDefined());
     const later = req();
     await op({ type: 'add-request', request: later });
     answer();
-    await settle();
+    // The add answers once identified, with the whole queue as it now stands.
+    const { body } = await added;
+    expect(body.messages.map((m) => m.type)).toEqual(['add-request', 'sync-full']);
+    const sync = body.messages[1] as Extract<PartyMessage, { type: 'sync-full' }>;
+    expect(sync.requests.map((r) => r.character)).toEqual(['Trapper', 'Trapper', 'Nurse', 'Meg Thomas']);
     expect(vi.mocked(extractCharacters).mock.calls[0][2]).toBe(3);
     const q = await queue();
     expect(q.map((r) => r.character)).toEqual(['Trapper', 'Trapper', 'Nurse', 'Meg Thomas']);
@@ -330,8 +335,8 @@ describe('identification', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.mocked(extractCharacters).mockImplementationOnce(() => new Promise(() => {})); // never answers
     const r = unidentified();
-    await op({ type: 'add-request', request: r });
-    pending.length = 0;
+    void op({ type: 'add-request', request: r }); // its window went away mid-call
+    await vi.waitFor(() => expect(extractCharacters).toHaveBeenCalledTimes(1));
     const t = await token();
     vi.setSystemTime(Date.now() + 31_000);
     await state('', t);
@@ -351,10 +356,11 @@ describe('identification', () => {
     }));
     await op({ type: 'update-sources', sources: { minDonation: 5 } as never });
     const donation = unidentified({ source: 'donation', amountVal: 10, message: 'trapper e nurse' });
-    await op({ type: 'add-request', request: donation });
+    const added = op({ type: 'add-request', request: donation });
+    await vi.waitFor(() => expect(answer).toBeDefined());
     await op({ type: 'delete-request', id: donation.id });
     answer();
-    await settle();
+    await added;
     expect(await queue()).toEqual([]);
   });
 });

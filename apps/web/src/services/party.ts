@@ -26,9 +26,6 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
 const POLL_OWNER_MS = 5_000;
 const POLL_VIEWER_MS = 10_000;
 const POLL_HIDDEN_MS = 30_000;
-// While the Worker identifies a request (an LLM call, a second or two), the streamer's
-// windows check back sooner so "Identificando..." doesn't linger a whole poll.
-const POLL_IDENTIFYING_MS = 1_500;
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 const MAX_BACKOFF_MS = 30_000;
 
@@ -69,8 +66,6 @@ interface Session {
   failures: number;
   timer: ReturnType<typeof setTimeout> | null;
   ircLive: boolean;
-  /** The queue has a request the Worker is still identifying. */
-  identifying: boolean;
   channel: BroadcastChannel | null;
 }
 
@@ -79,16 +74,11 @@ let session: Session | null = null;
 const pollDelay = (s: Session) => {
   if (s.failures > 0) return Math.min(MAX_BACKOFF_MS, 1_000 * 2 ** (s.failures - 1));
   if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return POLL_HIDDEN_MS;
-  if (!s.isOwner) return POLL_VIEWER_MS;
-  return s.identifying ? POLL_IDENTIFYING_MS : POLL_OWNER_MS;
+  return s.isOwner ? POLL_OWNER_MS : POLL_VIEWER_MS;
 };
-
-const awaitsIdentification = (requests: SerializedRequest[]) => requests.some((r) => r.needsIdentification && !r.done);
 
 function deliver(s: Session, msg: PartyMessage) {
   if (session !== s) return;
-  if (msg.type === 'sync-full') s.identifying = awaitsIdentification(msg.requests);
-  else if (msg.type === 'add-request' && msg.request.needsIdentification) s.identifying = true;
   observe(() => realtimeTelemetry.onMessage(msg));
   try {
     s.onMessage(msg);
@@ -213,8 +203,6 @@ async function flush(s: Session) {
       s.queue.shift();
     }
   }
-  // We just added something the Worker is identifying: don't wait out a full interval.
-  if (s.identifying && s.timer && s.failures === 0) schedule(s);
 }
 
 async function post(s: Session, msg: PartyMessage): Promise<OpResponse> {
@@ -271,7 +259,7 @@ export function connectParty(
     room, getToken, onMessage, onOpen, onClose, onError,
     isOwner: !!opts.isOwner,
     open: false, closed: false, version: null, writeVersion: 0, lastChannel: null,
-    inFlight: 0, queue: [], failures: 0, timer: null, ircLive: false, identifying: false,
+    inFlight: 0, queue: [], failures: 0, timer: null, ircLive: false,
     channel: typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(`fila-room:${room}`) : null,
   };
   if (s.channel) {

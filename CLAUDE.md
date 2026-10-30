@@ -109,12 +109,13 @@ D1, which was already the persistent store:
   insert, or a claim on the row like identification's.
 - ⚠️ **The Worker identifies requests, never a window.** A request the local match can't settle
   is added as `needsIdentification` ("Identificando..."), including a donation that pays for
-  several (`computeEntitlement`); the add that inserted it runs Gemini in `waitUntil`
-  (`identifyRequest` in `rooms.ts`), fills the row in and adds the rest of a multi-request
-  donation right after it (ids `splitRequestId`). The claim is `requests.identifying_at` (60s
-  takeover); the streamer's heartbeat (`identifyPending`) retries what's left — a cut-off
-  Worker, a Gemini error — up to `IDENTIFY_MAX_ATTEMPTS`, then leaves it unidentified. The
-  streamer's windows poll every 1.5s while something is identifying. `/api/extract-character`
+  several (`computeEntitlement`); the add that inserted it runs Gemini before answering
+  (`identifyRequest` in `rooms.ts`), fills the row in, adds the rest of a multi-request
+  donation right after it (ids `splitRequestId`) and answers with a `sync-full`. Only that
+  window waits (its later edits queue behind it, optimistically). The claim is
+  `requests.identifying_at` (60s takeover); the streamer's heartbeat (`identifyPending`, in
+  `waitUntil`) retries what's left — a window that went away mid-call, a Gemini error — up to
+  `IDENTIFY_MAX_ATTEMPTS`, then leaves it unidentified. `/api/extract-character`
   remains only for the manual tools (re-identify, the debug panel), which write through edits.
 
 Logs: plain `console.*`, exported with the rest of the Worker's (service
