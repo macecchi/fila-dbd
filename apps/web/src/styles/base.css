@@ -322,6 +322,15 @@ a:hover {
   color: var(--text-muted);
 }
 
+/* The toaster is portaled next to <body> (out of its mobile scroll-mask, App.tsx
+   `useToastLayer`),
+   so it no longer inherits body's text styles. */
+[data-sonner-toaster] {
+  font-family: 'DM Sans', 'DM Sans Fallback', -apple-system, sans-serif;
+  color: var(--text);
+  line-height: 1.5;
+}
+
 /* Sonner toast close button */
 [data-sonner-toast] [data-close-button] {
   background: var(--bg-card) !important;

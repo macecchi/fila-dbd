@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { ChannelHeader } from './components/ChannelHeader';
 import { HeaderMenu } from './components/HeaderMenu';
 import { CharacterRequestList } from './components/CharacterRequestList';
@@ -93,9 +94,23 @@ function readSidebarHidden() {
   }
 }
 
+/** A layer next to <body>, not inside it: on mobile `body` carries the `.scroll-mask`
+ *  fade, and a mask applies to every descendant, fixed ones included, so the toasts at
+ *  the bottom faded out with the page. (Portaling into <html> itself doesn't work:
+ *  React 19 redirects that to <body>.) */
+function useToastLayer() {
+  const [layer] = useState(() => document.createElement('div'));
+  useLayoutEffect(() => {
+    document.documentElement.appendChild(layer);
+    return () => layer.remove();
+  }, [layer]);
+  return layer;
+}
+
 function ChannelApp() {
   const { t, locale, setLocale } = useTranslation();
   const { channel, useRequests, useSources, useChannelInfo, canEditQueue } = useChannel();
+  const toastLayer = useToastLayer();
   const requests = useRequests((s) => s.requests);
   const update = useRequests((s) => s.update);
   const setAll = useRequests((s) => s.setAll);
@@ -455,7 +470,7 @@ function ChannelApp() {
         )}
         {(import.meta.env.DEV || isDebugMode()) && <DebugDevTools />}
       </Suspense>
-      <Toaster
+      {createPortal(<Toaster
         theme="dark"
         position="bottom-center"
         closeButton
@@ -473,7 +488,7 @@ function ChannelApp() {
             fontSize: '0.85rem',
           },
         }}
-      />
+      />, toastLayer)}
     </>
   );
 }
