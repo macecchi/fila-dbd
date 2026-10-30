@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { RoomLogger, formatLogBody, scrubLogText, SERVICE_NAME } from './logs';
+import { RoomLogger, formatLogBody, scrubLogText, scrubbedConsole, SERVICE_NAME } from './logs';
 
 const JWT = 'eyJhbGciOiJIUzI1NiJ9.eyJsb2dpbiI6InN0cmVhbWVyIn0.c2lnbmF0dXJlLWJ5dGVz';
 
@@ -121,5 +121,15 @@ describe('log body', () => {
 
   it('truncates huge lines', () => {
     expect(formatLogBody(['x'.repeat(20_000)]).length).toBeLessThan(8_100);
+  });
+});
+
+describe('scrubbedConsole', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('prints the scrubbed line, for hosts that export the console themselves', () => {
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    scrubbedConsole.warn('[room] socket', 'wss://h/parties/main/room?token=abc&v=1', { auth: 'Bearer secret123' });
+    expect(spy).toHaveBeenCalledWith('[room] socket wss://h/parties/main/room?token=[redacted]&v=1 {"auth":"Bearer [redacted]"}');
   });
 });

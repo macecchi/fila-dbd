@@ -67,6 +67,19 @@ export function formatLogBody(args: unknown[]): string {
   return body.length > MAX_BODY ? `${body.slice(0, MAX_BODY)}…[truncated]` : body;
 }
 
+/**
+ * A console whose lines are scrubbed (and bounded) like the OTLP bodies. For a host that
+ * exports console output itself (the Worker's Logs export): there the console line *is* what
+ * reaches PostHog, so it gets the same backstop.
+ */
+export const scrubbedConsole: Pick<Console, Level> = {
+  debug: (...args: unknown[]) => console.debug(formatLogBody(args)),
+  log: (...args: unknown[]) => console.log(formatLogBody(args)),
+  info: (...args: unknown[]) => console.info(formatLogBody(args)),
+  warn: (...args: unknown[]) => console.warn(formatLogBody(args)),
+  error: (...args: unknown[]) => console.error(formatLogBody(args)),
+};
+
 interface OtlpRecord {
   timeUnixNano: string;
   observedTimeUnixNano: string;
@@ -109,7 +122,7 @@ export class RoomLogger {
   error(...args: unknown[]) { this.write('error', args); }
 
   private write(level: Level, args: unknown[]) {
-    // Console first and untouched, so `partykit tail` reads exactly as it always has.
+    // Console first, as given (or scrubbed, with `scrubbedConsole` as the sink).
     this.sink[level](...args);
     if (!this.key) return;
     try {

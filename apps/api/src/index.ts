@@ -42,8 +42,21 @@ async function fetchRoomStatus(env: Bindings, room: string): Promise<Response | 
   if (env.Main) {
     // Not partyserver's getServerByName: importing it here pulls `cloudflare:workers` into
     // the module tests load. The header is how PartyServer names a stub-fetched room.
+    // Bounded like the HTTP path: a room still recovering from D1 must not hold up the
+    // whole /rooms/active list or a live push.
     const stub = env.Main.get(env.Main.idFromName(room));
-    return stub.fetch(`https://party/parties/main/${room}`, { headers: { "x-partykit-room": room } });
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("room status timed out")), 3000);
+    });
+    try {
+      return await Promise.race([
+        stub.fetch(`https://party/parties/main/${room}`, { headers: { "x-partykit-room": room } }),
+        timeout,
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
   if (!env.PARTY_HOST) return null;
   const protocol = env.PARTY_HOST.startsWith("localhost") ? "http" : "https";

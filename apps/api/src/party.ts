@@ -1,6 +1,6 @@
 import { verifyJwt, type JwtPayload } from './jwt';
 import { RoomTelemetry, describeRejectedToken } from './telemetry';
-import { RoomLogger } from './logs';
+import { RoomLogger, scrubbedConsole } from './logs';
 import { MAX_PENDING_REQUESTS, PROTOCOL_VERSION, RECENT_DONE_KEPT, normalizeSourcesSettings, compareRequests } from '@filadbd/shared';
 import type { SerializedRequest, SourcesSettings, ChannelState, PartyMessage } from '@filadbd/shared';
 
@@ -57,7 +57,7 @@ export interface PartyRoom {
   // Calls the API's Hono app in-process (same Worker). Without it, `fetch(API_URL + path)`.
   fetchApi?: (path: string, init?: RequestInit) => Promise<Response>;
   // The host already ships console output to PostHog (Workers Logs export), so the
-  // logger must only print: exporting it too would land every line twice.
+  // logger only prints, scrubbed: exporting it too would land every line twice.
   consoleExported?: boolean;
 }
 
@@ -82,7 +82,9 @@ export default class PartyServer {
   readonly telemetry: RoomTelemetry;
 
   constructor(public room: PartyRoom) {
-    this.logger = new RoomLogger(room.id.toLowerCase(), room.consoleExported ? {} : room.env);
+    this.logger = room.consoleExported
+      ? new RoomLogger(room.id.toLowerCase(), {}, undefined, undefined, scrubbedConsole)
+      : new RoomLogger(room.id.toLowerCase(), room.env);
     this.telemetry = new RoomTelemetry(room.id.toLowerCase(), room.env, undefined, undefined, (...args) => this.logger.warn(...args));
   }
 
