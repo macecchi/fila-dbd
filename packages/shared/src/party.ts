@@ -77,7 +77,7 @@ export function editRoute(msg: PartyMessage): { method: string; path: string; bo
     case 'add-request': return { method: 'POST', path: '/requests', body: msg.request };
     case 'set-all': return { method: 'PUT', path: '/requests', body: { requests: msg.requests } };
     case 'update-request': return { method: 'PATCH', path: `/requests/${msg.id}`, body: msg.updates };
-    case 'toggle-done': return { method: 'PATCH', path: `/requests/${msg.id}`, body: { done: msg.done } };
+    case 'toggle-done': return { method: 'PATCH', path: `/requests/${msg.id}`, body: { done: msg.done, ...(msg.doneAt !== undefined ? { doneAt: msg.doneAt } : {}) } };
     case 'delete-request': return { method: 'DELETE', path: `/requests/${msg.id}` };
     case 'reorder': return { method: 'POST', path: `/requests/${msg.fromId}/move`, body: { before: msg.toId, opId: msg.opId } };
     case 'update-sources': return { method: 'PUT', path: '/sources', body: msg.sources };

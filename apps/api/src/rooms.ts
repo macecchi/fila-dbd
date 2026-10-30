@@ -348,7 +348,7 @@ function edit(build: Build) {
     const body = c.req.method === "DELETE" ? {} : await c.req.json().catch(() => null);
     const rawId = c.req.param("reqId");
     const reqId = rawId === undefined ? null : Number(rawId);
-    const msg = body && (reqId === null || Number.isSafeInteger(reqId)) ? build(body, reqId) : null;
+    const msg = body && (reqId === null || Number.isFinite(reqId)) ? build(body, reqId) : null;
     if (!msg) return c.json({ error: "invalid_input" }, 400);
     return c.json(await applyOp(c.env, c.executionCtx, roomId, user!, msg));
   };

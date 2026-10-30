@@ -157,6 +157,14 @@ describe('owner edits (REST on /rooms/:id)', () => {
     expect(res.status).toBe(400);
   });
 
+  it('edits a manual request, whose id is fractional', async () => {
+    const manual = req({ id: 1761830400000.4219 });
+    await op({ type: 'add-request', request: manual });
+    const { body } = await op({ type: 'toggle-done', id: manual.id, done: true, doneAt: '2026-10-30T13:00:00.000Z' });
+    expect(body.messages).toEqual([{ type: 'toggle-done', id: manual.id, done: true, doneAt: '2026-10-30T13:00:00.000Z' }]);
+    expect((await op({ type: 'delete-request', id: manual.id })).status).toBe(200);
+  });
+
   it('lets only the first of several windows add the same message', async () => {
     const r = req();
     const results = await Promise.all([1, 2, 3].map(() => op({ type: 'add-request', request: r })));
