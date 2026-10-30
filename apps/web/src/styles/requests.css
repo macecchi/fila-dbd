@@ -106,6 +106,13 @@
   }
 }
 
+/* Keyboard focus on a card's button shows its actions, like the hover. :focus-visible,
+   not :focus-within: a tapped button keeps focus, which would hold the card open. */
+.request-card:has(:focus-visible) .request-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 /* Touch screens have no hover: a tap selects the card instead, and the selected
    card gets the hover look and actions. Instant, like the hover. */
 @media (hover: none) {
@@ -554,9 +561,11 @@
     font-size: 0.65rem;
   }
 
-  /* Shown only on the card tapped open (.selected), in place of its badge and time. */
-  .request-actions {
-    display: none;
+  /* Shown only on the card tapped open (.selected), or holding keyboard focus, in
+     place of its badge and time. At rest they stay the base hidden overlay
+     (opacity 0, not display: none) so Tab can still reach them. */
+  .request-card.selected .request-actions,
+  .request-card:has(:focus-visible) .request-actions {
     opacity: 1;
     pointer-events: auto;
     position: static;
@@ -589,11 +598,8 @@
     background: var(--bg-card-hover);
   }
 
-  .request-card.selected .request-actions {
-    display: flex;
-  }
-
-  .request-card.selected .request-card-meta {
+  .request-card.selected .request-card-meta,
+  .request-card:has(:focus-visible) .request-card-meta {
     display: none;
   }
 }
