@@ -33,9 +33,14 @@ export async function extractCharacters(
   apiKey: string,
   maxCount: number,
   extras: RequestExtraType[] = [],
-  attempt = 0
+  attempt = 0,
+  // `retries` caps the retries (default MAX_RETRIES); `timeoutMs` aborts each attempt.
+  // An add identifying while its window waits uses a short budget and leaves the rest to
+  // the heartbeat's retries.
+  budget: { retries?: number; timeoutMs?: number } = {},
 ): Promise<ExtractionResult[]> {
-  console.log(`[extract] Starting extraction using model: ${MODEL} (attempt ${attempt + 1}/${MAX_RETRIES + 1}, maxCount=${maxCount}, extras=${extras.join(',') || 'none'})`);
+  const maxRetries = budget.retries ?? MAX_RETRIES;
+  console.log(`[extract] Starting extraction using model: ${MODEL} (attempt ${attempt + 1}/${maxRetries + 1}, maxCount=${maxCount}, extras=${extras.join(',') || 'none'})`);
 
   const withBuild = extras.includes('build');
 
@@ -99,6 +104,7 @@ Return ONLY JSON with a "characters" array. Each entry has character name, type,
         'Content-Type': 'application/json',
         'x-goog-api-key': apiKey,
       },
+      ...(budget.timeoutMs ? { signal: AbortSignal.timeout(budget.timeoutMs) } : {}),
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
@@ -144,12 +150,12 @@ Return ONLY JSON with a "characters" array. Each entry has character name, type,
     console.warn(`[extract] Request failed with status ${res.status}: ${msg}`);
 
     if (RETRIABLE_CODES.includes(res.status)) {
-      if (attempt < MAX_RETRIES) {
-        console.log(`[extract] Retrying in ${RETRY_DELAYS[attempt]}ms (attempt ${attempt + 2}/${MAX_RETRIES + 1})`);
+      if (attempt < maxRetries) {
+        console.log(`[extract] Retrying in ${RETRY_DELAYS[attempt]}ms (attempt ${attempt + 2}/${maxRetries + 1})`);
         await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
-        return extractCharacters(message, apiKey, maxCount, extras, attempt + 1);
+        return extractCharacters(message, apiKey, maxCount, extras, attempt + 1, budget);
       }
-      console.error(`[extract] All retries exhausted after ${MAX_RETRIES + 1} attempts`);
+      console.error(`[extract] All retries exhausted after ${maxRetries + 1} attempts`);
     }
 
     console.error(`[extract] Non-retriable error, throwing: ${msg}`);
@@ -165,14 +171,15 @@ Return ONLY JSON with a "characters" array. Each entry has character name, type,
       || data.candidates?.[0]?.finishReason;
     console.warn(`[extract] Empty response from ${MODEL}: ${blockReason || 'no candidates'}`);
 
-    if (attempt < MAX_RETRIES) {
-      console.log(`[extract] Retrying in ${RETRY_DELAYS[attempt]}ms (attempt ${attempt + 2}/${MAX_RETRIES + 1})`);
+    if (attempt < maxRetries) {
+      console.log(`[extract] Retrying in ${RETRY_DELAYS[attempt]}ms (attempt ${attempt + 2}/${maxRetries + 1})`);
       await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
-      return extractCharacters(message, apiKey, maxCount, extras, attempt + 1);
+      return extractCharacters(message, apiKey, maxCount, extras, attempt + 1, budget);
     }
 
-    console.error(`[extract] All retries exhausted, returning empty`);
-    return [];
+    // Not "no request": a paid donation must not be hidden because Gemini said nothing.
+    console.error(`[extract] All retries exhausted with an empty response`);
+    throw new Error(`empty response (${blockReason || 'no candidates'})`);
   }
 
   const parsed = JSON.parse(text) as { characters?: ExtractionResult[] };

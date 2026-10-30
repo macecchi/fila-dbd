@@ -52,7 +52,7 @@ const SWEEP_INTERVAL_MS = 5_000;
 const MAX_REPORTED_IDS = 5;
 
 // Authority rejections: the server refused the edit itself.
-const REJECTION_CODES = new Set(['not_room_owner', 'pending_cap']);
+const REJECTION_CODES = new Set(['not_room_owner', 'pending_cap', 'queue_closed']);
 
 interface PendingMutation {
   kind: string;
@@ -246,7 +246,7 @@ export class RealtimeTelemetry {
     }
     let mutation = 'unknown';
     let latency: number | undefined;
-    // pending_cap names its request; not_room_owner answers our oldest edit (the
+    // pending_cap and queue_closed name their request; not_room_owner answers our oldest edit (the
     // transport sends one edit at a time, in order).
     const idx = typeof msg.id === 'number'
       ? this.pending.findIndex((p) => p.id === msg.id && p.kind === 'add-request')

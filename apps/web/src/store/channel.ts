@@ -195,7 +195,7 @@ export function createRequestsStore(
             case 'server-error':
               // The server rejects an over-cap add without echoing it, so roll back the
               // optimistic insert it points at. Other errors carry no id and are no-ops here.
-              if (msg.code === 'pending_cap' && typeof msg.id === 'number') {
+              if ((msg.code === 'pending_cap' || msg.code === 'queue_closed') && typeof msg.id === 'number') {
                 set((s) => {
                   const requests = s.requests.filter((r) => r.id !== msg.id);
                   return requests.length === s.requests.length ? s : { requests };

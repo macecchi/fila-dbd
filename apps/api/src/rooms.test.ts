@@ -135,7 +135,28 @@ describe('presence', () => {
     await op({ type: 'add-request', request: real });
     await op({ type: 'close-queue' });
     expect((await state()).body.requests.map((x: SerializedRequest) => x.id)).toEqual([real.id]);
-    expect((await op({ type: 'add-request', request: none })).body.messages).toEqual([]);
+  });
+
+  it('refuses adds into a closed queue from a window that missed the close, but not manual ones', async () => {
+    await op({ type: 'close-queue' });
+    const r = req();
+    const { body } = await op({ type: 'add-request', request: r });
+    expect(body.messages).toEqual([
+      expect.objectContaining({ type: 'server-error', code: 'queue_closed', id: r.id }),
+      expect.objectContaining({ type: 'update-channel', channel: expect.objectContaining({ closedByOwner: true }) }),
+    ]);
+    const manual = req({ source: 'manual' });
+    expect((await op({ type: 'add-request', request: manual })).body.messages[0]).toMatchObject({ type: 'add-request' });
+    expect((await state()).body.requests.map((x: SerializedRequest) => x.id)).toEqual([manual.id]);
+  });
+
+  it("writes no heartbeat while the queue is closed", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    await op({ type: 'close-queue' });
+    const before = await (env.DB as D1Database).prepare('SELECT owner_seen_at FROM rooms').first();
+    vi.setSystemTime(Date.now() + 31_000);
+    await state('&irc=1', await token());
+    expect(await (env.DB as D1Database).prepare('SELECT owner_seen_at FROM rooms').first()).toEqual(before);
   });
 });
 

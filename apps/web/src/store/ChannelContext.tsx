@@ -373,6 +373,10 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
               });
               return;
             }
+            if (msg.code === 'queue_closed') {
+              // This window missed the close; the update-channel that follows drops its lock.
+              return;
+            }
             if (msg.code === 'chat_send_not_mod') {
               toast.warning(t('toast.chatBot'), { id: 'chat-bot', description: msg.message, duration: 10000 });
               return;

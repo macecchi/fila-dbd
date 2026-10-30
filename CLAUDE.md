@@ -112,7 +112,9 @@ D1, which was already the persistent store:
   several (`computeEntitlement`); the add that inserted it runs Gemini before answering
   (`identifyRequest` in `rooms.ts`), fills the row in, adds the rest of a multi-request
   donation right after it (ids `splitRequestId`) and answers with a `sync-full`. Only that
-  window waits (its later edits queue behind it, optimistically). The claim is
+  window waits (its later edits queue behind it, optimistically), so the call gets one attempt
+  with an 8s timeout (`IDENTIFY_BUDGET`, no sleeps); an empty Gemini answer after its own
+  retries is a failure, never "no request". The claim is
   `requests.identifying_at` (60s takeover); the streamer's heartbeat (`identifyPending`, in
   `waitUntil`) retries what's left — a window that went away mid-call, a Gemini error — up to
   `IDENTIFY_MAX_ATTEMPTS`, then leaves it unidentified. `/api/extract-character`
@@ -235,7 +237,9 @@ There is no lock and no "session that owns the room". The server keeps one switc
 - **Open/close is the room switch** (`open-queue` / `close-queue` ops). The response is an
   `update-channel`, relayed to this browser's windows at once; windows elsewhere see it on their
   next poll and join or leave chat. A closed queue stays closed across reloads and devices until
-  the streamer opens it: a fresh room starts open. While closed, the server ignores `irc=1`.
+  the streamer opens it: a fresh room starts open. While closed, the server writes no heartbeat
+  and refuses non-manual adds with `queue_closed` plus an `update-channel`, so a window that
+  missed the close (asleep, offline, replaying a VOD) rolls the add back and drops its lock.
   Closing also deletes the pending `type: 'none'` rows (hidden by `hideNonRequests`), so they
   never pile up toward the pending cap.
 - **Every chat join re-reports chat**: the effect that joins on `hasLock` sends
@@ -326,7 +330,11 @@ the low bits of the hash away. Ordering comes from `position`, never from the ID
 
 - **D1 free plan**: 100 bound params per statement, 100 statements per `DB.batch()`, and 100k
   rows written / 5M read per day. Polls cost one row read when nothing changed; heartbeats are
-  at most one write per window per 30s.
+  at most one write per room per 30s (none while closed). D1 bills rows *scanned*, and done /
+  deleted rows are never pruned, so every query on `requests` must hit the partial indexes
+  (`idx_requests_pending`, `idx_requests_recent_done`, migration 0011): filter with the exact
+  literals `done = 0 AND deleted_at IS NULL` / `done = 1 AND deleted_at IS NULL`, and check
+  new queries with `EXPLAIN QUERY PLAN`. `writeOrder` only writes rows whose position moves.
 
 **KV (CACHE namespace):**
 - Twitch app access token cache (client credentials flow)

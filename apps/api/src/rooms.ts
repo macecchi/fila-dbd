@@ -63,6 +63,7 @@ const CHAT_NOT_MOD_NOTIFY_TTL_S = 5 * 60;
 const IDENTIFY_TTL_MS = 60_000;
 // Gemini failures retried before the request is left unidentified for the streamer.
 const IDENTIFY_MAX_ATTEMPTS = 3;
+const IDENTIFY_BUDGET = { retries: 0, timeoutMs: 8_000 };
 // LLM calls per streamer per day (one call however many requests it returns).
 export const DAILY_EXTRACT_LIMIT = 200;
 const NOW_ISO = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
@@ -170,12 +171,14 @@ function bumpVersion(db: D1Database, roomId: string) {
 }
 
 // Every pending row's position from an ordered list of ids, in one statement whatever
-// the queue length (D1 caps a statement at 100 bound parameters).
-function writeOrder(db: D1Database, roomId: string, ids: number[]) {
+// the queue length (D1 caps a statement at 100 bound parameters). Only rows whose position
+// actually moves are written (D1 bills rows written): an append touches one row.
+function writeOrder(db: D1Database, roomId: string, ids: number[], extra?: string) {
   const json = JSON.stringify(ids);
+  const at = "(SELECT CAST(key AS INTEGER) FROM json_each(?1) WHERE value = requests.id)";
   return db.prepare(
-    `UPDATE requests SET position = (SELECT CAST(key AS INTEGER) FROM json_each(?1) WHERE value = requests.id)
-     WHERE room_id = ?2 AND id IN (SELECT value FROM json_each(?1))`
+    `UPDATE requests SET position = ${at}
+     WHERE room_id = ?2 AND id IN (SELECT value FROM json_each(?1)) AND position IS NOT ${at}${extra ? ` AND ${extra}` : ""}`
   ).bind(json, roomId);
 }
 
@@ -209,7 +212,7 @@ function insertRequest(db: D1Database, roomId: string, r: SerializedRequest, par
   const guard = parent === undefined ? "" : " AND EXISTS (SELECT 1 FROM requests WHERE room_id = ?2 AND id = ?17 AND identifying_at = ?18 AND needs_identification = 1 AND done = 0 AND deleted_at IS NULL)";
   return db.prepare(
     `INSERT INTO requests (id, room_id, position, timestamp, donor, amount, amount_val, message, character, type, done, done_at, source, sub_tier, needs_identification, matched_term, origin_msg_id, extras)
-     SELECT ?1, ?2, (SELECT COALESCE(MAX(position), -1) + 1 FROM requests WHERE room_id = ?2), ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, NULL, ?10, ?11, ?12, ?13, ?14, ?15
+     SELECT ?1, ?2, (SELECT COALESCE(MAX(position), -1) + 1 FROM requests WHERE room_id = ?2 AND done = 0 AND deleted_at IS NULL), ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, NULL, ?10, ?11, ?12, ?13, ?14, ?15
      WHERE (SELECT COUNT(*) FROM requests WHERE room_id = ?2 AND done = 0 AND deleted_at IS NULL) < ?16${guard}
      ON CONFLICT (room_id, id) DO NOTHING
      RETURNING id`
@@ -309,11 +312,13 @@ roomsSync.get("/:roomId/state", async (c) => {
     const irc = c.req.query("irc") === "1" && !row?.closed_by_owner;
     const seenStale = !row?.owner_seen_at || now - row.owner_seen_at > HEARTBEAT_WRITE_MS;
     const liveStale = irc && (!row?.irc_live_at || now - row.irc_live_at > HEARTBEAT_WRITE_MS);
-    if (!row || seenStale || liveStale) {
+    // A closed queue reads as offline whatever the heartbeats say: nothing to write.
+    if (!row || (!row.closed_by_owner && (seenStale || liveStale))) {
       await db.batch([
-        ensureRoom(db, roomId, user),
+        ...(row ? [] : [ensureRoom(db, roomId, user)]),
         db.prepare(
-          `UPDATE rooms SET owner_seen_at = ?, irc_live_at = CASE WHEN ? THEN ? ELSE irc_live_at END WHERE id = ?`
+          // updated_at as ensureRoom writes it: the landing's "recent channels" sort on it.
+          `UPDATE rooms SET owner_seen_at = ?, irc_live_at = CASE WHEN ? THEN ? ELSE irc_live_at END, updated_at = datetime('now') WHERE id = ?`
         ).bind(now, irc ? 1 : 0, now, roomId),
       ]);
       row = await loadRoom(db, roomId);
@@ -418,23 +423,25 @@ export async function applyOp(
   switch (msg.type) {
     case "add-request": {
       const req = msg.request;
+      // A window that missed the close (asleep, offline, replaying a VOD) is told so, and
+      // stops taking requests; the streamer's own manual adds still go in.
+      if (row?.closed_by_owner && req.source !== "manual") {
+        return { messages: [errorMsg("queue_closed", "A fila está fechada.", req.id), { type: "update-channel", channel: channelState(row, now) }] };
+      }
       const pending = await loadPending(db, roomId);
       if (pending.some((r) => r.id === req.id)) return { messages: [] };
       const idx = insertIndex(pending, req, sources);
       const next = [...pending];
       next.splice(idx, 0, req);
       // One transaction. The insert is the claim: another window (or a VOD replay) that
-      // sent the same message gets no row back. The order and the version only follow an
+      // sent the same message gets no row back. The version and the order only follow an
       // insert that happened: `changes()` is the previous statement's row count (the
-      // insert's for the order, the order's for the version).
+      // insert's for the version, the version's for the order).
       const results = await db.batch([
         ensureRoom(db, roomId, user),
         insertRequest(db, roomId, { ...req, done: false }),
-        db.prepare(
-          `UPDATE requests SET position = (SELECT CAST(key AS INTEGER) FROM json_each(?1) WHERE value = requests.id)
-           WHERE room_id = ?2 AND id IN (SELECT value FROM json_each(?1)) AND changes() > 0`
-        ).bind(JSON.stringify(next.map((r) => r.id)), roomId),
         db.prepare("UPDATE rooms SET version = version + 1 WHERE id = ? AND changes() > 0 RETURNING version").bind(roomId),
+        writeOrder(db, roomId, next.map((r) => r.id), "changes() > 0"),
       ]);
       if (!results[1].results?.length) {
         const exists = await db.prepare("SELECT 1 FROM requests WHERE room_id = ? AND id = ?").bind(roomId, req.id).first();
@@ -442,7 +449,7 @@ export async function applyOp(
         console.warn(`${tag} add-request #${req.id} rejected (pending cap ${MAX_PENDING_REQUESTS})`);
         return { messages: [errorMsg("pending_cap", `Fila cheia (${MAX_PENDING_REQUESTS}). Marque pedidos como feitos para liberar espaço.`, req.id)] };
       }
-      const version = (results[3].results?.[0] as { version: number } | undefined)?.version;
+      const version = (results[2].results?.[0] as { version: number } | undefined)?.version;
       console.log(`${tag} add-request #${req.id} "${req.character}" (${req.source})`);
       // Only the inserter identifies it, so the LLM runs once however many windows sent it.
       // Synchronously: the answer goes back as a full sync (a donation may have split into
@@ -619,9 +626,11 @@ export async function identifyPending(env: RoomsEnv, ctx: Ctx, roomId: string, u
     `SELECT id FROM requests
      WHERE room_id = ? AND needs_identification = 1 AND done = 0 AND deleted_at IS NULL
        AND (identifying_at IS NULL OR identifying_at < ?)
-     ORDER BY position LIMIT 5`
+     ORDER BY position LIMIT 2`
   ).bind(roomId, now - IDENTIFY_TTL_MS).all<{ id: number }>();
-  await Promise.all((results ?? []).map((r) => identifyRequest(env, ctx, roomId, r.id, user)));
+  // One at a time: the heartbeat's waitUntil has a time limit, and parallel calls on one
+  // Gemini key only make a 429 worse. The rest wait for the next heartbeat.
+  for (const r of results ?? []) await identifyRequest(env, ctx, roomId, r.id, user);
 }
 
 /**
@@ -658,7 +667,9 @@ export async function identifyRequest(
     console.warn(`${tag} daily extract limit (${DAILY_EXTRACT_LIMIT}) reached, #${id} left unidentified`);
   } else {
     try {
-      found = await extractCharacters(clipMessage(req.message), env.GEMINI_API_KEY, maxCount, extras);
+      // One short attempt: the add's window is waiting on it, and a heartbeat's waitUntil has
+      // a time limit. Retries come from the next heartbeats (IDENTIFY_MAX_ATTEMPTS).
+      found = await extractCharacters(clipMessage(req.message), env.GEMINI_API_KEY, maxCount, extras, 0, IDENTIFY_BUDGET);
       await env.CACHE.put(rateKey, String(calls + 1), { expirationTtl: 86400 });
     } catch (e) {
       console.error(`${tag} identify #${id} failed (attempt ${attempt}):`, e instanceof Error ? e.message : e);
