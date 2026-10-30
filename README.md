@@ -73,7 +73,7 @@ bun dev  # Local server with frontend + API
 
 The service is designed to be deployed on [Cloudflare Workers](https://workers.cloudflare.com/) (API) and Cloudflare Pages (frontend).
 
-The queues live in the D1 database and are synced over plain HTTP: the page polls `GET /rooms/:id/state` and the streamer's edits go to `POST /rooms/:id/ops`. They used to be realtime rooms on hosted PartyKit, which [shut down on 2026-10-23](https://blog.partykit.io/posts/hosted-platform-shutdown); the deploy needs no PartyKit account.
+The queues live in the D1 database and are synced over plain HTTP: the page polls `GET /rooms/:id/state` and the streamer's edits are REST calls on the room (`POST /rooms/:id/requests`, `PATCH`/`DELETE /rooms/:id/requests/:reqId`, `PUT /rooms/:id/status`, …). They used to be realtime rooms on hosted PartyKit, which [shut down on 2026-10-23](https://blog.partykit.io/posts/hosted-platform-shutdown); the deploy needs no PartyKit account.
 
 **Required GitHub secrets:**
 

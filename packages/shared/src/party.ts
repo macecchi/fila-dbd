@@ -1,7 +1,7 @@
 import type { Request, SourcesEnabled, RequestExtra, RoomExtras } from './types';
 
 // Bump on non-backwards-compatible changes to PartyMessage formats or the sync endpoints.
-// 2: rooms over HTTP polling (GET /rooms/:id/state, POST /rooms/:id/ops), no lock.
+// 2: rooms over HTTP polling (GET /rooms/:id/state, REST edits — `editRoute`), no lock.
 export const PROTOCOL_VERSION = 2;
 export const MAX_PENDING_REQUESTS = 99;
 // How many done requests the room state carries, newest first, for the header's
@@ -67,6 +67,26 @@ export type PartyMessage =
   | { type: 'open-queue' }
   | { type: 'close-queue' }
   | { type: 'server-error'; code: string; message: string; id?: number };
+
+/**
+ * The REST call for an edit, relative to `/rooms/:id` (served by apps/api/src/rooms.ts,
+ * which turns it back into the same message).
+ */
+export function editRoute(msg: PartyMessage): { method: string; path: string; body?: unknown } | null {
+  switch (msg.type) {
+    case 'add-request': return { method: 'POST', path: '/requests', body: msg.request };
+    case 'set-all': return { method: 'PUT', path: '/requests', body: { requests: msg.requests } };
+    case 'update-request': return { method: 'PATCH', path: `/requests/${msg.id}`, body: msg.updates };
+    case 'toggle-done': return { method: 'PATCH', path: `/requests/${msg.id}`, body: { done: msg.done } };
+    case 'delete-request': return { method: 'DELETE', path: `/requests/${msg.id}` };
+    case 'reorder': return { method: 'POST', path: `/requests/${msg.fromId}/move`, body: { before: msg.toId, opId: msg.opId } };
+    case 'update-sources': return { method: 'PUT', path: '/sources', body: msg.sources };
+    case 'irc-status': return { method: 'PUT', path: '/status', body: { chat: msg.connected } };
+    case 'open-queue': return { method: 'PUT', path: '/status', body: { open: true } };
+    case 'close-queue': return { method: 'PUT', path: '/status', body: { open: false } };
+    default: return null;
+  }
+}
 
 export function serializeRequest(req: Request): SerializedRequest {
   return {

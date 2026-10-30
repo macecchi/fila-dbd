@@ -74,7 +74,7 @@ describe('room transport', () => {
     handler = () => full(1);
     connect();
     await flush();
-    handler = (url) => (url.includes('/ops') ? json({ messages: [] }) : full(1));
+    handler = (url) => (!url.includes('/state') ? json({ messages: [] }) : full(1));
     broadcastIrcStatus(true);
     await vi.advanceTimersByTimeAsync(5_000);
     expect(polls().at(-1)![0]).toContain('irc=1');
@@ -87,7 +87,7 @@ describe('room transport', () => {
 
     let release!: () => void;
     handler = (url) => {
-      if (url.includes('/ops')) {
+      if (!url.includes('/state')) {
         return new Promise<Response>((r) => { release = () => r(json({ version: 2, messages: [{ type: 'toggle-done', id: 7, done: true }] })); });
       }
       return full(1, [{ id: 7, done: false }]);
@@ -109,10 +109,10 @@ describe('room transport', () => {
     handler = () => full(1);
     const { messages } = connect();
     await flush();
-    handler = (url) => (url.includes('/ops') ? json({}, 503) : full(1));
+    handler = (url) => (!url.includes('/state') ? json({}, 503) : full(1));
     broadcastToggleDone(7, true);
     await vi.advanceTimersByTimeAsync(8_000);
-    expect(fetchMock.mock.calls.filter(([url]) => url.includes('/ops'))).toHaveLength(4);
+    expect(fetchMock.mock.calls.filter(([url]) => !url.includes('/state'))).toHaveLength(4);
     expect(messages.at(-1)).toMatchObject({ type: 'server-error', code: 'persist_failed' });
 
     // The next poll is a full one, so the unsaved optimistic change goes away.

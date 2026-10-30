@@ -52,7 +52,7 @@ apps/
     ├── migrations/     # D1 database migrations
     └── src/
         ├── index.ts    # Hono API (auth, LLM, internal D1 endpoints, public /rooms/active)
-        └── rooms.ts    # Room state (GET /rooms/:id/state) + owner edits (POST /rooms/:id/ops)
+        └── rooms.ts    # Room state (GET /rooms/:id/state) + owner edits (REST on /rooms/:id)
 ```
 
 ## Commands
@@ -85,9 +85,14 @@ D1, which was already the persistent store:
   write, so an unchanged room answers from one row with only the channel status; a moved one
   sends the pending queue, the `RECENT_DONE_KEPT` newest done and the sources. Polled by
   `services/party.ts` (owner 5s, viewer 10s, hidden 30s; a tab coming back polls at once).
-- `POST /rooms/:id/ops` — the streamer only (`user.login === room`, or any user under
-  `DEV_MODE`). One `PartyMessage` edit per call; the response's `messages` are the server's
-  echo (or a `server-error`), which the client applies exactly as it used to apply the socket's,
+- **The streamer's edits are REST on the room** — the streamer only (`user.login === room`, or
+  any user under `DEV_MODE`): `POST /requests` (add), `PUT /requests` (import, replaces the
+  queue), `PATCH /requests/:reqId` (edit; a body of only `done`/`doneAt` is the ✓ / undo),
+  `DELETE /requests/:reqId`, `POST /requests/:reqId/move` (`{ before, opId }`), `PUT /sources`,
+  `PUT /status` (`{ open }` is the queue switch, `{ chat }` this window reading chat). The
+  client maps each `PartyMessage` to its call with `editRoute` (`packages/shared`), and each
+  route rebuilds that message for `applyOp`. The response's `messages` are the server's echo
+  (or a `server-error`), which the client applies exactly as it used to apply the socket's,
   and relays to its other windows over `BroadcastChannel`.
 - **Status is derived on read** (`roomStatus`): `closed_by_owner` → offline; else a fresh
   `irc_live_at` → live; a fresh `owner_seen_at` → online; else offline. The heartbeats are the

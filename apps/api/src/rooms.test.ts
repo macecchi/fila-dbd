@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { sign } from 'hono/jwt';
-import { PROTOCOL_VERSION, type PartyMessage, type SerializedRequest } from '@filadbd/shared';
+import { PROTOCOL_VERSION, editRoute, type PartyMessage, type SerializedRequest } from '@filadbd/shared';
 import app from './index';
 import { claimLlm, PRESENCE_TTL_MS } from './rooms';
 import { createTestD1 } from './test/d1';
@@ -34,11 +34,13 @@ async function token(login = ROOM) {
   return sign({ sub: '1', login, display_name: login, profile_image_url: '', exp: Math.floor(Date.now() / 1000) + 3600 }, SECRET);
 }
 
+// What the client sends for an edit: the REST call `editRoute` maps it to.
 async function op(msg: PartyMessage, login = ROOM) {
-  const res = await app.fetch(new Request(`http://x/rooms/${ROOM}/ops`, {
-    method: 'POST',
+  const route = editRoute(msg)!;
+  const res = await app.fetch(new Request(`http://x/rooms/${ROOM}${route.path}?p=${PROTOCOL_VERSION}`, {
+    method: route.method,
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token(login)}` },
-    body: JSON.stringify({ msg, p: PROTOCOL_VERSION }),
+    ...(route.body !== undefined ? { body: JSON.stringify(route.body) } : {}),
   }), env, ctx());
   return { status: res.status, body: await res.json() as { version?: number; messages: PartyMessage[] } };
 }
@@ -134,16 +136,25 @@ describe('presence', () => {
   });
 });
 
-describe('POST /rooms/:id/ops', () => {
+describe('owner edits (REST on /rooms/:id)', () => {
   it('only accepts the room owner', async () => {
-    const res = await app.fetch(new Request(`http://x/rooms/${ROOM}/ops`, {
-      method: 'POST', body: JSON.stringify({ msg: { type: 'add-request', request: req() }, p: PROTOCOL_VERSION }),
+    const res = await app.fetch(new Request(`http://x/rooms/${ROOM}/requests?p=${PROTOCOL_VERSION}`, {
+      method: 'POST', body: JSON.stringify(req()),
     }), env, ctx());
     expect(res.status).toBe(401);
     const other = await op({ type: 'add-request', request: req() }, 'someone');
     expect(other.status).toBe(403);
     expect(other.body.messages[0]).toMatchObject({ type: 'server-error', code: 'not_room_owner' });
     expect((await state()).body.requests).toEqual([]);
+  });
+
+  it('rejects a malformed edit', async () => {
+    const res = await app.fetch(new Request(`http://x/rooms/${ROOM}/requests/abc?p=${PROTOCOL_VERSION}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
+      body: JSON.stringify({ character: 'Meg Thomas' }),
+    }), env, ctx());
+    expect(res.status).toBe(400);
   });
 
   it('lets only the first of several windows add the same message', async () => {

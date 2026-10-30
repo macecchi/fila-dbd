@@ -4,8 +4,9 @@
 // - GET  /rooms/:roomId/state — anyone. Polled: viewers every few seconds, the streamer's
 //   windows a bit faster. `?v=` is the version the client already has; when it matches,
 //   only the channel status comes back (one row read).
-// - POST /rooms/:roomId/ops — the streamer only (JWT login = room). One PartyMessage edit
-//   per call; the response carries the messages the client applies as the server's echo.
+// - The streamer's edits (JWT login = room), REST on the room: POST/PUT /requests,
+//   PATCH/DELETE /requests/:reqId, POST /requests/:reqId/move, PUT /sources, PUT /status.
+//   The response carries the messages the client applies as the server's echo.
 //
 // There is no lock. Every window of the streamer reads chat and sends what it sees; D1 is
 // the arbiter. An add is claimed by its insert (`ON CONFLICT DO NOTHING RETURNING` on the
@@ -15,7 +16,7 @@
 //
 // The channel status is derived on read from two heartbeats and the open/closed switch,
 // so a window that vanishes (closed laptop, crashed tab) simply ages out.
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import {
   MAX_PENDING_REQUESTS,
   PROTOCOL_VERSION,
@@ -329,22 +330,65 @@ roomsSync.get("/:roomId/state", async (c) => {
   });
 });
 
-roomsSync.post("/:roomId/ops", async (c) => {
-  const roomId = c.req.param("roomId").toLowerCase();
-  const body = await c.req.json<{ msg?: PartyMessage; p?: number }>().catch(() => ({} as { msg?: PartyMessage; p?: number }));
-  if ((body.p ?? 0) < PROTOCOL_VERSION) {
-    return c.json({ messages: [errorMsg("version_mismatch", "Nova versão disponível. Recarregue a página.")] });
+// The streamer's edits, as REST on the room. Each route builds the PartyMessage the
+// room logic (and the client stores) already speak; the response is
+// `{ version?, messages }`, the server's echo for the client to apply.
+type Build = (body: any, reqId: number | null) => PartyMessage | null;
+
+function edit(build: Build) {
+  return async (c: Context<{ Bindings: RoomsEnv }>) => {
+    const roomId = c.req.param("roomId")!.toLowerCase();
+    if (Number(c.req.query("p") ?? 0) < PROTOCOL_VERSION) {
+      return c.json({ messages: [errorMsg("version_mismatch", "Nova versão disponível. Recarregue a página.")] }, 426);
+    }
+    const user = await authenticate(c.env, c.req.header("Authorization"));
+    if (!isRoomOwner(c.env, user, roomId)) {
+      return c.json({ messages: [errorMsg("not_room_owner", "Apenas o dono do canal pode gerenciar a fila.")] }, user ? 403 : 401);
+    }
+    const body = c.req.method === "DELETE" ? {} : await c.req.json().catch(() => null);
+    const rawId = c.req.param("reqId");
+    const reqId = rawId === undefined ? null : Number(rawId);
+    const msg = body && (reqId === null || Number.isSafeInteger(reqId)) ? build(body, reqId) : null;
+    if (!msg) return c.json({ error: "invalid_input" }, 400);
+    return c.json(await applyOp(c.env, c.executionCtx, roomId, user!, msg));
+  };
+}
+
+const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+
+roomsSync.post("/:roomId/requests", edit((body) =>
+  isObject(body) && typeof body.id === "number" ? { type: "add-request", request: body as unknown as SerializedRequest } : null));
+
+roomsSync.put("/:roomId/requests", edit((body) =>
+  isObject(body) && Array.isArray(body.requests) ? { type: "set-all", requests: body.requests } : null));
+
+// A PATCH that only sets `done` (and its time) is the ✓ / undo; anything else is an edit.
+roomsSync.patch("/:roomId/requests/:reqId", edit((body, id) => {
+  if (!isObject(body) || id === null) return null;
+  const keys = Object.keys(body);
+  if (keys.includes("done") && keys.every((k) => k === "done" || k === "doneAt")) {
+    return { type: "toggle-done", id, done: !!body.done, ...(typeof body.doneAt === "string" ? { doneAt: body.doneAt } : {}) };
   }
-  const user = await authenticate(c.env, c.req.header("Authorization"));
-  if (!isRoomOwner(c.env, user, roomId)) {
-    return c.json({ messages: [errorMsg("not_room_owner", "Apenas o dono do canal pode gerenciar a fila.")] }, user ? 403 : 401);
-  }
-  if (!body.msg || typeof body.msg !== "object") {
-    return c.json({ error: "invalid_input" }, 400);
-  }
-  const result = await applyOp(c.env, c.executionCtx, roomId, user!, body.msg);
-  return c.json(result);
-});
+  return { type: "update-request", id, updates: body as Partial<SerializedRequest> };
+}));
+
+roomsSync.delete("/:roomId/requests/:reqId", edit((_body, id) => (id === null ? null : { type: "delete-request", id })));
+
+// A move, not a state: POST, since repeating it moves the request again.
+roomsSync.post("/:roomId/requests/:reqId/move", edit((body, id) =>
+  isObject(body) && id !== null && typeof body.before === "number"
+    ? { type: "reorder", fromId: id, toId: body.before, ...(typeof body.opId === "string" ? { opId: body.opId } : {}) }
+    : null));
+
+roomsSync.put("/:roomId/sources", edit((body) => (isObject(body) ? { type: "update-sources", sources: body as unknown as SourcesSettings } : null)));
+
+// `{ open }` is the queue switch; `{ chat }` is whether this window reads chat.
+roomsSync.put("/:roomId/status", edit((body) => {
+  if (!isObject(body)) return null;
+  if (typeof body.open === "boolean") return { type: body.open ? "open-queue" : "close-queue" };
+  if (typeof body.chat === "boolean") return { type: "irc-status", connected: body.chat };
+  return null;
+}));
 
 export async function applyOp(
   env: RoomsEnv,

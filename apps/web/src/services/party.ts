@@ -5,7 +5,7 @@
 // - The room is polled (`GET /rooms/:id/state`). The first answer is a `sync-full`; later
 //   ones only carry the queue when its `version` moved, and become a `sync-full` too.
 //   The channel status comes with every answer, as `update-channel` when it changed.
-// - Edits go out one at a time (`POST /rooms/:id/ops`), in order, retried on network and
+// - Edits go out one at a time (REST on the room, `editRoute`), in order, retried on network and
 //   5xx failures. The answer holds the server's echo (or a `server-error`), applied as if
 //   the socket had delivered it, and relayed to this browser's other windows.
 // - A poll that left before an edit landed would paint the queue from before it, so
@@ -15,6 +15,7 @@
 // a window reading chat), which is what the room's open/live status is derived from.
 import type { Request, PartyMessage, SerializedRequest, SourcesSettings, ChannelState } from '../types';
 import { serializeRequest, PROTOCOL_VERSION } from '../types';
+import { editRoute } from '@filadbd/shared';
 import { realtimeTelemetry, describeToken } from './realtimeTelemetry';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
@@ -205,13 +206,15 @@ async function flush(s: Session) {
 }
 
 async function post(s: Session, msg: PartyMessage): Promise<OpResponse> {
+  const route = editRoute(msg);
+  if (!route) return { messages: [] };
   for (let attempt = 0; ; attempt++) {
     try {
       const token = await s.getToken();
-      const res = await fetch(`${API_URL}/rooms/${encodeURIComponent(s.room)}/ops`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ msg, p: PROTOCOL_VERSION }),
+      const res = await fetch(`${API_URL}/rooms/${encodeURIComponent(s.room)}${route.path}?p=${PROTOCOL_VERSION}`, {
+        method: route.method,
+        headers: { ...(route.body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        ...(route.body !== undefined ? { body: JSON.stringify(route.body) } : {}),
       });
       // 401/403 carry a not_room_owner server-error for the stores; other 4xx are bugs.
       if (res.status >= 500) throw new HttpError(res.status);
