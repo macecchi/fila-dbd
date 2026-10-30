@@ -26,7 +26,7 @@ async function callAPI(
   message: string,
   maxCount: number,
   extras: RequestExtraType[],
-  onError?: (msg: string) => void
+  onError?: (msg: string) => void,
 ): Promise<APIResult> {
   const token = await useAuth.getState().getAccessToken();
   if (!token) return { ok: false };
@@ -81,7 +81,7 @@ export async function identifyCharacter(
   request: Request,
   extras: RequestExtraType[] = [],
   onError?: (msg: string) => void,
-  onLLMUpdate?: (result: { character: string; type: 'survivor' | 'killer' | 'unknown' | 'none'; matchedTerm?: string; extras?: RequestExtra[]; validating: false }) => void
+  onLLMUpdate?: (result: { character: string; type: 'survivor' | 'killer' | 'unknown' | 'none'; matchedTerm?: string; extras?: RequestExtra[]; validating: false }) => void,
 ): Promise<{ character: string; type: 'survivor' | 'killer' | 'unknown' | 'none'; matchedTerm?: string; extras?: RequestExtra[]; validating?: boolean }> {
   const local = tryLocalMatch(request.message);
   const isAuthenticated = useAuth.getState().isAuthenticated;
@@ -177,7 +177,7 @@ export async function identifyMultiple(
   message: string,
   maxCount: number,
   extras: RequestExtraType[] = [],
-  onError?: (msg: string) => void
+  onError?: (msg: string) => void,
 ): Promise<Array<{
   character: string;
   type: 'survivor' | 'killer' | 'unknown' | 'none';
@@ -187,9 +187,6 @@ export async function identifyMultiple(
   const isAuthenticated = useAuth.getState().isAuthenticated;
   if (!isAuthenticated) return [];
   const res = await callAPI(message, maxCount, extras, onError);
-  // On failure return [] — the caller (buildDonationRequests) then emits a single
-  // `needsIdentification` placeholder that auto-identify retries, instead of a
-  // request permanently stuck on an "Erro na API" sentinel.
   if (!res.ok) return [];
   return res.characters.map(c => {
     const extrasOut: RequestExtra[] = [];

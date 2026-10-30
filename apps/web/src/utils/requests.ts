@@ -36,7 +36,7 @@ export function mergeRequests(
   };
 }
 
-// ---- Pure queue ops, shared by optimistic actions and the PartyKit echo handlers ----
+// ---- Pure queue ops, shared by optimistic actions and the server echo handlers ----
 //
 // Each returns the SAME array reference when nothing changes, so a zustand
 // `set(() => fn(...))` is a no-op (no re-render) for a duplicate/no-op echo.

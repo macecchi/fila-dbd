@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { ImportRequestsDialog } from './ImportRequestsDialog';
 import type { Request } from '../types';
 
-// RequestsTable needs the channel context (PartyKit stores); the dialog chrome
+// RequestsTable needs the channel context (room stores); the dialog chrome
 // under test doesn't, so stub it out.
 vi.mock('./RequestsTable', () => ({ RequestsTable: () => null }));
 

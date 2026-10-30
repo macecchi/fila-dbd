@@ -54,17 +54,19 @@ describe('handleMessage — above-minimum donation routing', () => {
     expect(added[0].needsIdentification).toBe(false);
   });
 
-  it('still calls the LLM when an above-min donation contains more than the character name', () => {
+  it('queues an above-min donation with more than the character name for the Worker to identify', () => {
     handleMessage(donationRaw('Bob', 50, 'Trapper e Nurse'));
 
-    expect(identifyMultipleMock).toHaveBeenCalledTimes(1);
-    expect(identifyMultipleMock).toHaveBeenCalledWith('Trapper e Nurse', 10, expect.anything());
+    expect(identifyMultipleMock).not.toHaveBeenCalled();
+    expect(added).toHaveLength(1);
+    expect(added[0]).toMatchObject({ character: 'Identificando...', needsIdentification: true, amountVal: 50, message: 'Trapper e Nurse' });
   });
 
-  it('still calls the LLM when an above-min donation has build text after the character', () => {
+  it('queues an above-min donation with build text after the character for the Worker', () => {
     handleMessage(donationRaw('Bob', 50, 'Trapper com mori'));
 
-    expect(identifyMultipleMock).toHaveBeenCalledTimes(1);
+    expect(identifyMultipleMock).not.toHaveBeenCalled();
+    expect(added[0].needsIdentification).toBe(true);
   });
 });
 

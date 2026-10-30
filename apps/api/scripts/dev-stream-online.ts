@@ -7,8 +7,8 @@
 //
 // Twitch can't reach localhost, which is the only reason the real webhook never
 // arrives in dev. Everything downstream of the request is the production path:
-// the same HMAC verification, the same dedupe and PartyKit "is the queue
-// already open" check, and a real Web Push to whatever endpoint the
+// the same HMAC verification, the same dedupe and "is the queue already
+// open" check, and a real Web Push to whatever endpoint the
 // browser registered (that call goes out to FCM/Mozilla over the internet, so it
 // reaches your browser even though the Worker is local).
 //

@@ -1,13 +1,6 @@
 import type { Request, RequestExtra } from '../types';
 
-export const MAX_DONATION_REQUESTS = 10;
-
-export function computeEntitlement(amountVal: number, minDonation: number): number {
-  if (!minDonation || minDonation <= 0) return 1;
-  const n = Math.floor(amountVal / minDonation);
-  if (n < 1) return 1;
-  return Math.min(MAX_DONATION_REQUESTS, n);
-}
+export { MAX_DONATION_REQUESTS, computeEntitlement } from '@filadbd/shared';
 
 interface BuildInput {
   donor: string;

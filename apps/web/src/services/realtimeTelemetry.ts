@@ -1,25 +1,25 @@
 // Realtime health telemetry for the streamer's own session.
 //
-// The failure this exists for: every edit is optimistic, so a socket the server no
+// The failure this exists for: every edit is optimistic, so a session the server no
 // longer accepts as the channel owner shows each ✓ as landed while the server refuses
 // it (`server-error: not_room_owner`), and only a reload reveals the truth. Each event
-// below is one link in that chain, observed at the socket (services/party.ts):
+// below is one link in that chain, observed at the transport (services/party.ts):
 //
-//   fila_party_connected / fila_party_disconnected  socket lifecycle, with whether the
-//                                                   (re)connect presented a token and how
-//                                                   long that token had left to live
+//   fila_party_connected / fila_party_disconnected  the room's polls reaching the server
+//                                                   or not, with whether the session had
+//                                                   a token and how long it had left
 //   fila_mutation_acked / _rejected / _unacked /    every edit we send, and what became
 //   _dropped                                        of it: echoed, refused (with the
 //                                                   code), never answered, or never sent
-//   fila_claim_denied / fila_owner_recovered        the lock refused as not-room-owner,
-//                                                   and the session coming back from it
-//   fila_sync_diverged                              an authoritative sync-full that undoes
-//                                                   what this window showed — the ✓ that
-//                                                   comes back after F5
-//   fila_server_error                               persist_failed, d1_sync_failed, …
+//   fila_owner_recovered                            the session accepted again after a
+//                                                   not_room_owner refusal
+//   fila_sync_diverged                              the first sync after (re)connecting
+//                                                   undoes what this window showed — the
+//                                                   ✓ that comes back after F5
+//   fila_server_error                               persist_failed, …
 //
 // Only the streamer's own channel reports (viewers never edit). Nothing here may carry
-// a token: the socket URL is reduced to token_present / token_ttl_s before it leaves.
+// a token: it is reduced to token_present / token_ttl_s before it leaves.
 import type { PartyMessage, Request } from '../types';
 import { track, type Properties } from './analytics';
 
@@ -52,7 +52,7 @@ const SWEEP_INTERVAL_MS = 5_000;
 const MAX_REPORTED_IDS = 5;
 
 // Authority rejections: the server refused the edit itself.
-const REJECTION_CODES = new Set(['not_room_owner', 'not_lock_holder', 'pending_cap']);
+const REJECTION_CODES = new Set(['not_room_owner', 'pending_cap', 'queue_closed']);
 
 interface PendingMutation {
   kind: string;
@@ -117,15 +117,9 @@ export function tokenTtlSeconds(token: string | null | undefined, now = Date.now
   }
 }
 
-/** token_present / token_ttl_s from a socket URL. The URL itself is never reported. */
-export function describeSocketUrl(url: string | undefined, now = Date.now()): OpenInfo {
-  if (!url) return { tokenPresent: false, tokenTtlS: null };
-  try {
-    const token = new URL(url).searchParams.get('token');
-    return { tokenPresent: !!token, tokenTtlS: tokenTtlSeconds(token, now) };
-  } catch {
-    return { tokenPresent: false, tokenTtlS: null };
-  }
+/** token_present / token_ttl_s. The token itself is never reported. */
+export function describeToken(token: string | null | undefined, now = Date.now()): OpenInfo {
+  return { tokenPresent: !!token, tokenTtlS: tokenTtlSeconds(token, now) };
 }
 
 export class RealtimeTelemetry {
@@ -141,6 +135,9 @@ export class RealtimeTelemetry {
   private failedAttempts = 0;
   private syncsSeen = 0;
   private lastSyncAt = 0;
+  // Only the first sync after (re)connecting is compared with what the window showed:
+  // later ones carry other windows' edits, which aren't divergence.
+  private checkNextSync = true;
 
   // Since the server first refused this session as the owner, until it accepts it again.
   private rejectedSince: number | null = null;
@@ -195,6 +192,18 @@ export class RealtimeTelemetry {
     this.armSweep();
   }
 
+  /**
+   * The server answered this edit without an echo: another window already made it (a
+   * duplicate add) or its request is gone. Nothing is outstanding.
+   */
+  onNoEcho(msg: PartyMessage): void {
+    const m = mutationKey(msg, new Set());
+    const key = m?.key ?? echoKey(msg);
+    if (!key) return;
+    const idx = this.pending.findIndex((p) => p.key === key);
+    if (idx !== -1) this.pending.splice(idx, 1);
+  }
+
   // ---------- incoming ----------
 
   /** Called for every message from the server, before the stores apply it. */
@@ -202,10 +211,11 @@ export class RealtimeTelemetry {
     if (!this.ctx) return;
     switch (msg.type) {
       case 'sync-full':
-        if (this.active) this.checkDivergence(msg.requests.map((r) => ({ id: r.id, done: !!r.done, type: r.type })));
+        if (this.active && this.checkNextSync) this.checkDivergence(msg.requests.map((r) => ({ id: r.id, done: !!r.done, type: r.type })));
         this.serverIds = new Set(msg.requests.map((r) => r.id));
         this.syncsSeen++;
         this.lastSyncAt = this.now();
+        this.checkNextSync = false;
         return;
       case 'set-all':
         this.serverIds = new Set(msg.requests.map((r) => r.id));
@@ -216,15 +226,6 @@ export class RealtimeTelemetry {
       case 'delete-request':
         this.serverIds.delete(msg.id);
         break;
-      case 'ownership-granted':
-        this.recovered('granted');
-        return;
-      case 'ownership-denied': {
-        const notOwner = msg.currentOwner === 'not-room-owner';
-        this.report('fila_claim_denied', { reason: notOwner ? 'not-room-owner' : 'transferred' });
-        if (notOwner) this.markRejected();
-        return;
-      }
       case 'server-error':
         this.onServerError(msg);
         return;
@@ -245,20 +246,15 @@ export class RealtimeTelemetry {
     }
     let mutation = 'unknown';
     let latency: number | undefined;
-    if (msg.code === 'not_lock_holder') {
-      // Only irc-status is lock-gated, and it has no echo to wait for.
-      mutation = 'irc-status';
-    } else {
-      // pending_cap names its request; not_room_owner answers our oldest edit (the
-      // server handles one socket's messages in order).
-      const idx = typeof msg.id === 'number'
-        ? this.pending.findIndex((p) => p.id === msg.id && p.kind === 'add-request')
-        : 0;
-      const p = idx >= 0 ? this.pending.splice(idx, 1)[0] : undefined;
-      if (p) {
-        mutation = p.kind;
-        latency = this.now() - p.sentAt;
-      }
+    // pending_cap and queue_closed name their request; not_room_owner answers our oldest edit (the
+    // transport sends one edit at a time, in order).
+    const idx = typeof msg.id === 'number'
+      ? this.pending.findIndex((p) => p.id === msg.id && p.kind === 'add-request')
+      : 0;
+    const p = idx >= 0 ? this.pending.splice(idx, 1)[0] : undefined;
+    if (p) {
+      mutation = p.kind;
+      latency = this.now() - p.sentAt;
     }
     this.report('fila_mutation_rejected', {
       code: msg.code,
@@ -274,7 +270,7 @@ export class RealtimeTelemetry {
     if (this.rejectedSince === null) this.rejectedSince = this.now();
   }
 
-  private recovered(via: 'granted' | 'ack') {
+  private recovered(via: 'ack') {
     if (this.rejectedSince === null) return;
     this.report('fila_owner_recovered', {
       via,
@@ -340,6 +336,7 @@ export class RealtimeTelemetry {
     });
     this.isOpen = true;
     this.everOpened = true;
+    this.checkNextSync = true;
     this.openedAt = now;
     this.failedAttempts = 0;
   }
@@ -359,8 +356,8 @@ export class RealtimeTelemetry {
       clean: info.wasClean ?? null,
       pending_mutations: this.pending.length,
     });
-    // Their echo, if any, went to a socket that no longer exists. The next sync-full
-    // shows whether they landed (fila_sync_diverged if not).
+    // The transport gave up on them. The next sync-full shows whether they landed
+    // (fila_sync_diverged if not).
     for (const p of this.pending) {
       this.report('fila_mutation_unacked', { mutation: p.kind, reason: 'disconnected', age_ms: now - p.sentAt });
     }

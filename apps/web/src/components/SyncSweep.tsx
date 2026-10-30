@@ -7,7 +7,7 @@ interface SyncSweepProps {
 
 /**
  * Thin indeterminate sweep bar that surfaces background syncing — the landing
- * channels list revalidating and the channel queue waiting on PartyKit. Purely
+ * channels list revalidating and the channel queue waiting on its first sync. Purely
  * decorative (aria-hidden); the host should reserve or absolutely position its
  * slot so toggling it never shifts layout.
  */

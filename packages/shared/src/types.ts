@@ -52,7 +52,7 @@ export type ConnectionState = 'connected' | 'connecting' | 'disconnected' | 'err
 // Future extras (challenge, map offering, etc.) extend the `RequestExtraType`
 // union and add a variant to `RequestExtra`. No schema migration required —
 // `extras` is stored as a JSON column on D1 and as an inline field in the
-// PartyKit per-request payload.
+// room's per-request payload.
 
 export type RequestExtraType = 'build';
 

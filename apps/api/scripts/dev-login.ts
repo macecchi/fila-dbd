@@ -5,13 +5,13 @@
 //   bun run dev:login <channel>          # e.g. bun run dev:login meriw_
 //
 // Why this exists: every owner-only path (opening the queue, ✓ / undo, editing
-// sources) is gated on a JWT the party server verifies with JWT_SECRET, so anyone
+// sources) is gated on a JWT the Worker verifies with JWT_SECRET, so anyone
 // without a Twitch OAuth round trip — an agent, a fresh clone, a CI box — simply
 // cannot reach that half of the app. This signs the same payload `/auth/token`
 // signs once Twitch has confirmed identity; it only skips the trip to Twitch.
 //
-// Pass the channel you're testing as the login. The party server's owner check is
-// `user.login === room.id` (party.ts), so a matching login makes you the room owner
+// Pass the channel you're testing as the login. The rooms' owner check is
+// `user.login === room.id` (rooms.ts), so a matching login makes you the room owner
 // for real and the DEV_MODE bypass is never taken — what runs is the production
 // path. A mismatched login still works in dev, but only via that bypass, which
 // means you'd be testing a branch that does not exist in production.
@@ -52,7 +52,7 @@ const secret = await jwtSecret();
 if (!secret) {
   console.error('No JWT_SECRET found in the environment or apps/api/.env.');
   console.error('Copy .env.example to .env and set JWT_SECRET to any random string —');
-  console.error('it just has to match what `wrangler dev` and `partykit dev` read.');
+  console.error('it just has to match what `wrangler dev` reads.');
   process.exit(1);
 }
 
@@ -89,7 +89,7 @@ console.log(`\n✅ Signed a ${TTL_HOURS}h token for @${login} (owner of /${login
 console.log('Paste this into the DevTools console on http://localhost:5173 and you are signed in:\n');
 console.log(snippet);
 console.log('\nThen open http://localhost:5173/' + login + ' — the owner UI is live and');
-console.log('mutations will be accepted by the party server.\n');
+console.log('edits will be accepted by the Worker.\n');
 console.log('Raw token, if you need it for a curl against the Worker:\n');
 console.log(accessToken + '\n');
 console.log('To sign out again: localStorage.removeItem(\'dbd-auth\'); location.reload()');

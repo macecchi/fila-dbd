@@ -92,7 +92,7 @@ export async function fetchStreams(logins: string[], token: string, clientId: st
   }));
 }
 
-export function cacheProfiles(db: D1Database, profiles: TwitchProfile[], ctx: ExecutionContext) {
+export function cacheProfiles(db: D1Database, profiles: TwitchProfile[], ctx: Pick<ExecutionContext, "waitUntil">) {
   if (profiles.length === 0) return;
   const statements = profiles.map((p) =>
     db.prepare(

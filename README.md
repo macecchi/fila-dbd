@@ -66,17 +66,18 @@ Install [Bun](https://bun.sh) and run:
 
 ```bash
 bun install
-bun dev  # Local server with frontend + API + PartyKit
+bun dev  # Local server with frontend + API
 ```
 
 ## Deploy
 
-The service is designed to be deployed on [Cloudflare Workers](https://workers.cloudflare.com/) and [PartyKit](https://www.partykit.io/).
+The service is designed to be deployed on [Cloudflare Workers](https://workers.cloudflare.com/) (API) and Cloudflare Pages (frontend).
+
+The queues live in the D1 database and are synced over plain HTTP: the page polls `GET /rooms/:id/state` and the streamer's edits are REST calls on the room (`POST /rooms/:id/requests`, `PATCH`/`DELETE /rooms/:id/requests/:reqId`, `PUT /rooms/:id/status`, …). They used to be realtime rooms on hosted PartyKit, which [shut down on 2026-10-23](https://blog.partykit.io/posts/hosted-platform-shutdown); the deploy needs no PartyKit account.
 
 **Required GitHub secrets:**
 
 - `CLOUDFLARE_API_TOKEN` - token with Workers permission
-- `PARTYKIT_TOKEN` and `PARTYKIT_LOGIN` - obtained with `bunx partykit@latest token generate`
 
 **Cloudflare secrets** (run from `apps/api/`, where `wrangler.toml` lives — `bunx` there uses the pinned local wrangler; from the repo root it downloads a different one and has no config to read a Worker name from):
 
@@ -86,7 +87,6 @@ cd apps/api && bunx wrangler secret put <NAME> --env production
 
 - `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` - Twitch app
 - `JWT_SECRET` - any secure string
-- `INTERNAL_API_SECRET` - shared secret between Worker and PartyKit
 - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` - Web Push keys for the "you're live" notification (generate with `bun scripts/generate-vapid-keys.ts` from `apps/api/`). Optional — the feature stays off without them
 - `EVENTSUB_SECRET` - any secure string; signs Twitch EventSub webhooks (`stream.online`). Optional, required for the "you're live" notification
 
@@ -103,29 +103,8 @@ cd apps/api && bunx wrangler secret put <NAME> --env production
 
 - `VITE_TWITCH_CLIENT_ID` - same Twitch app Client ID (used by frontend for OAuth redirect)
 - `VITE_API_URL` - Production Worker URL
-- `VITE_PARTY_HOST` - Production PartyKit host
 
-Pages builds (production and previews) fall back to this repo's production values for all three (`PAGES_DEFAULTS` in `apps/web/vite.config.ts`), so preview deployments work without their own copies; a dashboard value overrides. Previews therefore talk to the production API and PartyKit.
-
-**PartyKit secrets (via `bunx partykit env add`):**
-
-- `JWT_SECRET` - same value as Cloudflare
-- `INTERNAL_API_SECRET` - same value as Cloudflare
-- `API_URL` - Production Worker URL (e.g. `https://dbd-tracker.<account>.workers.dev`)
-
-**PartyKit → PostHog (PartyKit env vars, set by the deploy workflow):**
-
-- `POSTHOG_KEY` - PostHog project token (`phc_…`). Ships every `console.*` line of `party.ts` to
-  PostHog Logs (service `dbd-tracker-party`, attribute `room.id`) and the `fila_party_*` events.
-  It's the public ingestion token — the same one the web bundle carries. ⚠️ `partykit deploy`
-  does **not** send `partykit.json` `vars` (only `--with-vars` does, and that would also push the
-  file's local-dev `API_URL`/`INTERNAL_API_SECRET`), so `.github/workflows/deploy-api.yml` stores
-  it with `bunx partykit env add` before each deploy — the same mechanism as the secrets above.
-  It isn't in `partykit.json`, so a local `partykit dev` never reports into the production project.
-  Remove the env var and PartyKit logs only to the console again (`partykit tail`).
-- `POSTHOG_HOST` - ingestion host, default `https://us.i.posthog.com`.
-
-Both are ignored under `DEV_MODE` (`partykit dev`), so local rooms never reach the project.
+Pages builds (production and previews) fall back to this repo's production values for both (`PAGES_DEFAULTS` in `apps/web/vite.config.ts`), so preview deployments work without their own copies; a dashboard value overrides. Previews therefore talk to the production API. A leftover `VITE_PARTY_HOST` is no longer read.
 
 **Chat confirmation bot (`@filadbd`):**
 
@@ -186,7 +165,7 @@ script prints a `localStorage.setItem('dbd-auth', …)` snippet to paste into th
 console on `localhost:5173`; the reload comes back signed in.
 
 The token is signed with the `JWT_SECRET` in `apps/api/.env` — your local dev secret — so it
-is only ever valid against `wrangler dev` / `partykit dev`, never production.
+is only ever valid against `wrangler dev`, never production.
 
 ### Testing the live notification locally
 
@@ -244,12 +223,10 @@ the next push follows.
 
 ### Observability
 
-Front-end errors, pageviews and the health of the streamer's realtime session go to PostHog
-(project token in `apps/web/.env.production` and the deploy workflow's PartyKit env step, both public
-ingestion tokens). Both servers' logs go to PostHog Logs: the API Worker's as service
-`dbd-tracker-production` (`apps/api/wrangler.toml`), PartyKit's as `dbd-tracker-party`, each
-line tagged with `room.id` — `partykit tail` still shows the same output. Local dev never
-reports. See the "Observability" section of `CLAUDE.md` for the event catalogue and
+Front-end errors, pageviews and the health of the streamer's session go to PostHog
+(project token in `apps/web/.env.production`, a public ingestion token). The Worker's logs go to PostHog
+Logs as service `dbd-tracker-production` (`apps/api/wrangler.toml`); `bun run --filter
+@filadbd/api tail` streams them live. Local dev never reports. See the "Observability" section of `CLAUDE.md` for the event catalogue and
 the privacy rules (tokens are scrubbed before anything is sent).
 
 ### LLM extraction evals

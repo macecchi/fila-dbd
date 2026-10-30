@@ -4,15 +4,14 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 const commitHash = (process.env.GITHUB_SHA ?? process.env.CF_PAGES_COMMIT_SHA)?.slice(0, 7) ?? 'dev';
 
-// Cloudflare Pages builds (CF_PAGES=1) default to the production backends: the dashboard
-// only sets these for the production environment, not previews. All three are public (they
+// Cloudflare Pages builds (CF_PAGES=1) default to the production backend: the dashboard
+// only sets these for the production environment, not previews. Both are public (they
 // ship in the bundle); a dashboard value still wins. Not in .env.production, so a local
-// production build (`vite preview`) keeps talking to the local Worker and PartyKit. Vite
+// production build (`vite preview`) keeps talking to the local Worker. Vite
 // reads VITE_* from process.env after loading this file.
 const PAGES_DEFAULTS = {
   VITE_TWITCH_CLIENT_ID: 'dqx7wpexjk0780igjk7luea6xz3im9',
   VITE_API_URL: 'https://dbd-tracker-production.meriw.workers.dev',
-  VITE_PARTY_HOST: 'dbd-tracker-party.macecchi.partykit.dev',
 };
 if (process.env.CF_PAGES) {
   for (const [key, value] of Object.entries(PAGES_DEFAULTS)) process.env[key] ||= value;
@@ -61,7 +60,6 @@ export default defineConfig({
             id.includes('node_modules/scheduler')
           ) return 'react';
           if (id.includes('node_modules/zustand')) return 'zustand';
-          if (id.includes('node_modules/partysocket')) return 'partysocket';
           if (id.includes('node_modules/sonner')) return 'sonner';
           // Lazy: services/analytics.ts imports it after first paint, when idle.
           if (id.includes('node_modules/posthog-js') || id.includes('node_modules/@posthog/')) return 'posthog';

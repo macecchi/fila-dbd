@@ -50,7 +50,8 @@ export function createRequestsStore(
   // our OWN move (it would double-move). Each optimistic reorder is tagged with a
   // unique opId that the server forwards verbatim, so we match echoes by identity
   // rather than by {fromId,toId} value — which can't tell our move apart from another
-  // client's identical move. Cleared on the authoritative sync-full/set-all.
+  // client's identical move. Kept across a sync-full: the transport replays the edits
+  // still unsent on top of one, so their echoes must still be skipped. Cleared on set-all.
   const pendingReorderOpIds = new Set<string>();
   const newOpId = (): string =>
     globalThis.crypto?.randomUUID?.() ?? `r-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -58,7 +59,7 @@ export function createRequestsStore(
   const useRequests = create<RequestsStore>()(
       (set, get) => ({
         // Hydrate from the local cache so the queue paints instantly on reload,
-        // before the PartyKit WebSocket delivers sync-full (which then replaces it).
+        // before the room's first sync-full (which then replaces it).
         requests: loadCachedQueue(channel),
 
         add: (req) => {
@@ -122,9 +123,9 @@ export function createRequestsStore(
         handlePartyMessage: (msg) => {
           switch (msg.type) {
             case 'sync-full': {
-              // Authoritative full replace — ordering is reset, so drop any
-              // pending optimistic reorders awaiting an echo.
-              pendingReorderOpIds.clear();
+              // Authoritative full replace. Pending reorder ids stay: an unsent one is
+              // replayed on top of this (services/party.ts), and its echo must still be
+              // skipped.
               set({ requests: deserializeRequests(msg.requests) });
               break;
             }
@@ -158,9 +159,6 @@ export function createRequestsStore(
               }));
               break;
             }
-            case 'ownership-granted':
-            case 'ownership-denied':
-              break;
             case 'toggle-done':
               set((s) => {
                 // Idempotent: if already in the target state (our own optimistic
@@ -197,7 +195,7 @@ export function createRequestsStore(
             case 'server-error':
               // The server rejects an over-cap add without echoing it, so roll back the
               // optimistic insert it points at. Other errors carry no id and are no-ops here.
-              if (msg.code === 'pending_cap' && typeof msg.id === 'number') {
+              if ((msg.code === 'pending_cap' || msg.code === 'queue_closed') && typeof msg.id === 'number') {
                 set((s) => {
                   const requests = s.requests.filter((r) => r.id !== msg.id);
                   return requests.length === s.requests.length ? s : { requests };
@@ -384,8 +382,9 @@ interface ChannelInfoStore {
   /** Null until the server's first status; it then keeps the last one across reconnects. */
   status: ChannelStatus | null;
   owner: ChannelOwner | null;
-  /** The room is free because the streamer closed the queue, not because a socket died. */
+  /** The streamer closed the queue. */
   closedByOwner: boolean;
+  /** This window takes requests: the streamer's own, with the queue open (ChannelContext). */
   hasLock: boolean;
   partySynced: boolean;
   localIrcConnectionState: ConnectionState;
@@ -427,21 +426,12 @@ export function createChannelInfoStore() {
       if (msg.type === 'sync-full') {
         set({ partySynced: true });
       }
-      if (msg.type === 'ownership-granted') {
-        set({ hasLock: true });
-      } else if (msg.type === 'ownership-denied') {
-        set({ hasLock: false });
-      } else if (msg.type === 'sync-full' || msg.type === 'update-channel') {
-        const updates: Partial<ChannelInfoStore> = {
+      if (msg.type === 'sync-full' || msg.type === 'update-channel') {
+        set({
           status: msg.channel.status,
           owner: msg.channel.owner,
           closedByOwner: msg.channel.closedByOwner ?? false,
-        };
-        // Reset hasLock when channel has no owner (released or disconnected)
-        if (!msg.channel.owner) {
-          updates.hasLock = false;
-        }
-        set(updates);
+        });
       }
     },
   }));

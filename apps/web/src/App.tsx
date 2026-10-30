@@ -14,8 +14,6 @@ import { Toaster } from 'sonner';
 import { useWhatsNew } from './hooks/useWhatsNew';
 import { useRequestToasts } from './hooks/useRequestToasts';
 import { useQueueStatus } from './hooks/useQueueStatus';
-import { identifyCharacter } from './services';
-import { eligibleExtras } from './services/extras';
 import { tryLocalMatch } from './data/characters';
 import type { VODInfo } from './services/vod';
 import { DONATE_BOT_NAMES } from './services/twitch';
@@ -39,7 +37,7 @@ function useEverTrue(value: boolean): boolean {
 }
 import { toast } from 'sonner';
 import { useAuth, ChannelProvider, useChannel, useLastChannel } from './store';
-import { navigate, handleLinkClick, scrollToTop, isLikelyTruncatedDonation } from './utils/helpers';
+import { navigate, handleLinkClick, scrollToTop } from './utils/helpers';
 import { sortRequests, mergeRequests } from './utils/requests';
 import { useTranslation } from './i18n';
 import type { Request } from './types';
@@ -75,34 +73,6 @@ function makeSourcesConfig(sourcesState: ReturnType<SourcesStoreApi['getState']>
     extrasConfig: sourcesState.extrasConfig,
     ...(checkpoint && { checkpoint }),
   };
-}
-
-function useAutoIdentify(
-  requests: Request[],
-  update: (id: number, updates: Partial<Request>) => void,
-  readOnly: boolean,
-  useSources: SourcesStoreApi,
-) {
-  const inFlight = useRef(new Set<number>());
-  useEffect(() => {
-    if (readOnly) return;
-    const pending = requests.filter(r => r.needsIdentification && !inFlight.current.has(r.id));
-    for (const req of pending) {
-      inFlight.current.add(req.id);
-      const extras = eligibleExtras(req.amountVal, useSources.getState().extrasConfig);
-      // LivePix cuts long donor messages at 250 chars in chat, so the request may
-      // be in the lost tail. Downgrade the LLM's "no request" verdict to
-      // "unidentified" for those donates so they stay visible for manual review
-      // instead of being hidden by hideNonRequests.
-      const guardTruncated = <T extends { character: string; type: string }>(res: T): T =>
-        req.source === 'donation' && res.type === 'none' && isLikelyTruncatedDonation(req.message)
-          ? { ...res, type: 'unknown', character: '' }
-          : res;
-      identifyCharacter(req, extras, undefined, (llmResult) => update(req.id, guardTruncated(llmResult)))
-        .then(result => update(req.id, { ...guardTruncated(result), needsIdentification: false }))
-        .finally(() => inFlight.current.delete(req.id));
-    }
-  }, [requests, update, readOnly, useSources]);
 }
 
 /** The queue panel's sync bar: only while syncing a queue that is open or coming up. */
@@ -342,7 +312,6 @@ function ChannelApp() {
 
   const hideNonRequests = useSources((s) => s.hideNonRequests);
 
-  useAutoIdentify(requests, update, !hasLock, useSources);
   useRequestToasts(requests, update, hideNonRequests, readOnly, openReview, partySynced);
   useWhatsNew(canEditQueue);
 

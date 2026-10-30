@@ -2,7 +2,7 @@
 import { createContext, useContext, useMemo, useEffect, useRef, useState, useCallback } from 'react';
 import { createRoomStores, type ChannelStores } from './channel';
 import { setActiveStores, connect as connectIrc, disconnect as disconnectIrc } from '../services/twitch';
-import { connectParty, disconnectParty, reconnectParty, broadcastIrcStatus, claimOwnership, releaseOwnership } from '../services/party';
+import { connectParty, disconnectParty, reconnectParty, refreshParty, broadcastIrcStatus, openQueueOp, closeQueueOp } from '../services/party';
 import { useAuth } from './auth';
 import { toast } from 'sonner';
 import { MAX_PENDING_REQUESTS } from '@filadbd/shared';
@@ -17,8 +17,8 @@ const OPEN_QUEUE_PARAM = 'open-queue';
 // At most one forced token refresh + reconnect per window of this, so a server that
 // keeps refusing the streamer can't turn the self-heal into a reconnect loop.
 const REAUTH_COOLDOWN = 60_000;
-// A refusal the self-heal can't fix (e.g. a secret rotated on only one of Worker and
-// PartyKit) would otherwise be as silent as the bug it heals: after this many attempts
+// A refusal the self-heal can't fix (e.g. a rotated JWT secret) would otherwise be as
+// silent as the bug it heals: after this many attempts
 // inside the window, tell the streamer. Same for an owner session that can't get a token.
 const REAUTH_WARN_AFTER = 3;
 const REAUTH_WARN_WINDOW = 10 * 60_000;
@@ -37,9 +37,9 @@ interface ChannelContextValue extends ChannelStores {
   channel: string;
   isOwnChannel: boolean;
   canEditQueue: boolean;
-  /** Start taking requests here, taking the lock from another window if it has it. */
+  /** Start taking requests, in every window of the streamer. */
   openQueue: () => void;
-  /** Stop taking requests, wherever the session driving the channel happens to be. */
+  /** Stop taking requests, in every window of the streamer. */
   closeQueue: () => void;
 }
 
@@ -73,84 +73,49 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
     return () => realtimeTelemetry.setContext(null);
   }, [channel, isOwnChannel, stores]);
 
-  // Subscribe to ownership state
   const hasLock = stores.useChannelInfo((s) => s.hasLock);
-  const owner = stores.useChannelInfo((s) => s.owner);
   const localIrcState = stores.useChannelInfo((s) => s.localIrcConnectionState);
   const partyConnected = stores.useChannelInfo((s) => s.localPartyConnectionState) === 'connected';
   const partySynced = stores.useChannelInfo((s) => s.partySynced);
   const closedByOwner = stores.useChannelInfo((s) => s.closedByOwner);
-  // Another window of ours is driving the channel, so this one must not also join IRC.
-  const someoneElseIsOwner = isOwnChannel && !hasLock && owner !== null;
 
   // Last broadcast sources signature — used to skip the "queue settings updated"
   // toast when an update-sources message carries no meaningful change (e.g. the user
   // blurs an EditableField without editing, which still re-dispatches the value).
   const lastSourcesSignature = useRef<string | null>(null);
 
-  // What the streamer last asked for in this window. Without it a deliberate close would
-  // be undone: the claim below would take the freed room back, and the IRC effect would
-  // reopen the queue on the new lock.
-  const queueIntent = useRef<'open' | 'closed'>('open');
-
-  // Take the room back whenever it's free and ours: first sync, after a reconnect (the
-  // server drops ownership when our socket closes, which used to leave the tab demoted
-  // until reload), or when another session goes away. Gated on partySynced so `owner` is
-  // the server's current answer, and re-armed only when ownership changes hands, so a
-  // refusal can't spin.
-  const hasTriedAutoClaim = useRef(false);
-  const prevOwnerLogin = useRef<string | null>(null);
+  // There is no lock: every window of the streamer takes requests while the queue is
+  // open — reads chat, identifies, scans the VOD — and the server dedupes by request id
+  // (and claims each LLM call), so they never double up. `hasLock` just means "this
+  // window takes requests". It waits for the first sync, so `closedByOwner` is the
+  // server's answer, and then survives connection blips: only closing the queue drops it.
+  const [synced, setSynced] = useState(false);
+  useEffect(() => setSynced(false), [stores]);
   useEffect(() => {
-    const ownerLogin = owner?.login ?? null;
-    if (ownerLogin !== prevOwnerLogin.current) {
-      prevOwnerLogin.current = ownerLogin;
-      if (ownerLogin === null) hasTriedAutoClaim.current = false;
-    }
-    if (!partySynced) {
-      hasTriedAutoClaim.current = false;
-      return;
-    }
-    if (!isOwnChannel || hasLock || owner || hasTriedAutoClaim.current) return;
-    // A queue the streamer closed stays closed: only openQueue() reopens it.
-    if (closedByOwner || queueIntent.current === 'closed') return;
-    hasTriedAutoClaim.current = true;
-    claimOwnership();
-  }, [isOwnChannel, partySynced, owner, hasLock, closedByOwner]);
-
-  // Auto-connect to IRC once when ownership is first granted — unless the lock was taken
-  // for the express purpose of closing the queue in whichever window still drives it.
-  const hasAutoConnectedIrc = useRef(false);
+    if (partySynced) setSynced(true);
+  }, [partySynced]);
+  const takesRequests = isOwnChannel && synced && !closedByOwner;
   useEffect(() => {
-    if (hasLock && queueIntent.current === 'closed') {
-      disconnectIrc();
-      releaseOwnership();
-      return;
-    }
-    if (hasLock && !hasAutoConnectedIrc.current) {
-      hasAutoConnectedIrc.current = true;
-      if (localIrcState === 'disconnected') {
-        connectIrc(channel);
-      } else if (localIrcState === 'connected') {
-        // A re-grant after a party reconnect finds chat still joined, so nothing
-        // transitions to report it — and the server reset the room to 'online' on the
-        // claim. Without this, every window (viewers too) reads "Conectando..." for the
-        // rest of the session while requests keep coming in.
-        broadcastIrcStatus(true);
-      }
-    }
-    // Reset when ownership is lost so next grant auto-connects again
+    stores.useChannelInfo.getState().setHasLock(takesRequests);
+  }, [stores, takesRequests]);
+
+  // Join chat while taking requests, leave it when the queue closes.
+  useEffect(() => {
     if (!hasLock) {
-      hasAutoConnectedIrc.current = false;
-    }
-  }, [hasLock, localIrcState, channel]);
-
-  // Cleanup IRC when we lose ownership
-  useEffect(() => {
-    if (someoneElseIsOwner) {
       disconnectIrc();
+      return;
     }
-    return () => disconnectIrc();
-  }, [someoneElseIsOwner]);
+    if (localIrcState === 'disconnected') {
+      connectIrc(channel);
+    } else if (localIrcState === 'connected') {
+      // Already joined (the queue reopened): nothing transitions to report it.
+      broadcastIrcStatus(true);
+    }
+    // Only on a change of hasLock: a dropped IRC reconnects on its own (services/twitch).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasLock, channel]);
+
+  useEffect(() => () => disconnectIrc(), []);
 
   // Request notification permission, and register for pushes once granted (reactive to
   // permission changes). Blocked notifications are explained in Settings → Behavior, not
@@ -259,7 +224,7 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
     }
     if (localIrcState === 'connected') ircEverConnected.current = true;
 
-    // PartyKit: disconnected — toast after the grace window, push after the longer delay
+    // Room: unreachable — toast after the grace window, push after the longer delay
     if (prevPartyState.current && !partyConnected) {
       if (!partyWarnTimer.current) {
         partyWarnTimer.current = setTimeout(() => {
@@ -279,7 +244,7 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
       }
     }
 
-    // PartyKit: reconnected — cancel the pending warning and push
+    // Room: back — cancel the pending warning and push
     if (!prevPartyState.current && partyConnected) {
       clearTimer(partyPushTimer);
       clearTimer(partyWarnTimer);
@@ -303,7 +268,7 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
     };
   }, []);
 
-  // Connect to PartySocket
+  // Connect to the room (polling, services/party.ts)
   useEffect(() => {
     const { handlePartyMessage: handleRequestsMessage } = stores.useRequests.getState();
     const { handlePartyMessage: handleSourcesMessage } = stores.useSources.getState();
@@ -313,11 +278,10 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
 
     let tokenFailures = 0;
     let reauthAttempts: number[] = [];
-    // A heal reconnected and that socket opened: a refusal on it means a fresh token
-    // didn't help, so there's nothing left to retry — say so at once.
-    let healPending = false;
+    // A heal refreshed the token: a refusal after it means a fresh token didn't help,
+    // so there's nothing left to retry — say so at once.
     let healedSocketOpen = false;
-    // Stays up until the server grants the lock again: it's the one state the streamer
+    // Stays up until the server accepts an edit again: it's the one state the streamer
     // has to act on, and they may not be looking at the page when it starts.
     const warnAuthStatus = (retrying = false) => {
       toast.warning(t('toast.authStatus'), {
@@ -327,19 +291,19 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
       });
     };
 
-    // Runs before every connection attempt, so a reconnect presents a current token.
-    // The streamer's own session never falls back to an anonymous socket: the server
-    // would refuse every edit while the optimistic ✓ stays on screen. A missing token
-    // (a refresh that failed on the network) fails the attempt, and the socket retries.
+    // Runs before every request, so each presents a current token. The streamer's own
+    // session never falls back to anonymous: the server would refuse every edit while
+    // the optimistic ✓ stays on screen. A missing token (a refresh that failed on the
+    // network) fails that poll, and the transport retries.
     const getToken = async () => {
-      // A torn-down effect's socket may still ask (partysocket resolves the query after its
-      // reconnect wait even once closed): answer without failing, it won't connect.
+      // A torn-down effect's transport may still ask (a poll already under way): answer
+      // without failing, it won't be used.
       if (cancelled) return null;
       const token = await getAccessToken();
       if (cancelled) return null;
       if (!token && isOwnChannel) {
         tokenFailures++;
-        // Usually the Worker or the network, not the session: the socket keeps retrying.
+        // Usually the Worker or the network, not the session: the transport keeps retrying.
         if (tokenFailures >= TOKEN_FAILURES_WARN_AFTER) warnAuthStatus(true);
         throw new Error('No access token for the channel owner');
       }
@@ -347,10 +311,10 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
       return token;
     };
 
-    // The server only refuses the room owner when this socket isn't authenticated as
+    // The server only refuses the room owner when this session isn't authenticated as
     // them — typically a token it no longer accepts. Everything this window sends would
     // be dropped, so refresh the token (even one this clock still calls valid) and
-    // reconnect instead of carrying on.
+    // fetch the room again instead of carrying on.
     let lastReauthAt = 0;
     const reauthenticate = () => {
       if (!isOwnChannel) return;
@@ -362,28 +326,25 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
       lastReauthAt = now;
       reauthAttempts = [...reauthAttempts.filter((at) => now - at < REAUTH_WARN_WINDOW), now];
       if (reauthAttempts.length >= REAUTH_WARN_AFTER) warnAuthStatus();
-      console.warn('[party] server does not recognize this session as the channel owner; reconnecting with a fresh token');
+      console.warn('[room] server does not recognize this session as the channel owner; retrying with a fresh token');
       void refresh().then((ok) => {
         if (ok && !cancelled) {
-          healPending = true;
-          healedSocketOpen = false;
+          // Every request presents the fresh token from here on.
+          healedSocketOpen = true;
           reconnectParty();
         }
       });
     };
 
     function connect() {
-      console.log('Connecting to PartyKit...');
+      console.log('Connecting to the room...');
       setPartyConnectionState('connecting');
       connectParty(
         channel,
         getToken,
         (msg) => {
-          if (msg.type === 'ownership-denied' && msg.currentOwner === 'not-room-owner') {
-            reauthenticate();
-          }
-          if (msg.type === 'ownership-granted') {
-            // The server knows us again: whatever the heal was fighting is over.
+          if (msg.type !== 'server-error' && msg.type !== 'sync-full' && msg.type !== 'update-channel') {
+            // An edit's echo: the server accepted us, so whatever the heal was fighting is over.
             if (reauthAttempts.length > 0 || healedSocketOpen) toast.dismiss('auth-status');
             reauthAttempts = [];
             healedSocketOpen = false;
@@ -402,15 +363,6 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
               reauthenticate();
               return;
             }
-            // Another session holds the lock, or ours went stale across a reconnect —
-            // not something to alarm the streamer with. The claim effect takes the room
-            // back once it's free; just nudge it.
-            if (msg.code === 'not_lock_holder') {
-              if (isOwnChannel && !stores.useChannelInfo.getState().owner) {
-                claimOwnership();
-              }
-              return;
-            }
             if (msg.code === 'pending_cap') {
               // The store already rolled the optimistic add back; this is the race where
               // two sessions filled the last slot at once.
@@ -421,11 +373,15 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
               });
               return;
             }
+            if (msg.code === 'queue_closed') {
+              // This window missed the close; the update-channel that follows drops its lock.
+              return;
+            }
             if (msg.code === 'chat_send_not_mod') {
               toast.warning(t('toast.chatBot'), { id: 'chat-bot', description: msg.message, duration: 10000 });
               return;
             }
-            // Real failures (DO/D1 persistence) stay up, under their own id so they
+            // Real failures (an edit that couldn't be saved) stay up, under their own id so they
             // don't stomp the connection toasts.
             toast.error(t('toast.serverError'), {
               id: 'server-error',
@@ -474,62 +430,52 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
           handleChannelInfoMessage(msg);
         },
         () => {
-          console.log('Connected to PartyKit');
+          console.log('Connected to the room');
           setPartyConnectionState('connected');
-          if (healPending) {
-            healPending = false;
-            healedSocketOpen = true;
-          }
-          // No irc-status here: on a reconnect `hasLock` is still stale-true while the
-          // server has already dropped the lock, so it would only be refused. The grant
-          // effect reports chat once the lock actually comes back.
         },
         () => {
-          console.log('Disconnected from PartyKit');
+          console.log('Lost the room');
           setPartyConnectionState('disconnected');
         },
         () => {
-          console.log('Error connecting to PartyKit');
+          console.log('Error reaching the room');
           setPartyConnectionState('error');
-        }
+        },
+        { isOwner: isOwnChannel }
       );
     }
 
     connect();
 
+    // A tab coming back into view catches up at once rather than at its next poll.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshParty();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
     return () => {
       cancelled = true;
+      document.removeEventListener('visibilitychange', onVisible);
       disconnectParty();
       setPartyConnectionState('disconnected');
     };
   }, [channel, isOwnChannel, stores, getAccessToken, refresh]);
 
-  // Every session of the streamer manages the queue: the server authorizes mutations per
-  // room owner, not per lock holder, so no window needs a read-only mode.
+  // Every session of the streamer manages the queue: the server authorizes edits per
+  // room owner, so no window needs a read-only mode.
   const canEditQueue = isOwnChannel;
 
-  // Opening and closing are channel-level, so they work from any window. Without the lock
-  // we claim first — the server hands it over — and the effect above then connects IRC, or
-  // shuts the channel down when we're closing.
+  // Opening and closing are the room's switch, so they reach every window: the server
+  // answers with the new channel state, and each window's `hasLock` follows it.
   const openQueue = useCallback(() => {
-    queueIntent.current = 'open';
-    hasAutoConnectedIrc.current = false;
-    if (hasLock) {
-      if (localIrcState !== 'connected') connectIrc(channel);
-    } else {
-      claimOwnership();
-    }
+    openQueueOp();
+    if (hasLock && localIrcState !== 'connected') connectIrc(channel);
   }, [hasLock, localIrcState, channel]);
 
   const closeQueue = useCallback(() => {
-    queueIntent.current = 'closed';
-    if (hasLock) {
-      disconnectIrc();
-      releaseOwnership();
-    } else {
-      claimOwnership();
-    }
-  }, [hasLock]);
+    disconnectIrc();
+    closeQueueOp();
+  }, []);
 
   // Clicking the "you're live" notification means "open my queue". The service
   // worker either messages a tab that is already on this channel or hands the
@@ -563,8 +509,7 @@ export function ChannelProvider({ channel, children }: ChannelProviderProps) {
     return () => navigator.serviceWorker?.removeEventListener('message', onMessage);
   }, [isOwnChannel, channel]);
 
-  // Wait for the first sync before acting: openQueue() claims ownership, and
-  // `owner` is only the server's answer once synced.
+  // Wait for the first sync before acting, so the room is there to open.
   useEffect(() => {
     if (!openQueueRequested || !partySynced) return;
     setOpenQueueRequested(false);

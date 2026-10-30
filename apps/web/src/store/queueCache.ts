@@ -1,6 +1,6 @@
 // Per-room queue cache (localStorage): paints the last-known queue on reload
-// before PartyKit's sync-full arrives. Stale-while-revalidate only — the Durable
-// Object stays authoritative and sync-full replaces this. Versioned + defensive
+// before the room's first sync-full arrives. Stale-while-revalidate only — the room
+// (D1, via the API) stays authoritative and sync-full replaces this. Versioned + defensive
 // reads, so an old cache can't break a newer client (bump VERSION to invalidate).
 import { serializeRequest, deserializeRequest } from '../types';
 import type { Request, SerializedRequest } from '../types';

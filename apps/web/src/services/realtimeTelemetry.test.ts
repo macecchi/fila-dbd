@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { RealtimeTelemetry, ACK_TIMEOUT_MS, describeSocketUrl, tokenTtlSeconds, type TelemetryContext } from './realtimeTelemetry';
+import { RealtimeTelemetry, ACK_TIMEOUT_MS, describeToken, tokenTtlSeconds, type TelemetryContext } from './realtimeTelemetry';
 import type { PartyMessage, Request, SerializedRequest } from '../types';
 
 vi.mock('./analytics', () => ({ track: vi.fn() }));
@@ -139,21 +139,14 @@ describe('RealtimeTelemetry', () => {
   });
 
   describe('owner rejection and recovery', () => {
-    it('reports a claim denied as not-room-owner, then the recovery when the lock is granted', () => {
-      t.onMessage({ type: 'ownership-denied', currentOwner: 'not-room-owner' });
-      now += 5_000;
+    it('reports the recovery when an edit is echoed after a not_room_owner refusal', () => {
+      t.onOpen({ tokenPresent: true, tokenTtlS: 100 });
+      t.onMessage(syncFull([ser(2)]));
       t.onMessage({ type: 'server-error', code: 'not_room_owner', message: '' });
-      now += 55_000;
-      t.onMessage({ type: 'ownership-granted' });
-      expect(events('fila_claim_denied')[0]).toMatchObject({ reason: 'not-room-owner' });
-      expect(events('fila_owner_recovered')[0]).toMatchObject({ via: 'granted', ms_since_rejection: 60_000, rejections: 2 });
-    });
-
-    it('treats a hand-over to another window as a transfer, not a rejection', () => {
-      t.onMessage({ type: 'ownership-denied', currentOwner: 'streamer' });
-      t.onMessage({ type: 'ownership-granted' });
-      expect(events('fila_claim_denied')[0]).toMatchObject({ reason: 'transferred' });
-      expect(events('fila_owner_recovered')).toHaveLength(0);
+      now += 60_000;
+      t.onSend({ type: 'delete-request', id: 2 }, true);
+      t.onMessage({ type: 'delete-request', id: 2 });
+      expect(events('fila_owner_recovered')[0]).toMatchObject({ via: 'ack', ms_since_rejection: 60_000, rejections: 1 });
     });
   });
 
@@ -176,8 +169,16 @@ describe('RealtimeTelemetry', () => {
       t.onMessage(syncFull([ser(1)]));
       local = [req(1, { done: true }), req(5)];
       now += 10_000;
+      t.onOpen({ tokenPresent: true, tokenTtlS: 100 });
       t.onMessage(syncFull([ser(1)]));
       expect(events('fila_sync_diverged')[0]).toMatchObject({ initial: false, reverted_done: 1, lost_pending: 1, lost_pending_ids: [5], ms_since_last_sync: 10_000 });
+    });
+
+    it("leaves later syncs alone: they carry other windows' edits", () => {
+      t.onMessage(syncFull([ser(1)]));
+      local = [req(1)];
+      t.onMessage(syncFull([ser(1, { done: true })]));
+      expect(events('fila_sync_diverged')).toHaveLength(0);
     });
 
     it('ignores what the server prunes on its own', () => {
@@ -222,14 +223,13 @@ describe('token helpers', () => {
     const now = Date.UTC(2026, 0, 1);
     const token = jwt({ exp: now / 1000 + 600 });
     expect(tokenTtlSeconds(token, now)).toBe(600);
-    const info = describeSocketUrl(`wss://party.example/parties/main/room?token=${token}&v=1`, now);
+    const info = describeToken(token, now);
     expect(info).toEqual({ tokenPresent: true, tokenTtlS: 600 });
     expect(JSON.stringify(info)).not.toContain(token);
   });
 
-  it('handles an anonymous or unreadable socket URL', () => {
-    expect(describeSocketUrl('wss://party.example/parties/main/room?v=1')).toEqual({ tokenPresent: false, tokenTtlS: null });
-    expect(describeSocketUrl('')).toEqual({ tokenPresent: false, tokenTtlS: null });
+  it('handles an anonymous session or an unreadable token', () => {
+    expect(describeToken(null)).toEqual({ tokenPresent: false, tokenTtlS: null });
     expect(tokenTtlSeconds('garbage')).toBeNull();
   });
 });

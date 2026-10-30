@@ -10,11 +10,11 @@ import { formatRelativeTime } from '../utils/helpers';
 // header strip is the one place that still shows what was just played — confirmation
 // for the streamer that the ✓ landed, and "what are they playing" for a viewer.
 //
-// They come off the requests store like everything else: the PartyKit room keeps the
-// newest `RECENT_DONE_KEPT` done requests instead of pruning them the moment they
-// reach D1, so the strip is the same in every window and survives a reload. It is not
-// backed by D1 — see the internal recovery endpoint for why that would resurrect
-// deleted requests — so after a DO storage loss the strip starts empty.
+// They come off the requests store like everything else: the room state carries the
+// newest `RECENT_DONE_KEPT` done requests (apps/api/src/rooms.ts), so the strip is the
+// same in every window and survives a reload. Only requests played since deletions
+// started being recorded count — before that D1 couldn't tell a deleted request from
+// a played one.
 //
 // Fewer are shown than the room keeps, deliberately: undoing the open entry pulls the
 // next one in from the spares rather than leaving the strip a slot short.

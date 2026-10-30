@@ -40,16 +40,16 @@ describe('identifyCharacter — skip LLM when local match is the whole message',
     const result = await identifyCharacter(makeRequest('Trapper'), ['build'], undefined, () => {});
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(result.character).toBe('Trapper');
-    expect(result.type).toBe('killer');
-    expect(result.validating).toBeUndefined();
+    expect(result!.character).toBe('Trapper');
+    expect(result!.type).toBe('killer');
+    expect(result!.validating).toBeUndefined();
   });
 
   it('ignores surrounding whitespace and case when comparing match to message', async () => {
     const result = await identifyCharacter(makeRequest('  trapper  '), ['build'], undefined, () => {});
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(result.character).toBe('Trapper');
+    expect(result!.character).toBe('Trapper');
   });
 
   it('still calls the LLM for extras when the message has text beyond the character name', async () => {
@@ -68,7 +68,7 @@ describe('identifyCharacter — skip LLM when local match is the whole message',
       onLLMUpdate
     );
 
-    expect(result.validating).toBe(true);
+    expect(result!.validating).toBe(true);
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   });
 
@@ -90,7 +90,7 @@ describe('identifyCharacter — skip LLM when local match is the whole message',
       onLLMUpdate
     );
 
-    expect(result.validating).toBe(true);
+    expect(result!.validating).toBe(true);
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     // LLM is authoritative: it returned no character, so the local guess is dropped.
     await vi.waitFor(() =>
@@ -125,7 +125,7 @@ describe('identifyCharacter — API failures must not clobber a local match', ()
       onLLMUpdate
     );
 
-    expect(result.validating).toBe(true);
+    expect(result!.validating).toBe(true);
     await vi.waitFor(() => expect(onLLMUpdate).toHaveBeenCalled());
     const arg = onLLMUpdate.mock.calls.at(-1)![0];
     expect(arg.character).toBe('Trapper');
@@ -168,8 +168,8 @@ describe('identifyCharacter — API failures must not clobber a local match', ()
 
     const result = await identifyCharacter(makeRequest('manda um Trapper ai por favor'), []);
 
-    expect(result.character).toBe('Trapper');
-    expect(result.type).toBe('killer');
+    expect(result!.character).toBe('Trapper');
+    expect(result!.type).toBe('killer');
   });
 
   it('await path (no callback): a successful empty result is authoritative and drops the local guess', async () => {
@@ -182,6 +182,6 @@ describe('identifyCharacter — API failures must not clobber a local match', ()
 
     const result = await identifyCharacter(makeRequest('um Trapper qualquer no meio da frase'), []);
 
-    expect(result.character).toBe('');
+    expect(result!.character).toBe('');
   });
 });

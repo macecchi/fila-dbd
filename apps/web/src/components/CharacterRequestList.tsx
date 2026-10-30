@@ -125,7 +125,7 @@ export function CharacterRequestList() {
       update(id, { character: t('card.identifying'), type: 'unknown' });
       const extras = eligibleExtras(request.amountVal, useSources.getState().extrasConfig);
       const result = await identifyCharacter(request, extras);
-      update(id, result);
+      if (result) update(id, result);
     }
   }, [requests, update, t, useSources]);
 
