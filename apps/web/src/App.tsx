@@ -98,8 +98,11 @@ function useAutoIdentify(
         req.source === 'donation' && res.type === 'none' && isLikelyTruncatedDonation(req.message)
           ? { ...res, type: 'unknown', character: '' }
           : res;
-      identifyCharacter(req, extras, undefined, (llmResult) => update(req.id, guardTruncated(llmResult)))
-        .then(result => update(req.id, { ...guardTruncated(result), needsIdentification: false }))
+      // Every window of the streamer runs this; the claim lets one call the LLM, and the
+      // others (null) see its result on their next sync. No streaming of the local guess
+      // here: a window that loses the claim must not write anything over the winner's.
+      identifyCharacter(req, extras, undefined, undefined, `req:${req.id}`)
+        .then(result => { if (result) update(req.id, { ...guardTruncated(result), needsIdentification: false }); })
         .finally(() => inFlight.current.delete(req.id));
     }
   }, [requests, update, readOnly, useSources]);

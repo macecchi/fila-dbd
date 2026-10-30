@@ -18,15 +18,18 @@ type ExtractedCharacter = {
 // and fall back to the local match — NOT as an authoritative "not a character".
 // Encoding errors as sentinel character objects (the old behavior) let a
 // transient outage permanently overwrite a good local guess with "unidentified".
+// `inFlight` means another window of the streamer claimed this message first (every
+// window reads chat): that one runs the call and writes the result, so do nothing.
 type APIResult =
   | { ok: true; characters: ExtractedCharacter[] }
-  | { ok: false };
+  | { ok: false; inFlight?: boolean };
 
 async function callAPI(
   message: string,
   maxCount: number,
   extras: RequestExtraType[],
-  onError?: (msg: string) => void
+  onError?: (msg: string) => void,
+  claimKey?: string
 ): Promise<APIResult> {
   const token = await useAuth.getState().getAccessToken();
   if (!token) return { ok: false };
@@ -39,9 +42,10 @@ async function callAPI(
         Authorization: `Bearer ${token}`,
         'X-Client-Version': __APP_VERSION__,
       },
-      body: JSON.stringify({ message, maxCount, extras }),
+      body: JSON.stringify({ message, maxCount, extras, ...(claimKey ? { claimKey } : {}) }),
     });
 
+    if (res.status === 409) return { ok: false, inFlight: true };
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       const errorCode = (err as { error?: string }).error;
@@ -81,8 +85,9 @@ export async function identifyCharacter(
   request: Request,
   extras: RequestExtraType[] = [],
   onError?: (msg: string) => void,
-  onLLMUpdate?: (result: { character: string; type: 'survivor' | 'killer' | 'unknown' | 'none'; matchedTerm?: string; extras?: RequestExtra[]; validating: false }) => void
-): Promise<{ character: string; type: 'survivor' | 'killer' | 'unknown' | 'none'; matchedTerm?: string; extras?: RequestExtra[]; validating?: boolean }> {
+  onLLMUpdate?: (result: { character: string; type: 'survivor' | 'killer' | 'unknown' | 'none'; matchedTerm?: string; extras?: RequestExtra[]; validating: false }) => void,
+  claimKey?: string
+): Promise<{ character: string; type: 'survivor' | 'killer' | 'unknown' | 'none'; matchedTerm?: string; extras?: RequestExtra[]; validating?: boolean } | null> {
   const local = tryLocalMatch(request.message);
   const isAuthenticated = useAuth.getState().isAuthenticated;
 
@@ -120,7 +125,9 @@ export async function identifyCharacter(
     return { ...local, validating: true };
   }
 
-  const res = await callAPI(request.message, 1, extras, onError);
+  const res = await callAPI(request.message, 1, extras, onError, claimKey);
+  // Another window is identifying this one (only possible with a `claimKey`).
+  if (!res.ok && res.inFlight) return null;
   // No judgment from the LLM — preserve the local guess (best effort) rather
   // than overwriting it with an error sentinel.
   if (!res.ok) return local ?? { character: '', type: 'unknown' };
@@ -173,12 +180,14 @@ export async function testExtraction(
   };
 }
 
+/** Null when `claimKey` is given and another window is already running this message. */
 export async function identifyMultiple(
   message: string,
   maxCount: number,
   extras: RequestExtraType[] = [],
-  onError?: (msg: string) => void
-): Promise<Array<{
+  onError?: (msg: string) => void,
+  claimKey?: string
+): Promise<null | Array<{
   character: string;
   type: 'survivor' | 'killer' | 'unknown' | 'none';
   matchedTerm?: string;
@@ -186,7 +195,8 @@ export async function identifyMultiple(
 }>> {
   const isAuthenticated = useAuth.getState().isAuthenticated;
   if (!isAuthenticated) return [];
-  const res = await callAPI(message, maxCount, extras, onError);
+  const res = await callAPI(message, maxCount, extras, onError, claimKey);
+  if (!res.ok && res.inFlight) return null;
   // On failure return [] — the caller (buildDonationRequests) then emits a single
   // `needsIdentification` placeholder that auto-identify retries, instead of a
   // request permanently stuck on an "Erro na API" sentinel.

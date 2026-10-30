@@ -1,0 +1,474 @@
+// Room sync over plain HTTP, straight on D1. Replaces the realtime rooms that ran on
+// hosted PartyKit (shut down 2026-10-23).
+//
+// - GET  /rooms/:roomId/state — anyone. Polled: viewers every few seconds, the streamer's
+//   windows a bit faster. `?v=` is the version the client already has; when it matches,
+//   only the channel status comes back (one row read).
+// - POST /rooms/:roomId/ops — the streamer only (JWT login = room). One PartyMessage edit
+//   per call; the response carries the messages the client applies as the server's echo.
+//
+// There is no lock. Every window of the streamer reads chat and sends what it sees; D1 is
+// the arbiter. An add is claimed by its insert (`ON CONFLICT DO NOTHING RETURNING` on the
+// request id, a hash of the Twitch message id — see CLAUDE.md "Idempotency"), so only the
+// first window's add lands and confirms in chat. An LLM call is claimed in `llm_claims`
+// (`claimLlm`). KV can't do either: it has no put-if-absent and propagates in ~60s.
+//
+// The channel status is derived on read from two heartbeats and the open/closed switch,
+// so a window that vanishes (closed laptop, crashed tab) simply ages out.
+import { Hono } from "hono";
+import {
+  MAX_PENDING_REQUESTS,
+  PROTOCOL_VERSION,
+  RECENT_DONE_KEPT,
+  compareRequests,
+  normalizeSourcesSettings,
+} from "@filadbd/shared";
+import type { ChannelState, ChannelStatus, PartyMessage, SerializedRequest, SourcesSettings } from "@filadbd/shared";
+import { verifyJwt, type JwtPayload } from "./jwt";
+import { sendChatMessage } from "./twitch";
+
+export interface RoomsEnv {
+  DB: D1Database;
+  CACHE: KVNamespace;
+  JWT_SECRET: string;
+  TWITCH_CLIENT_ID: string;
+  TWITCH_CLIENT_SECRET: string;
+  DEV_MODE?: string;
+}
+
+// A heartbeat counts for this long. Background tabs get their timers throttled to about
+// once a minute, and the window reading chat is usually a background tab during a match,
+// so this has to outlive a couple of throttled polls.
+export const PRESENCE_TTL_MS = 150_000;
+// Heartbeats are written at most this often, so polling doesn't turn into a D1 write each.
+const HEARTBEAT_WRITE_MS = 30_000;
+// Rows marked done before this were sometimes deletions: the old realtime server's sync
+// marked anything missing as done, and `deleted_at` was never written. Since this
+// version deletions are recorded, so the "recently played" strip only reads done rows
+// from after it — otherwise it could bring a deleted request back.
+const DELETES_RECORDED_SINCE = "2026-10-30T00:00:00.000Z";
+const RECENT_DONE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const CHAT_NOT_MOD_NOTIFY_TTL_S = 5 * 60;
+// An LLM claim older than this can be taken over: its window went away mid-call.
+const LLM_CLAIM_TTL_MS = 60_000;
+const NOW_ISO = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
+
+interface RoomRow {
+  id: string;
+  channel_login: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  sources_config: string | null;
+  version: number;
+  closed_by_owner: number;
+  owner_seen_at: number | null;
+  irc_live_at: number | null;
+}
+
+export interface PresenceRow {
+  channel_login: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  closed_by_owner: number;
+  owner_seen_at: number | null;
+  irc_live_at: number | null;
+}
+
+const fresh = (at: number | null, now: number) => at !== null && now - at < PRESENCE_TTL_MS;
+
+/** The room's status: closed by the streamer, or how recently their windows checked in. */
+export function roomStatus(row: Pick<PresenceRow, "closed_by_owner" | "owner_seen_at" | "irc_live_at"> | null, now = Date.now()): ChannelStatus {
+  if (!row || row.closed_by_owner) return "offline";
+  if (fresh(row.irc_live_at, now)) return "live";
+  if (fresh(row.owner_seen_at, now)) return "online";
+  return "offline";
+}
+
+export function channelState(row: PresenceRow | null, now = Date.now()): ChannelState {
+  const status = roomStatus(row, now);
+  const owner = row && status !== "offline"
+    ? { login: row.channel_login, displayName: row.display_name ?? row.channel_login, avatar: row.avatar_url ?? "" }
+    : null;
+  return { status, owner, closedByOwner: !!row?.closed_by_owner };
+}
+
+export function rowToRequest(r: Record<string, unknown>, roomId: string): SerializedRequest {
+  return {
+    id: r.id as number,
+    timestamp: r.timestamp as string,
+    donor: r.donor as string,
+    amount: (r.amount as string) ?? "",
+    amountVal: (r.amount_val as number) ?? 0,
+    message: (r.message as string) ?? "",
+    character: (r.character as string) ?? "",
+    type: ((r.type as string) ?? "unknown") as SerializedRequest["type"],
+    done: !!r.done,
+    doneAt: (r.done_at as string | null) ?? undefined,
+    source: r.source as SerializedRequest["source"],
+    subTier: (r.sub_tier as number | null) ?? undefined,
+    isBroadcaster: r.source === "manual" || (r.source === "chat" && typeof r.donor === "string" && r.donor.toLowerCase() === roomId.toLowerCase()),
+    needsIdentification: !!r.needs_identification,
+    matchedTerm: (r.matched_term as string | null) ?? undefined,
+    ...(r.origin_msg_id ? { originMsgId: r.origin_msg_id as string } : {}),
+    extras: r.extras ? JSON.parse(r.extras as string) : undefined,
+  } as SerializedRequest;
+}
+
+async function loadRoom(db: D1Database, roomId: string): Promise<RoomRow | null> {
+  return db.prepare(
+    `SELECT id, channel_login, display_name, avatar_url, sources_config, version, closed_by_owner, owner_seen_at, irc_live_at
+     FROM rooms WHERE id = ?`
+  ).bind(roomId).first<RoomRow>();
+}
+
+async function loadPending(db: D1Database, roomId: string): Promise<SerializedRequest[]> {
+  const { results } = await db.prepare(
+    "SELECT * FROM requests WHERE room_id = ? AND done = 0 AND deleted_at IS NULL ORDER BY position ASC, timestamp ASC"
+  ).bind(roomId).all();
+  return (results ?? []).map((r) => rowToRequest(r, roomId));
+}
+
+/** What a client renders: the pending queue in order, plus the newest few done for the strip. */
+async function loadQueue(db: D1Database, roomId: string, now: number): Promise<SerializedRequest[]> {
+  const since = new Date(Math.max(now - RECENT_DONE_WINDOW_MS, Date.parse(DELETES_RECORDED_SINCE))).toISOString();
+  const [pending, recent] = await db.batch([
+    db.prepare("SELECT * FROM requests WHERE room_id = ? AND done = 0 AND deleted_at IS NULL ORDER BY position ASC, timestamp ASC").bind(roomId),
+    db.prepare(
+      "SELECT * FROM requests WHERE room_id = ? AND done = 1 AND deleted_at IS NULL AND done_at >= ? ORDER BY done_at DESC LIMIT ?"
+    ).bind(roomId, since, RECENT_DONE_KEPT),
+  ]);
+  return [...(pending.results ?? []), ...(recent.results ?? [])].map((r) => rowToRequest(r as Record<string, unknown>, roomId));
+}
+
+function roomSources(row: RoomRow | null): SourcesSettings {
+  return normalizeSourcesSettings(row?.sources_config ? JSON.parse(row.sources_config) : null);
+}
+
+function ensureRoom(db: D1Database, roomId: string, user?: JwtPayload | null) {
+  return db.prepare(
+    `INSERT INTO rooms (id, channel_login, display_name, avatar_url) VALUES (?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET updated_at = datetime('now')`
+  ).bind(roomId, roomId, user?.display_name ?? null, user?.profile_image_url || null);
+}
+
+function bumpVersion(db: D1Database, roomId: string) {
+  return db.prepare("UPDATE rooms SET version = version + 1 WHERE id = ? RETURNING version").bind(roomId);
+}
+
+// Every pending row's position from an ordered list of ids, in one statement whatever
+// the queue length (D1 caps a statement at 100 bound parameters).
+function writeOrder(db: D1Database, roomId: string, ids: number[]) {
+  const json = JSON.stringify(ids);
+  return db.prepare(
+    `UPDATE requests SET position = (SELECT CAST(key AS INTEGER) FROM json_each(?1) WHERE value = requests.id)
+     WHERE room_id = ?2 AND id IN (SELECT value FROM json_each(?1))`
+  ).bind(json, roomId);
+}
+
+function upsertRequest(db: D1Database, roomId: string, r: SerializedRequest, position: number) {
+  return db.prepare(
+    `INSERT INTO requests (id, room_id, position, timestamp, donor, amount, amount_val, message, character, type, done, done_at, source, sub_tier, needs_identification, matched_term, origin_msg_id, extras)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (room_id, id) DO UPDATE SET
+       position = excluded.position, timestamp = excluded.timestamp, donor = excluded.donor,
+       amount = excluded.amount, amount_val = excluded.amount_val, message = excluded.message,
+       character = excluded.character, type = excluded.type, done = excluded.done,
+       done_at = excluded.done_at, source = excluded.source, sub_tier = excluded.sub_tier,
+       needs_identification = excluded.needs_identification, matched_term = excluded.matched_term,
+       origin_msg_id = excluded.origin_msg_id, extras = excluded.extras, deleted_at = NULL`
+  ).bind(
+    r.id, roomId, position, r.timestamp, r.donor, r.amount ?? "", r.amountVal ?? 0, r.message ?? "",
+    r.character ?? "", r.type ?? "unknown", r.done ? 1 : 0, r.done ? (r.doneAt ?? null) : null, r.source,
+    r.subTier ?? null, r.needsIdentification ? 1 : 0, r.matchedTerm ?? null,
+    (r as { originMsgId?: string }).originMsgId ?? null, r.extras ? JSON.stringify(r.extras) : null,
+  );
+}
+
+// A new row at the end of the queue, unless the id exists (pending, done or deleted: a
+// replayed message must not come back). RETURNING yields a row only for the inserter.
+function insertRequest(db: D1Database, roomId: string, r: SerializedRequest) {
+  return db.prepare(
+    `INSERT INTO requests (id, room_id, position, timestamp, donor, amount, amount_val, message, character, type, done, done_at, source, sub_tier, needs_identification, matched_term, origin_msg_id, extras)
+     VALUES (?1, ?2, (SELECT COALESCE(MAX(position), -1) + 1 FROM requests WHERE room_id = ?2), ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, NULL, ?10, ?11, ?12, ?13, ?14, ?15)
+     ON CONFLICT (room_id, id) DO NOTHING
+     RETURNING id`
+  ).bind(
+    r.id, roomId, r.timestamp, r.donor, r.amount ?? "", r.amountVal ?? 0, r.message ?? "",
+    r.character ?? "", r.type ?? "unknown", r.source, r.subTier ?? null, r.needsIdentification ? 1 : 0,
+    r.matchedTerm ?? null, (r as { originMsgId?: string }).originMsgId ?? null, r.extras ? JSON.stringify(r.extras) : null,
+  );
+}
+
+function insertIndex(pending: SerializedRequest[], req: SerializedRequest, sources: SourcesSettings): number {
+  if (sources.sortMode === "fifo") return pending.length;
+  let idx = 0;
+  for (let i = 0; i < pending.length; i++) {
+    if (compareRequests(req, pending[i], sources.priority, sources.prioritizeTiers ?? false, sources.prioritizeDonations ?? false) >= 0) idx = i + 1;
+  }
+  return idx;
+}
+
+// Same position the queue shows, so the chat confirmation matches what people see.
+function queuePosition(pending: SerializedRequest[], req: SerializedRequest, sources: SourcesSettings): number {
+  const visible = pending.filter((r) => !sources.hideNonRequests || r.type !== "none");
+  const ordered = sources.sortMode === "fifo"
+    ? visible
+    : [...visible].sort((a, b) => compareRequests(a, b, sources.priority, sources.prioritizeTiers ?? false, sources.prioritizeDonations ?? false));
+  const idx = ordered.findIndex((r) => r.id === req.id);
+  return idx === -1 ? ordered.length : idx + 1;
+}
+
+/** True when this caller may run the LLM call for `key`; false while another one is. */
+export async function claimLlm(db: D1Database, roomId: string, key: string, now = Date.now()): Promise<boolean> {
+  const row = await db.prepare(
+    `INSERT INTO llm_claims (room_id, key, claimed_at) VALUES (?1, ?2, ?3)
+     ON CONFLICT (room_id, key) DO UPDATE SET claimed_at = excluded.claimed_at WHERE claimed_at < ?4
+     RETURNING claimed_at`
+  ).bind(roomId, key, now, now - LLM_CLAIM_TTL_MS).first();
+  return row !== null;
+}
+
+export async function releaseLlm(db: D1Database, roomId: string, key: string): Promise<void> {
+  await db.prepare("DELETE FROM llm_claims WHERE room_id = ? AND key = ?").bind(roomId, key).run();
+}
+
+const errorMsg = (code: string, message: string, id?: number): PartyMessage =>
+  ({ type: "server-error", code, message, ...(id !== undefined ? { id } : {}) });
+
+async function authenticate(env: RoomsEnv, header: string | undefined): Promise<JwtPayload | null> {
+  if (!header?.startsWith("Bearer ") || !env.JWT_SECRET) return null;
+  return verifyJwt(header.slice("Bearer ".length), env.JWT_SECRET);
+}
+
+const isRoomOwner = (env: RoomsEnv, user: JwtPayload | null, roomId: string) =>
+  !!user && (user.login.toLowerCase() === roomId || env.DEV_MODE === "true");
+
+type Ctx = { waitUntil(p: Promise<unknown>): void };
+
+export const roomsSync = new Hono<{ Bindings: RoomsEnv }>();
+
+roomsSync.get("/:roomId/state", async (c) => {
+  const roomId = c.req.param("roomId").toLowerCase();
+  const db = c.env.DB;
+  const now = Date.now();
+  c.header("Cache-Control", "no-store");
+
+  if (Number(c.req.query("p") ?? 0) < PROTOCOL_VERSION) {
+    return c.json({ error: "version_mismatch" }, 426);
+  }
+
+  let row = await loadRoom(db, roomId);
+
+  // The streamer's windows check in through their polls; the one reading chat says so.
+  const user = await authenticate(c.env, c.req.header("Authorization"));
+  if (isRoomOwner(c.env, user, roomId)) {
+    // A closed queue isn't reading chat, whatever a straggling window says.
+    const irc = c.req.query("irc") === "1" && !row?.closed_by_owner;
+    const seenStale = !row?.owner_seen_at || now - row.owner_seen_at > HEARTBEAT_WRITE_MS;
+    const liveStale = irc && (!row?.irc_live_at || now - row.irc_live_at > HEARTBEAT_WRITE_MS);
+    if (!row || seenStale || liveStale) {
+      await db.batch([
+        ensureRoom(db, roomId, user),
+        db.prepare(
+          `UPDATE rooms SET owner_seen_at = ?, irc_live_at = CASE WHEN ? THEN ? ELSE irc_live_at END WHERE id = ?`
+        ).bind(now, irc ? 1 : 0, now, roomId),
+      ]);
+      row = await loadRoom(db, roomId);
+    }
+  }
+
+  const version = row?.version ?? 0;
+  const channel = channelState(row, now);
+  if (c.req.query("v") === String(version)) {
+    return c.json({ version, channel });
+  }
+  return c.json({
+    version,
+    channel,
+    requests: await loadQueue(db, roomId, now),
+    sources: roomSources(row),
+  });
+});
+
+roomsSync.post("/:roomId/ops", async (c) => {
+  const roomId = c.req.param("roomId").toLowerCase();
+  const body = await c.req.json<{ msg?: PartyMessage; p?: number }>().catch(() => ({} as { msg?: PartyMessage; p?: number }));
+  if ((body.p ?? 0) < PROTOCOL_VERSION) {
+    return c.json({ messages: [errorMsg("version_mismatch", "Nova versão disponível. Recarregue a página.")] });
+  }
+  const user = await authenticate(c.env, c.req.header("Authorization"));
+  if (!isRoomOwner(c.env, user, roomId)) {
+    return c.json({ messages: [errorMsg("not_room_owner", "Apenas o dono do canal pode gerenciar a fila.")] }, user ? 403 : 401);
+  }
+  if (!body.msg || typeof body.msg !== "object") {
+    return c.json({ error: "invalid_input" }, 400);
+  }
+  const result = await applyOp(c.env, c.executionCtx, roomId, user!, body.msg);
+  return c.json(result);
+});
+
+export async function applyOp(
+  env: RoomsEnv,
+  ctx: Ctx,
+  roomId: string,
+  user: JwtPayload,
+  msg: PartyMessage,
+): Promise<{ version?: number; messages: PartyMessage[] }> {
+  const db = env.DB;
+  const now = Date.now();
+  const row = await loadRoom(db, roomId);
+  const sources = roomSources(row);
+  const tag = `[${roomId}]`;
+
+  const commit = async (statements: D1PreparedStatement[]) => {
+    const results = await db.batch([ensureRoom(db, roomId, user), ...statements, bumpVersion(db, roomId)]);
+    const last = results[results.length - 1].results?.[0] as { version: number } | undefined;
+    return last?.version;
+  };
+  const presence = async () => channelState(await loadRoom(db, roomId), Date.now());
+
+  switch (msg.type) {
+    case "add-request": {
+      const req = msg.request;
+      const pending = await loadPending(db, roomId);
+      if (pending.some((r) => r.id === req.id)) return { messages: [] };
+      if (pending.length >= MAX_PENDING_REQUESTS) {
+        console.warn(`${tag} add-request #${req.id} rejected (pending cap ${MAX_PENDING_REQUESTS})`);
+        return { messages: [errorMsg("pending_cap", `Fila cheia (${MAX_PENDING_REQUESTS}). Marque pedidos como feitos para liberar espaço.`, req.id)] };
+      }
+      // The insert is the claim: another window (or a VOD replay) that sent the same
+      // message gets nothing back and stops here, so only one add lands and confirms.
+      const [, inserted] = await db.batch([ensureRoom(db, roomId, user), insertRequest(db, roomId, { ...req, done: false })]);
+      if (!inserted.results?.length) return { messages: [] };
+      const idx = insertIndex(pending, req, sources);
+      const next = [...pending];
+      next.splice(idx, 0, req);
+      const version = await commit([writeOrder(db, roomId, next.map((r) => r.id))]);
+      console.log(`${tag} add-request #${req.id} "${req.character}" (${req.source})`);
+      const notice = await confirmInChat(env, ctx, roomId, sources, req, next);
+      return { version, messages: [msg, ...notice] };
+    }
+    case "update-request": {
+      const current = await db.prepare("SELECT * FROM requests WHERE room_id = ? AND id = ? AND deleted_at IS NULL").bind(roomId, msg.id).first();
+      if (!current) return { messages: [] };
+      const before = rowToRequest(current, roomId);
+      const after = { ...before, ...msg.updates, id: before.id } as SerializedRequest;
+      const version = await commit([upsertRequest(db, roomId, after, current.position as number)]);
+      let notice: PartyMessage[] = [];
+      if (before.needsIdentification && !after.needsIdentification && !after.done) {
+        notice = await confirmInChat(env, ctx, roomId, sources, after, await loadPending(db, roomId));
+      }
+      return { version, messages: [msg, ...notice] };
+    }
+    case "toggle-done": {
+      const doneAt = msg.done ? (msg.doneAt ?? new Date(now).toISOString()) : undefined;
+      const res = await db.prepare("SELECT 1 FROM requests WHERE room_id = ? AND id = ? AND deleted_at IS NULL").bind(roomId, msg.id).first();
+      if (!res) return { messages: [] };
+      const version = await commit([
+        db.prepare("UPDATE requests SET done = ?, done_at = ? WHERE room_id = ? AND id = ?").bind(msg.done ? 1 : 0, doneAt ?? null, roomId, msg.id),
+      ]);
+      console.log(`${tag} toggle-done #${msg.id} → ${msg.done}`);
+      return { version, messages: [{ type: "toggle-done", id: msg.id, done: msg.done, doneAt }] };
+    }
+    case "reorder": {
+      const ids = (await loadPending(db, roomId)).map((r) => r.id);
+      const from = ids.indexOf(msg.fromId);
+      const to = ids.indexOf(msg.toId);
+      if (from === -1 || to === -1) return { messages: [] };
+      ids.splice(to, 0, ...ids.splice(from, 1));
+      const version = await commit([writeOrder(db, roomId, ids)]);
+      return { version, messages: [msg] };
+    }
+    case "delete-request": {
+      const version = await commit([
+        db.prepare(`UPDATE requests SET deleted_at = ${NOW_ISO} WHERE room_id = ? AND id = ? AND deleted_at IS NULL`).bind(roomId, msg.id),
+      ]);
+      console.log(`${tag} delete-request #${msg.id}`);
+      return { version, messages: [msg] };
+    }
+    case "set-all": {
+      // An import replaces the queue: whatever pending isn't in it is gone, not played.
+      const ids = JSON.stringify(msg.requests.map((r) => r.id));
+      const statements: D1PreparedStatement[] = [
+        db.prepare(
+          `UPDATE requests SET deleted_at = ${NOW_ISO}
+           WHERE room_id = ? AND done = 0 AND deleted_at IS NULL AND id NOT IN (SELECT value FROM json_each(?))`
+        ).bind(roomId, ids),
+        ...msg.requests.map((r, i) => upsertRequest(db, roomId, r, i)),
+      ];
+      // A long import doesn't fit one batch (D1 caps a batch at 100 statements): write the
+      // rows first, then commit the sweep and the version together.
+      const head = statements.slice(0, 1);
+      const rows = statements.slice(1);
+      for (let i = 0; i < rows.length; i += 80) await db.batch(rows.slice(i, i + 80));
+      const version = await commit(head);
+      console.log(`${tag} set-all (${msg.requests.length} requests)`);
+      return { version, messages: [msg] };
+    }
+    case "update-sources": {
+      const normalized = normalizeSourcesSettings(msg.sources);
+      const version = await commit([
+        db.prepare("UPDATE rooms SET sources_config = ? WHERE id = ?").bind(JSON.stringify(normalized), roomId),
+      ]);
+      return { version, messages: [{ type: "update-sources", sources: normalized }] };
+    }
+    case "irc-status": {
+      await db.batch([
+        ensureRoom(db, roomId, user),
+        db.prepare("UPDATE rooms SET owner_seen_at = ?, irc_live_at = ? WHERE id = ?").bind(now, msg.connected ? now : null, roomId),
+      ]);
+      return { messages: [{ type: "update-channel", channel: await presence() }] };
+    }
+    case "open-queue":
+    case "close-queue": {
+      const closing = msg.type === "close-queue";
+      await db.batch([
+        ensureRoom(db, roomId, user),
+        db.prepare("UPDATE rooms SET closed_by_owner = ?, owner_seen_at = ?, irc_live_at = CASE WHEN ? THEN NULL ELSE irc_live_at END WHERE id = ?")
+          .bind(closing ? 1 : 0, now, closing ? 1 : 0, roomId),
+      ]);
+      console.log(`${tag} ${msg.type}`);
+      return { messages: [{ type: "update-channel", channel: await presence() }] };
+    }
+    default:
+      return { messages: [] };
+  }
+}
+
+// Posts a confirmation in chat via the @filadbd bot account. For viewer-originated
+// requests it @-mentions the donor; for manual (streamer-added) it drops the mention
+// since the donor field is just a placeholder. Skips pending-identification requests
+// — the update-request path re-fires once the LLM resolves the character. Runs after
+// the response; a "bot isn't a mod" notice is only returned when known in time (cached
+// from an earlier failure), at most once per CHAT_NOT_MOD_NOTIFY_TTL_S.
+async function confirmInChat(
+  env: RoomsEnv,
+  ctx: Ctx,
+  roomId: string,
+  sources: SourcesSettings,
+  req: SerializedRequest,
+  pending: SerializedRequest[],
+): Promise<PartyMessage[]> {
+  if (!sources.confirmInChat || req.needsIdentification || !req.character || req.type === "none") return [];
+  const position = queuePosition(pending, req, sources);
+  const message = req.source === "manual"
+    ? `Pedido de ${req.character} entrou na fila na posição ${position}! 🎯`
+    : `@${req.donor} seu pedido de ${req.character} entrou na fila na posição ${position}! 🎯`;
+
+  const notifyKey = `chat_not_mod:${roomId}`;
+  ctx.waitUntil((async () => {
+    const result = await sendChatMessage(env as never, roomId, message).catch((e) => ({ ok: false as const, reason: String(e) }));
+    if (result.ok) return;
+    console.warn(`[${roomId}] chat-confirm failed: ${result.reason}`);
+    // not_mod = Helix rejected (bot isn't a mod); message_rejected = chat modes blocked
+    // it, which mods bypass — the same fix either way.
+    if (result.reason === "not_mod" || result.reason === "message_rejected") {
+      await env.CACHE.put(notifyKey, "pending", { expirationTtl: CHAT_NOT_MOD_NOTIFY_TTL_S });
+    }
+  })());
+
+  const flagged = await env.CACHE.get(notifyKey);
+  if (flagged !== "pending") return [];
+  await env.CACHE.put(notifyKey, "shown", { expirationTtl: CHAT_NOT_MOD_NOTIFY_TTL_S });
+  return [errorMsg("chat_send_not_mod", "Confirme que @filadbd está como mod no seu canal (/mod filadbd) para as mensagens de confirmação funcionarem.")];
+}

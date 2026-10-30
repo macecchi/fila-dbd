@@ -58,7 +58,8 @@ describe('handleMessage — above-minimum donation routing', () => {
     handleMessage(donationRaw('Bob', 50, 'Trapper e Nurse'));
 
     expect(identifyMultipleMock).toHaveBeenCalledTimes(1);
-    expect(identifyMultipleMock).toHaveBeenCalledWith('Trapper e Nurse', 10, expect.anything());
+    // No Twitch message id in this fixture, so no LLM claim key either.
+    expect(identifyMultipleMock).toHaveBeenCalledWith('Trapper e Nurse', 10, expect.anything(), undefined, undefined);
   });
 
   it('still calls the LLM when an above-min donation has build text after the character', () => {

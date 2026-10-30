@@ -354,7 +354,11 @@ export function handleMessage(raw: string) {
   // Multi-request donation: always go through the LLM for accurate parsing
   // (quantifiers like "2 de X", mixed natural language).
   const extras = eligibleExtras(amountVal, useSources.getState().extrasConfig);
-  identifyMultiple(parsed.message, entitlement, extras).then(characters => {
+  // Every window of the streamer reads chat; the claim lets one of them run the LLM and
+  // add the result. The others get null and leave it to that one.
+  const claimKey = twitchMsgId ? `msg:${twitchMsgId}` : undefined;
+  identifyMultiple(parsed.message, entitlement, extras, undefined, claimKey).then(characters => {
+    if (characters === null) return;
     // LivePix cuts long donor messages at 250 chars, so the request may live in
     // the lost tail. Never let the LLM's "no request" verdict hide a paid donate
     // it only saw part of — keep it in the queue as unidentified for manual review.

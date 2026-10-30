@@ -9,12 +9,9 @@
  *   1. Reads the backup file (sync-full format: { requests: [...] })
  *   2. Upserts all requests into the D1 `requests` table via wrangler d1 execute
  *   3. Batches at 80 statements to stay under D1's 100-statement limit
+ *   4. Bumps the room's `version`, so open windows fetch the restored queue on their next poll
  *
- * After running, trigger DO recovery:
- *   curl -X POST https://<PARTY_HOST>/parties/main/<roomId> \
- *     -H "Authorization: Bearer internal:<secret>" \
- *     -H "Content-Type: application/json" \
- *     -d '{"action":"recover-from-d1"}'
+ * D1 is the rooms' only store, so nothing else needs to be told.
  */
 
 import { readFileSync } from 'fs';
@@ -60,9 +57,10 @@ statements.push(
   `INSERT INTO rooms (id, channel_login) VALUES ('${roomId}', '${roomId}') ON CONFLICT(id) DO UPDATE SET updated_at = datetime('now');`
 );
 
-// Mark ALL existing requests as done before upserting — backup is the source of truth
+// Drop ALL pending requests before upserting — backup is the source of truth. Marked
+// deleted, not done, so they don't show up in the "recently played" strip.
 statements.push(
-  `UPDATE requests SET done = 1, done_at = datetime('now') WHERE room_id = '${roomId}' AND done = 0;`
+  `UPDATE requests SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE room_id = '${roomId}' AND done = 0 AND deleted_at IS NULL;`
 );
 
 // Upsert each request
@@ -83,9 +81,12 @@ for (let i = 0; i < requests.length; i++) {
        type = excluded.type,
        done = excluded.done,
        done_at = excluded.done_at,
-       needs_identification = excluded.needs_identification;`
+       needs_identification = excluded.needs_identification,
+       deleted_at = NULL;`
   );
 }
+
+statements.push(`UPDATE rooms SET version = version + 1 WHERE id = '${roomId}';`);
 
 console.log(`\nGenerated ${statements.length} SQL statements`);
 
@@ -115,4 +116,3 @@ for (let b = 0; b < batches; b++) {
 }
 
 console.log(`\n✓ All ${requests.length} requests upserted into D1 for room "${roomId}"`);
-console.log(`\nNext: trigger DO recovery via POST to PartyKit`);

@@ -116,7 +116,7 @@ export function DebugPanel() {
     for (const d of requests) {
       const extras = eligibleExtras(d.amountVal, useSources.getState().extrasConfig);
       const arr = await identifyMultiple(d.message, 1, extras, (msg) => showToast(msg, t('debug.errorLlm'), 'red'));
-      const c = arr[0] ?? { character: '', type: 'unknown' as const };
+      const c = arr?.[0] ?? { character: '', type: 'unknown' as const };
       update(d.id, { character: c.character, type: c.type, matchedTerm: c.matchedTerm, extras: c.extras });
     }
   };

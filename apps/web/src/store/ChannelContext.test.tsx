@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vite
 import { render, act } from '@testing-library/react';
 import { ChannelProvider, useChannel } from './ChannelContext';
 import { useAuth } from './auth';
-import { claimOwnership, releaseOwnership, connectParty, reconnectParty, broadcastIrcStatus } from '../services/party';
+import { openQueueOp, closeQueueOp, connectParty, reconnectParty, broadcastIrcStatus } from '../services/party';
 import { connect as connectIrc, disconnect as disconnectIrc } from '../services/twitch';
 import { toast } from 'sonner';
 import { useQueueStatus } from '../hooks/useQueueStatus';
@@ -12,8 +12,9 @@ vi.mock('../services/party', () => ({
   connectParty: vi.fn(),
   disconnectParty: vi.fn(),
   reconnectParty: vi.fn(),
-  claimOwnership: vi.fn(),
-  releaseOwnership: vi.fn(),
+  refreshParty: vi.fn(),
+  openQueueOp: vi.fn(),
+  closeQueueOp: vi.fn(),
   broadcastSetAllExtras: vi.fn(),
   broadcastIrcStatus: vi.fn(),
   broadcastAdd: vi.fn(),
@@ -53,11 +54,9 @@ vi.mock('./auth', () => {
   return { useAuth: Object.assign(() => auth, { auth }) };
 });
 
-const claimMock = vi.mocked(claimOwnership);
 const authMock = (useAuth as unknown as { auth: { getAccessToken: Mock; refresh: Mock } }).auth;
 
 const OWNER = { login: 'streamer', displayName: 'Streamer', avatar: '' };
-const OTHER = { login: 'streamer', displayName: 'Streamer', avatar: '' };
 
 type Ctx = ReturnType<typeof useChannel>;
 
@@ -75,93 +74,93 @@ function setup() {
   return () => stores!;
 }
 
-// Simulates what the socket delivers, without a socket.
-function sync(stores: Ctx, owner: typeof OWNER | null) {
+// Simulates what the room's first poll delivers, without the transport.
+function sync(stores: Ctx, channel: { status?: 'offline' | 'online' | 'live'; closedByOwner?: boolean } = {}) {
+  const status = channel.status ?? (channel.closedByOwner ? 'offline' : 'online');
   act(() => {
     stores.useChannelInfo.getState().setPartyConnectionState('connected');
     stores.useChannelInfo.getState().handlePartyMessage({
       type: 'sync-full',
       requests: [],
-      sources: {},
-      channel: { status: owner ? 'online' : 'offline', owner },
+      sources: { enabled: { donation: true } },
+      channel: { status, owner: status === 'offline' ? null : OWNER, closedByOwner: !!channel.closedByOwner },
     } as never);
   });
 }
 
-describe('ChannelProvider — ownership recovers itself', () => {
-  beforeEach(() => claimMock.mockClear());
+function channelUpdate(stores: Ctx, channel: { status: 'offline' | 'online' | 'live'; closedByOwner?: boolean }) {
+  act(() => {
+    stores.useChannelInfo.getState().handlePartyMessage({
+      type: 'update-channel',
+      channel: { status: channel.status, owner: channel.status === 'offline' ? null : OWNER, closedByOwner: !!channel.closedByOwner },
+    } as never);
+  });
+}
+
+describe('ChannelProvider — every window of the streamer takes requests while the queue is open', () => {
+  const ircConnect = vi.mocked(connectIrc);
+  const ircDisconnect = vi.mocked(disconnectIrc);
+  const ircStatus = vi.mocked(broadcastIrcStatus);
+
   afterEach(() => vi.clearAllMocks());
 
-  it('claims the room once when the first sync shows it ownerless', () => {
+  it('joins chat after the first sync of an open queue', () => {
     const get = setup();
-    sync(get(), null);
-    expect(claimMock).toHaveBeenCalledTimes(1);
-
-    // The grant arrives; nothing re-claims on top of it.
-    act(() => {
-      get().useChannelInfo.getState().handlePartyMessage({ type: 'ownership-granted' } as never);
-    });
-    sync(get(), OWNER);
-    expect(claimMock).toHaveBeenCalledTimes(1);
+    expect(ircConnect).not.toHaveBeenCalled();
+    sync(get());
+    expect(get().useChannelInfo.getState().hasLock).toBe(true);
+    expect(ircConnect).toHaveBeenCalledWith('streamer');
   });
 
-  it('does not fight another session for a room that is already owned', () => {
+  it('stays off chat while the queue is closed', () => {
     const get = setup();
-    sync(get(), OTHER);
-    expect(claimMock).not.toHaveBeenCalled();
-  });
-
-  it('takes the room back when the other session goes away', () => {
-    const get = setup();
-    sync(get(), OTHER);
-    expect(claimMock).not.toHaveBeenCalled();
-
-    // The other tab closed: the server clears ownership and broadcasts it.
-    act(() => {
-      get().useChannelInfo.getState().handlePartyMessage({
-        type: 'update-channel',
-        channel: { status: 'offline', owner: null },
-      } as never);
-    });
-    expect(claimMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('re-claims after a reconnect, since the server drops ownership when our socket closes', () => {
-    const get = setup();
-    sync(get(), null);
-    act(() => {
-      get().useChannelInfo.getState().handlePartyMessage({ type: 'ownership-granted' } as never);
-    });
-    sync(get(), OWNER);
-    expect(claimMock).toHaveBeenCalledTimes(1);
-
-    act(() => {
-      get().useChannelInfo.getState().setPartyConnectionState('disconnected');
-    });
-    sync(get(), null);
-    expect(claimMock).toHaveBeenCalledTimes(2);
-  });
-
-  it('does not spin when the claim is refused and the room stays owned', () => {
-    const get = setup();
-    sync(get(), null);
-    expect(claimMock).toHaveBeenCalledTimes(1);
-
-    act(() => {
-      get().useChannelInfo.getState().handlePartyMessage({ type: 'ownership-denied' } as never);
-      get().useChannelInfo.getState().handlePartyMessage({
-        type: 'update-channel',
-        channel: { status: 'online', owner: OTHER },
-      } as never);
-    });
-    expect(claimMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('keeps the queue editable for a session that does not hold the lock', () => {
-    const get = setup();
-    sync(get(), OTHER);
-    expect(get().canEditQueue).toBe(true);
+    sync(get(), { closedByOwner: true });
     expect(get().useChannelInfo.getState().hasLock).toBe(false);
+    expect(ircConnect).not.toHaveBeenCalled();
+    expect(get().canEditQueue).toBe(true);
+  });
+
+  it('keeps taking requests through a connection blip', () => {
+    const get = setup();
+    sync(get());
+    ircDisconnect.mockClear();
+    act(() => { get().useChannelInfo.getState().setPartyConnectionState('disconnected'); });
+    expect(get().useChannelInfo.getState().hasLock).toBe(true);
+    expect(ircDisconnect).not.toHaveBeenCalled();
+  });
+
+  it('leaves chat when another window closes the queue, and rejoins when it reopens', () => {
+    const get = setup();
+    sync(get());
+    act(() => { get().useChannelInfo.getState().setIrcConnectionState('connected'); });
+    ircDisconnect.mockClear();
+    ircConnect.mockClear();
+
+    channelUpdate(get(), { status: 'offline', closedByOwner: true });
+    expect(ircDisconnect).toHaveBeenCalled();
+
+    act(() => { get().useChannelInfo.getState().setIrcConnectionState('disconnected'); });
+    channelUpdate(get(), { status: 'online' });
+    expect(ircConnect).toHaveBeenCalledWith('streamer');
+  });
+
+  it('reports chat as live when the queue reopens with chat still joined', () => {
+    const get = setup();
+    sync(get(), { closedByOwner: true });
+    act(() => { get().useChannelInfo.getState().setIrcConnectionState('connected', false); });
+    ircStatus.mockClear();
+    channelUpdate(get(), { status: 'online' });
+    expect(ircStatus).toHaveBeenCalledWith(true);
+  });
+
+  it('opens and closes through the room switch', () => {
+    const get = setup();
+    sync(get());
+    act(() => { get().closeQueue(); });
+    expect(ircDisconnect).toHaveBeenCalled();
+    expect(closeQueueOp).toHaveBeenCalledTimes(1);
+    act(() => { get().openQueue(); });
+    expect(openQueueOp).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -194,7 +193,7 @@ describe('ChannelProvider — reconnects stay quiet unless they last', () => {
   it('says nothing about a blip that reconnects inside the grace window', () => {
     vi.useFakeTimers();
     const get = setup();
-    sync(get(), null);
+    sync(get());
 
     drop(get());
     act(() => { vi.advanceTimersByTime(2000); });
@@ -208,7 +207,7 @@ describe('ChannelProvider — reconnects stay quiet unless they last', () => {
   it('warns once an outage outlives the grace window, then confirms the recovery', () => {
     vi.useFakeTimers();
     const get = setup();
-    sync(get(), null);
+    sync(get());
 
     drop(get());
     act(() => { vi.advanceTimersByTime(6000); });
@@ -220,7 +219,7 @@ describe('ChannelProvider — reconnects stay quiet unless they last', () => {
 });
 
 describe('ChannelProvider — every window of the streamer reports the same state', () => {
-  it('shows the queue as open even in the session without the lock', () => {
+  function mount() {
     let status: ReturnType<typeof useQueueStatus> | null = null;
     let stores: Ctx | null = null;
     function Probe() {
@@ -233,136 +232,20 @@ describe('ChannelProvider — every window of the streamer reports the same stat
         <Probe />
       </ChannelProvider>
     );
-
-    // Another session holds the lock and has IRC live; ours never opened a socket.
-    act(() => {
-      stores!.useChannelInfo.getState().setPartyConnectionState('connected');
-      stores!.useChannelInfo.getState().handlePartyMessage({
-        type: 'sync-full',
-        requests: [],
-        sources: { enabled: { donation: true } },
-        channel: { status: 'live', owner: OTHER },
-      } as never);
-    });
-
-    expect(stores!.useChannelInfo.getState().hasLock).toBe(false);
-    expect(status!.state).toBe('open');
-    expect(status!.text).toBe(t('status.queueOpen'));
-  });
-
-  it('shows connecting while the channel is claimed but chat is not live yet', () => {
-    let status: ReturnType<typeof useQueueStatus> | null = null;
-    let stores: Ctx | null = null;
-    function Probe() {
-      stores = useChannel();
-      status = useQueueStatus();
-      return null;
-    }
-    render(
-      <ChannelProvider channel="streamer">
-        <Probe />
-      </ChannelProvider>
-    );
-
-    act(() => {
-      stores!.useChannelInfo.getState().setPartyConnectionState('connected');
-      stores!.useChannelInfo.getState().handlePartyMessage({
-        type: 'sync-full',
-        requests: [],
-        sources: { enabled: { donation: true } },
-        channel: { status: 'online', owner: OTHER },
-      } as never);
-    });
-
-    expect(status!.state).toBe('connecting');
-  });
-});
-
-describe('ChannelProvider — opening and closing work from any window', () => {
-  const claim = vi.mocked(claimOwnership);
-  const release = vi.mocked(releaseOwnership);
-  const ircConnect = vi.mocked(connectIrc);
-  const ircDisconnect = vi.mocked(disconnectIrc);
-
-  beforeEach(() => {
-    claim.mockClear();
-    release.mockClear();
-    ircConnect.mockClear();
-    ircDisconnect.mockClear();
-  });
-
-  afterEach(() => vi.clearAllMocks());
-
-  function grant(stores: Ctx) {
-    act(() => {
-      stores.useChannelInfo.getState().handlePartyMessage({ type: 'ownership-granted' } as never);
-    });
+    return { get: () => stores!, status: () => status! };
   }
 
-  it('leaves a queue the streamer closed alone instead of reclaiming it', () => {
-    const get = setup();
-    sync(get(), null);
-    grant(get());
-    // The grant legitimately opened the queue; what follows must not reopen it.
-    claim.mockClear();
-    ircConnect.mockClear();
-
-    act(() => { get().closeQueue(); });
-    expect(release).toHaveBeenCalledTimes(1);
-
-    // The server frees the room and says the close was deliberate.
-    act(() => {
-      get().useChannelInfo.getState().handlePartyMessage({
-        type: 'update-channel',
-        channel: { status: 'offline', owner: null, closedByOwner: true },
-      } as never);
-    });
-
-    expect(claim).not.toHaveBeenCalled();
-    expect(ircConnect).not.toHaveBeenCalled();
+  it('shows the queue as open once any window reads chat', () => {
+    const { get, status } = mount();
+    sync(get(), { status: 'live' });
+    expect(status().state).toBe('open');
+    expect(status().text).toBe(t('status.queueOpen'));
   });
 
-  it('does not reopen a queue another window closed', () => {
-    const get = setup();
-    sync(get(), OTHER);
-    claim.mockClear();
-
-    act(() => {
-      get().useChannelInfo.getState().handlePartyMessage({
-        type: 'update-channel',
-        channel: { status: 'offline', owner: null, closedByOwner: true },
-      } as never);
-    });
-
-    expect(claim).not.toHaveBeenCalled();
-  });
-
-  it('closes from a window that does not hold the lock, by taking it first', () => {
-    const get = setup();
-    sync(get(), OTHER);
-    claim.mockClear();
-
-    act(() => { get().closeQueue(); });
-    expect(claim).toHaveBeenCalledTimes(1);
-    expect(release).not.toHaveBeenCalled();
-
-    // The server hands the lock over; we shut the channel down instead of connecting.
-    grant(get());
-    expect(ircDisconnect).toHaveBeenCalled();
-    expect(release).toHaveBeenCalledTimes(1);
-    expect(ircConnect).not.toHaveBeenCalled();
-  });
-
-  it('opens from a window that does not hold the lock, then connects on the grant', () => {
-    const get = setup();
-    sync(get(), OTHER);
-    claim.mockClear();
-
-    act(() => { get().openQueue(); });
-    expect(claim).toHaveBeenCalledTimes(1);
-
-    grant(get());
-    expect(ircConnect).toHaveBeenCalledWith('streamer');
+  it('shows connecting while the streamer is around but no window reads chat yet', () => {
+    const { get, status } = mount();
+    sync(get(), { status: 'online' });
+    expect(status().state).toBe('connecting');
   });
 });
 
@@ -402,18 +285,7 @@ describe('ChannelProvider — the streamer never edits through an unauthenticate
     await expect(getToken()).rejects.toThrow();
   });
 
-  it('refreshes the token and reconnects when the server refuses the owner', async () => {
-    setup();
-    const { onMessage } = socketArgs();
-
-    await act(async () => {
-      onMessage({ type: 'ownership-denied', currentOwner: 'not-room-owner' });
-    });
-    expect(authMock.refresh).toHaveBeenCalledTimes(1);
-    expect(reconnect).toHaveBeenCalledTimes(1);
-  });
-
-  it('treats a refused edit the same way, without an error toast', async () => {
+  it('refreshes the token and fetches the room again when the server refuses an edit, without an error toast', async () => {
     setup();
     const { onMessage } = socketArgs();
 
@@ -444,51 +316,9 @@ describe('ChannelProvider — the streamer never edits through an unauthenticate
     const { onMessage } = socketArgs();
 
     await act(async () => {
-      onMessage({ type: 'ownership-denied', currentOwner: 'not-room-owner' });
+      onMessage({ type: 'server-error', code: 'not_room_owner', message: '' });
     });
     expect(reconnect).not.toHaveBeenCalled();
-  });
-
-  it('leaves a lock handed to another window of the streamer alone', async () => {
-    setup();
-    const { onMessage } = socketArgs();
-
-    await act(async () => {
-      onMessage({ type: 'ownership-denied', currentOwner: 'streamer' });
-    });
-    expect(authMock.refresh).not.toHaveBeenCalled();
-    expect(reconnect).not.toHaveBeenCalled();
-  });
-});
-
-describe('ChannelProvider — the channel reads live again after a reconnect', () => {
-  const ircStatus = vi.mocked(broadcastIrcStatus);
-
-  afterEach(() => vi.clearAllMocks());
-
-  it('re-reports chat as live when the lock comes back with IRC still connected', () => {
-    // The server drops ownership when the party socket closes and resets the room to
-    // 'online' on the re-claim. IRC never dropped, so nothing transitions to re-send
-    // irc-status — and every window, viewers included, showed "Conectando..." / "Fila
-    // fechada" for the rest of the stream while requests were still being taken.
-    const get = setup();
-    sync(get(), null);
-    act(() => {
-      get().useChannelInfo.getState().handlePartyMessage({ type: 'ownership-granted' } as never);
-      get().useChannelInfo.getState().setIrcConnectionState('connected');
-    });
-    expect(ircStatus).toHaveBeenLastCalledWith(true);
-    ircStatus.mockClear();
-
-    act(() => {
-      get().useChannelInfo.getState().setPartyConnectionState('disconnected');
-    });
-    sync(get(), null);
-    act(() => {
-      get().useChannelInfo.getState().handlePartyMessage({ type: 'ownership-granted' } as never);
-    });
-
-    expect(ircStatus).toHaveBeenCalledWith(true);
   });
 });
 
@@ -496,7 +326,6 @@ describe('ChannelProvider — a refusal the self-heal cannot fix is not silent',
   const connect = vi.mocked(connectParty);
   const warning = vi.mocked(toast.warning);
   const dismiss = vi.mocked(toast.dismiss);
-  const ircStatus = vi.mocked(broadcastIrcStatus);
 
   afterEach(() => {
     authMock.getAccessToken.mockImplementation(async () => 'token');
@@ -506,8 +335,8 @@ describe('ChannelProvider — a refusal the self-heal cannot fix is not silent',
   });
 
   function socketArgs() {
-    const [, getToken, onMessage, onOpen] = connect.mock.calls[connect.mock.calls.length - 1];
-    return { getToken, onMessage, onOpen: onOpen! };
+    const [, getToken, onMessage] = connect.mock.calls[connect.mock.calls.length - 1];
+    return { getToken, onMessage };
   }
   const authWarnings = () => warning.mock.calls.filter(([, opts]) => (opts as { id?: string })?.id === 'auth-status');
 
@@ -525,11 +354,11 @@ describe('ChannelProvider — a refusal the self-heal cannot fix is not silent',
     expect(authWarnings()).toHaveLength(1);
   });
 
-  it('takes the warning down when the server grants the lock again', async () => {
+  it('takes the warning down when the server accepts an edit again', async () => {
     setup();
     const { onMessage } = socketArgs();
-    await act(async () => { onMessage({ type: 'ownership-denied', currentOwner: 'not-room-owner' }); });
-    await act(async () => { onMessage({ type: 'ownership-granted' }); });
+    await act(async () => { onMessage({ type: 'server-error', code: 'not_room_owner', message: '' }); });
+    await act(async () => { onMessage({ type: 'delete-request', id: 1 }); });
     expect(dismiss).toHaveBeenCalledWith('auth-status');
   });
 
@@ -551,18 +380,6 @@ describe('ChannelProvider — a refusal the self-heal cannot fix is not silent',
     await expect(getToken()).resolves.toBeNull();
     expect(authMock.getAccessToken).not.toHaveBeenCalled();
   });
-
-  it('does not report chat on socket open, where the lock is only stale-true', () => {
-    const get = setup();
-    sync(get(), null);
-    act(() => {
-      get().useChannelInfo.getState().handlePartyMessage({ type: 'ownership-granted' } as never);
-      get().useChannelInfo.getState().setIrcConnectionState('connected');
-    });
-    ircStatus.mockClear();
-    act(() => { socketArgs().onOpen(); });
-    expect(ircStatus).not.toHaveBeenCalled();
-  });
 });
 
 describe('ChannelProvider — a failed heal is reported at once', () => {
@@ -572,19 +389,18 @@ describe('ChannelProvider — a failed heal is reported at once', () => {
 
   afterEach(() => vi.clearAllMocks());
 
-  it('warns as soon as the socket a heal reconnected is refused again', async () => {
-    // The final review measured ~2 minutes of silence here when PartyKit and the Worker
-    // disagree on JWT_SECRET: the refusals inside the cooldown never counted.
+  it('warns as soon as an edit is refused again after a heal', async () => {
+    // A review once measured ~2 minutes of silence here when two services disagreed on
+    // JWT_SECRET: the refusals inside the cooldown never counted.
     setup();
-    const [, , onMessage, onOpen] = connect.mock.calls[connect.mock.calls.length - 1];
+    const [, , onMessage] = connect.mock.calls[connect.mock.calls.length - 1];
     const authWarnings = () => warning.mock.calls.filter(([, opts]) => (opts as { id?: string })?.id === 'auth-status');
 
-    await act(async () => { onMessage({ type: 'ownership-denied', currentOwner: 'not-room-owner' }); });
+    await act(async () => { onMessage({ type: 'server-error', code: 'not_room_owner', message: '' }); });
     expect(reconnect).toHaveBeenCalledTimes(1);
     expect(authWarnings()).toHaveLength(0);
 
-    act(() => { onOpen!(); }); // the healed socket is up...
-    await act(async () => { onMessage({ type: 'ownership-denied', currentOwner: 'not-room-owner' }); }); // ...and refused
+    await act(async () => { onMessage({ type: 'server-error', code: 'not_room_owner', message: '' }); });
 
     expect(authWarnings()).toHaveLength(1);
     expect(authWarnings()[0][1]).toMatchObject({ duration: Infinity });

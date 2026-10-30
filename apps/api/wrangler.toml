@@ -1,5 +1,5 @@
 name = "dbd-tracker"
-main = "src/worker.ts"
+main = "src/index.ts"
 compatibility_date = "2024-12-01"
 workers_dev = true
 preview_urls = true
@@ -13,16 +13,6 @@ destinations = ["posthog"]
 [vars]
 FRONTEND_URL = "http://localhost:5173"
 
-# Realtime rooms (worker.ts `Main`, PartyServer), served by this same Worker at
-# /parties/main/:room. They replaced hosted PartyKit, which shut down on 2026-10-23.
-[[durable_objects.bindings]]
-name = "Main"
-class_name = "Main"
-
-[[migrations]]
-tag = "v1"
-new_sqlite_classes = ["Main"]
-
 [[d1_databases]]
 binding = "DB"
 database_name = "fila-dbd"
@@ -34,17 +24,7 @@ binding = "CACHE"
 id = "local"
 
 [env.production]
-# POSTHOG_KEY is PostHog's public, write-only project token (it also ships in the web
-# bundle); it keys the rooms' `fila_party_*` events (telemetry.ts).
-vars = { FRONTEND_URL = "https://filadbd.pages.dev", POSTHOG_KEY = "phc_CCs7f8DwgPzVqFderx2rUX3XNS54raDHYhz8z8sxDTRW", POSTHOG_HOST = "https://us.i.posthog.com" }
-
-[[env.production.durable_objects.bindings]]
-name = "Main"
-class_name = "Main"
-
-[[env.production.migrations]]
-tag = "v1"
-new_sqlite_classes = ["Main"]
+vars = { FRONTEND_URL = "https://filadbd.pages.dev" }
 
 [[env.production.d1_databases]]
 binding = "DB"

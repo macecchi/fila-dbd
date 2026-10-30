@@ -56,8 +56,6 @@ describe('POST /twitch/eventsub', () => {
     JWT_SECRET: 'test-jwt-secret-that-is-long-enough',
     FRONTEND_URL: 'https://example.com',
     GEMINI_API_KEY: 'k',
-    INTERNAL_API_SECRET: 's',
-    PARTY_HOST: '',
     EVENTSUB_SECRET: SECRET,
     CACHE: { get: async () => null, put: async () => {}, delete: async () => {} },
     DB: {},

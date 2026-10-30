@@ -4,6 +4,7 @@ import { sign } from "hono/jwt";
 import { Twitch } from "arctic";
 import { verifyJwt, type JwtPayload } from "./jwt";
 import { extractCharacters } from "./gemini";
+import { claimLlm, releaseLlm, roomStatus, roomsSync, PRESENCE_TTL_MS } from "./rooms";
 import type { RequestExtraType } from "@filadbd/shared";
 import { getAppToken, fetchProfiles, fetchStreams, cacheProfiles, sendChatMessage, checkBotIsMod } from "./twitch";
 import { sendWebPush, isWebPushConfigured, type PushSubscriptionKeys } from "./webpush";
@@ -23,10 +24,8 @@ type Bindings = {
   JWT_SECRET: string;
   FRONTEND_URL: string;
   GEMINI_API_KEY: string;
-  INTERNAL_API_SECRET: string;
-  PARTY_HOST: string;
-  // The rooms' Durable Object namespace (worker.ts `Main`), in this same Worker.
-  Main?: DurableObjectNamespace;
+  // `bun run dev` passes DEV_MODE=true: any signed-in user may edit any room.
+  DEV_MODE?: string;
   // Web Push / EventSub — optional: the live-notification feature degrades to
   // off when they're unset (see /push/vapid-public-key and /twitch/eventsub).
   VAPID_PUBLIC_KEY?: string;
@@ -35,35 +34,6 @@ type Bindings = {
   DB: D1Database;
   CACHE: KVNamespace;
 };
-
-// A room's status (`onRequest` in party.ts) — straight from its Durable Object when this
-// Worker hosts the rooms, over HTTP to PARTY_HOST otherwise (tests).
-async function fetchRoomStatus(env: Bindings, room: string): Promise<Response | null> {
-  if (env.Main) {
-    // Not partyserver's getServerByName: importing it here pulls `cloudflare:workers` into
-    // the module tests load. The header is how PartyServer names a stub-fetched room.
-    // Bounded like the HTTP path: a room still recovering from D1 must not hold up the
-    // whole /rooms/active list or a live push.
-    const stub = env.Main.get(env.Main.idFromName(room));
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error("room status timed out")), 3000);
-    });
-    try {
-      return await Promise.race([
-        stub.fetch(`https://party/parties/main/${room}`, { headers: { "x-partykit-room": room } }),
-        timeout,
-      ]);
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  }
-  if (!env.PARTY_HOST) return null;
-  const protocol = env.PARTY_HOST.startsWith("localhost") ? "http" : "https";
-  return fetch(`${protocol}://${env.PARTY_HOST}/parties/main/${room}`, {
-    signal: AbortSignal.timeout(3000),
-  });
-}
 
 type Variables = {
   jwtPayload: JwtPayload;
@@ -243,7 +213,7 @@ const MAX_DONATION_REQUESTS = 10;
 api.post("/extract-character", async (c) => {
   const user = c.get("jwtPayload");
   const clientVersion = c.req.header("X-Client-Version") || "unknown";
-  const body = await c.req.json<{ message: string; maxCount?: number; extras?: RequestExtraType[] }>();
+  const body = await c.req.json<{ message: string; maxCount?: number; extras?: RequestExtraType[]; claimKey?: string }>();
 
   if (!body.message || typeof body.message !== "string") {
     return c.json({ error: "invalid_input" }, 400);
@@ -269,6 +239,14 @@ api.post("/extract-character", async (c) => {
   if (currentCount >= DAILY_EXTRACT_LIMIT) {
     console.warn(`[ratelimit] User ${user.login} (${user.sub}) hit daily extract limit of ${DAILY_EXTRACT_LIMIT}`);
     return c.json({ error: "daily_limit_exceeded", limit: DAILY_EXTRACT_LIMIT }, 429);
+  }
+
+  // Every window of the streamer reads chat, so each sends the same message here. The
+  // claim (a Twitch message id or request id) lets only the first one run the call.
+  const claim = typeof body.claimKey === "string" && body.claimKey ? body.claimKey.slice(0, 128) : null;
+  const room = user.login.toLowerCase();
+  if (claim && !(await claimLlm(c.env.DB, room, claim))) {
+    return c.json({ error: "in_flight" }, 409);
   }
 
   console.log(`[v${clientVersion}] Extract request from ${user.login} (maxCount=${maxCount}): ${message}`);
@@ -298,6 +276,8 @@ api.post("/extract-character", async (c) => {
     });
   } catch (e: any) {
     console.error("Gemini error:", e.message);
+    // Free the claim so the retry (auto-identify, or another window) isn't held off.
+    if (claim) await releaseLlm(c.env.DB, room, claim).catch(() => {});
     return c.json({ error: "llm_error", message: e.message }, 502);
   }
 });
@@ -507,25 +487,19 @@ async function notifyChannelLive(env: Bindings, login: string, eventSubId: strin
   }
 
   // Skip the notification when the queue is already running — the streamer is
-  // set up and a "open your queue" ping would just be noise. The same call
-  // gives us how many requests are already waiting, which goes in the title.
-  // Best-effort: if PartyKit can't answer, notify anyway (without the count).
-  let pending = 0;
-  if (env.Main || env.PARTY_HOST) {
-    try {
-      const res = await fetchRoomStatus(env, login);
-      if (res?.ok) {
-        const data = await res.json<{ status: string; connections: number; pending_count?: number }>();
-        if (data.status !== "offline" && data.connections > 0) {
-          console.log(`[push] ${login} went live but queue is already ${data.status}, skipping`);
-          return;
-        }
-        pending = data.pending_count ?? 0;
-      }
-    } catch {
-      // PartyKit unreachable — proceed with the notification.
-    }
+  // set up and a "open your queue" ping would just be noise. The pending count
+  // goes in the title.
+  const room = await env.DB.prepare(
+    `SELECT closed_by_owner, owner_seen_at, irc_live_at,
+            (SELECT COUNT(*) FROM requests WHERE room_id = rooms.id AND done = 0 AND deleted_at IS NULL AND type != 'none') AS pending
+     FROM rooms WHERE id = ?`
+  ).bind(login).first<{ closed_by_owner: number; owner_seen_at: number | null; irc_live_at: number | null; pending: number }>();
+  const status = roomStatus(room);
+  if (status !== "offline") {
+    console.log(`[push] ${login} went live but queue is already ${status}, skipping`);
+    return;
   }
+  const pending = room?.pending ?? 0;
 
   const outcomes = await Promise.all(
     subs.map(async (sub) => {
@@ -551,236 +525,6 @@ async function notifyChannelLive(env: Bindings, login: string, eventSubId: strin
   console.log(`[push] ${login} went live: notified ${sent}/${subs.length} subscription(s)`);
 }
 
-// ============ INTERNAL API ROUTES (PartyKit → D1) ============
-
-const internal = new Hono<{ Bindings: Bindings }>();
-
-// Internal auth middleware — validates shared secret
-internal.use("*", async (c, next) => {
-  const authHeader = c.req.header("Authorization");
-  if (!authHeader?.startsWith("Bearer internal:")) {
-    return c.json({ error: "unauthorized" }, 401);
-  }
-
-  const secret = authHeader.slice("Bearer internal:".length);
-  if (!c.env.INTERNAL_API_SECRET || secret !== c.env.INTERNAL_API_SECRET) {
-    return c.json({ error: "invalid_secret" }, 401);
-  }
-
-  await next();
-});
-
-// PUT /internal/rooms/:roomId/requests — upsert requests (full or partial mode)
-internal.put("/rooms/:roomId/requests", async (c) => {
-  const roomId = c.req.param("roomId");
-  const body = await c.req.json<{ requests: Array<Record<string, unknown>>; mode?: string }>();
-
-  if (!Array.isArray(body.requests)) {
-    return c.json({ error: "invalid_input" }, 400);
-  }
-
-  const isPartial = body.mode === 'partial';
-  const statements: D1PreparedStatement[] = [];
-
-  // Ensure room exists
-  statements.push(
-    c.env.DB.prepare(
-      "INSERT INTO rooms (id, channel_login) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET updated_at = datetime('now')"
-    ).bind(roomId, roomId)
-  );
-
-  // Full mode: mark requests not in incoming list as done
-  if (!isPartial) {
-    const incomingIds = body.requests.map((r: Record<string, unknown>) => r.id);
-    if (incomingIds.length === 0) {
-      // No incoming → mark all pending as done
-      statements.push(
-        c.env.DB.prepare(
-          "UPDATE requests SET done = 1, done_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE room_id = ? AND done = 0"
-        ).bind(roomId)
-      );
-    } else if (incomingIds.length <= 99) {
-      // Fits in one NOT IN clause (99 IDs + 1 roomId = 100 bound params)
-      statements.push(
-        c.env.DB.prepare(
-          `UPDATE requests SET done = 1, done_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE room_id = ? AND done = 0 AND id NOT IN (${incomingIds.map(() => '?').join(',')})`
-        ).bind(roomId, ...incomingIds)
-      );
-    } else {
-      // >99 IDs: mark ALL pending as done, then un-done the incoming ones in chunks
-      statements.push(
-        c.env.DB.prepare(
-          "UPDATE requests SET done = 1, done_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE room_id = ? AND done = 0"
-        ).bind(roomId)
-      );
-      const CHUNK = 99;
-      for (let i = 0; i < incomingIds.length; i += CHUNK) {
-        const chunk = incomingIds.slice(i, i + CHUNK);
-        statements.push(
-          c.env.DB.prepare(
-            `UPDATE requests SET done = 0, done_at = NULL WHERE room_id = ? AND id IN (${chunk.map(() => '?').join(',')})`
-          ).bind(roomId, ...chunk)
-        );
-      }
-    }
-  }
-
-  // Upsert requests (use _position if provided, else array index)
-  for (let i = 0; i < body.requests.length; i++) {
-    const r = body.requests[i];
-    const position = typeof r._position === 'number' ? r._position : i;
-    statements.push(
-      c.env.DB.prepare(
-        `INSERT INTO requests (id, room_id, position, timestamp, donor, amount, amount_val, message, character, type, done, done_at, source, sub_tier, needs_identification, matched_term, origin_msg_id, extras)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (room_id, id) DO UPDATE SET
-           position = excluded.position,
-           character = excluded.character,
-           type = excluded.type,
-           done = excluded.done,
-           done_at = excluded.done_at,
-           needs_identification = excluded.needs_identification,
-           matched_term = excluded.matched_term,
-           origin_msg_id = excluded.origin_msg_id,
-           extras = excluded.extras`
-      ).bind(
-        r.id,
-        roomId,
-        position,
-        r.timestamp,
-        r.donor,
-        r.amount ?? "",
-        r.amountVal ?? 0,
-        r.message ?? "",
-        r.character ?? "",
-        r.type ?? "unknown",
-        r.done ? 1 : 0,
-        r.doneAt ?? null,
-        r.source,
-        r.subTier ?? null,
-        r.needsIdentification ? 1 : 0,
-        r.matchedTerm ?? null,
-        r.originMsgId ?? null,
-        r.extras ? JSON.stringify(r.extras) : null
-      )
-    );
-  }
-
-  await batchInChunks(c.env.DB, statements);
-  return c.json({ ok: true, count: body.requests.length, mode: isPartial ? 'partial' : 'full' });
-});
-
-// PUT /internal/rooms/:roomId/sources — upsert room sources settings
-internal.put("/rooms/:roomId/sources", async (c) => {
-  const roomId = c.req.param("roomId");
-  const body = await c.req.json<Record<string, unknown>>();
-
-  await c.env.DB.prepare(
-    `INSERT INTO rooms (id, channel_login, sources_config, updated_at)
-     VALUES (?, ?, ?, datetime('now'))
-     ON CONFLICT(id) DO UPDATE SET
-       sources_config = excluded.sources_config,
-       updated_at = datetime('now')`
-  ).bind(
-    roomId,
-    roomId,
-    JSON.stringify(body)
-  ).run();
-
-  return c.json({ ok: true });
-});
-
-// GET /internal/rooms/:roomId/sources — return room sources settings for D1 recovery
-internal.get("/rooms/:roomId/sources", async (c) => {
-  const roomId = c.req.param("roomId").toLowerCase();
-  const row = await c.env.DB.prepare(
-    "SELECT sources_config FROM rooms WHERE id = ?"
-  ).bind(roomId).first<{ sources_config: string | null }>();
-
-  if (!row || !row.sources_config) {
-    return c.json({ sources: null });
-  }
-
-  return c.json({ sources: JSON.parse(row.sources_config) });
-});
-
-// PUT /internal/rooms/:roomId/status — update room status
-internal.put("/rooms/:roomId/status", async (c) => {
-  const roomId = c.req.param("roomId");
-  const body = await c.req.json<{ status: string }>();
-
-  await c.env.DB.prepare(
-    `INSERT INTO rooms (id, channel_login, status) VALUES (?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET status = excluded.status, updated_at = datetime('now')`
-  ).bind(roomId, roomId, body.status).run();
-
-  return c.json({ ok: true });
-});
-
-// POST /internal/chat/send — send a chat message from the @filadbd bot account.
-// Sender identity comes from the bot user token stored in KV (see scripts/authorize-bot.ts).
-internal.post("/chat/send", async (c) => {
-  const body = await c.req.json<{ broadcaster_login?: string; message?: string }>();
-  const broadcasterLogin = body.broadcaster_login?.trim().toLowerCase();
-  const message = body.message?.trim();
-
-  if (!broadcasterLogin || !message) {
-    return c.json({ ok: false, reason: 'bad_request' }, 400);
-  }
-
-  // Twitch hard-caps chat messages at 500 chars.
-  if (message.length > 500) {
-    return c.json({ ok: false, reason: 'message_too_long' }, 400);
-  }
-
-  const result = await sendChatMessage(c.env, broadcasterLogin, message);
-  if (!result.ok) {
-    console.warn(`[chat-send] ${broadcasterLogin} failed: ${result.reason}${result.detail ? ` (${result.detail})` : ''}`);
-  }
-  return c.json(result, result.ok ? 200 : 502);
-});
-
-// GET /internal/rooms/:roomId/requests — return pending requests for D1 recovery.
-//
-// Pending only, deliberately: a request the streamer DELETED is not recorded as
-// deleted anywhere (`deleted_at` is never written — see the full-sync sweep below,
-// which marks anything missing from the DO as `done`, a conflation the tests pin
-// down). So "newest done rows" in D1 also means "most recently deleted", and
-// recovering them here would resurrect a deleted request into the header's
-// "recently played" strip, undo button and all. The strip is fed from DO retention
-// instead (`RECENT_DONE_KEPT` in party.ts); after a storage loss it simply starts
-// empty again.
-internal.get("/rooms/:roomId/requests", async (c) => {
-  const roomId = c.req.param("roomId");
-  const { results } = await c.env.DB.prepare(
-    "SELECT * FROM requests WHERE room_id = ? AND done = 0 AND deleted_at IS NULL ORDER BY position ASC"
-  ).bind(roomId).all();
-
-  const requests = (results ?? []).map((r: Record<string, unknown>) => ({
-    id: r.id,
-    timestamp: r.timestamp,
-    donor: r.donor,
-    amount: r.amount ?? "",
-    amountVal: r.amount_val ?? 0,
-    message: r.message ?? "",
-    character: r.character ?? "",
-    type: r.type ?? "unknown",
-    done: false,
-    doneAt: undefined,
-    source: r.source,
-    subTier: r.sub_tier ?? undefined,
-    isBroadcaster: r.source === 'manual' || (r.source === 'chat' && typeof r.donor === 'string' && r.donor.toLowerCase() === roomId.toLowerCase()),
-    needsIdentification: !!(r.needs_identification),
-    matchedTerm: r.matched_term ?? undefined,
-    originMsgId: r.origin_msg_id ?? undefined,
-    extras: r.extras ? JSON.parse(r.extras as string) : undefined,
-  }));
-
-  return c.json({ requests });
-});
-
-app.route("/internal", internal);
-
 // ============ PUBLIC API ROUTES ============
 
 interface RoomRow {
@@ -791,6 +535,9 @@ interface RoomRow {
   banner_url: string | null;
   status: string;
   updated_at: string;
+  closed_by_owner?: number;
+  owner_seen_at?: number | null;
+  irc_live_at?: number | null;
   request_count?: number;
   pending_count?: number;
 }
@@ -809,8 +556,11 @@ app.get("/rooms/active", async (c) => {
 
   // 7-day window: rooms past it fall off the landing page entirely; rooms inside
   // it but with a closed queue and no pending requests feed the `recent` strip.
+  // "Open" here is only a hint for the ordering; the status itself is derived below.
+  const seenSince = Date.now() - PRESENCE_TTL_MS;
   const { results } = await c.env.DB.prepare(
-    `SELECT r.id, r.channel_login, r.display_name, r.avatar_url, r.banner_url, r.status,
+    `SELECT r.id, r.channel_login, r.display_name, r.avatar_url, r.banner_url,
+            r.closed_by_owner, r.owner_seen_at, r.irc_live_at,
             COUNT(req.id) AS request_count,
             SUM(CASE WHEN req.done = 0 AND COALESCE(req.type, '') != 'none' THEN 1 ELSE 0 END) AS pending_count,
             r.updated_at
@@ -818,11 +568,11 @@ app.get("/rooms/active", async (c) => {
      LEFT JOIN requests req ON req.room_id = r.id AND req.deleted_at IS NULL
      WHERE r.updated_at > datetime('now', '-7 days')
      GROUP BY r.id
-     ORDER BY CASE WHEN r.status != 'offline' THEN 0 ELSE 1 END,
+     ORDER BY CASE WHEN r.closed_by_owner = 0 AND r.owner_seen_at > ? THEN 0 ELSE 1 END,
               SUM(CASE WHEN req.done = 0 AND COALESCE(req.type, '') != 'none' THEN 1 ELSE 0 END) DESC,
               r.updated_at DESC
      LIMIT 30`
-  ).all<RoomRow>();
+  ).bind(seenSince).all<RoomRow>();
 
   if (results.length === 0) return c.json({ rooms: [], recent: [], total_channels: totalChannels });
 
@@ -841,35 +591,6 @@ app.get("/rooms/active", async (c) => {
   const streams = await fetchStreams(logins, token, c.env.TWITCH_CLIENT_ID);
   const streamMap = new Map(streams.map((s) => [s.user_login, s]));
 
-  // For rooms that D1 claims are non-offline, ask PartyKit for authoritative status
-  const partyStatusMap = new Map<string, { status: string; pending_count: number }>();
-  if (c.env.Main || c.env.PARTY_HOST) {
-    const nonOffline = results.filter((r) => r.status !== 'offline');
-    const fetches = nonOffline.map(async (r) => {
-      try {
-        const res = await fetchRoomStatus(c.env, r.id);
-        if (!res) return;
-        if (res.ok) {
-          const data = await res.json<{ status: string; connections: number; pending_count: number }>();
-          // If no connections remain, the room is definitively offline regardless of stored status
-          const effectiveStatus = data.connections === 0 ? 'offline' : data.status;
-          if (effectiveStatus !== r.status) {
-            console.log(`[rooms/active] ${r.id}: D1 status="${r.status}" → PartyKit status="${effectiveStatus}" (connections=${data.connections})`);
-          }
-          partyStatusMap.set(r.id, { status: effectiveStatus, pending_count: data.pending_count });
-        } else {
-          console.warn(`[rooms/active] PartyKit returned ${res.status} for ${r.id}`);
-        }
-      } catch (e) {
-        console.warn(`[rooms/active] PartyKit unreachable for ${r.id}, falling back to D1:`, e);
-      }
-    });
-    await Promise.all(fetches);
-  }
-
-  // Staleness check: if PartyKit was unreachable and D1 says non-offline,
-  // but updated_at is older than 1 hour, treat as offline (D1 sync likely failed)
-  const STALE_MS = 60 * 60 * 1000; // 1 hour
   const now = Date.now();
 
   const enriched = results.map((r) => {
@@ -878,22 +599,12 @@ app.get("/rooms/active", async (c) => {
     const stream = streamMap.get(login);
     const isLive = !!stream;
 
-    // Use PartyKit as source of truth for status and pending count when available
-    const partyInfo = partyStatusMap.get(r.id);
-    let status = partyInfo?.status ?? r.status;
-    const pendingCount = partyInfo ? partyInfo.pending_count : (r.pending_count ?? 0);
+    const status = roomStatus({ closed_by_owner: r.closed_by_owner ?? 0, owner_seen_at: r.owner_seen_at ?? null, irc_live_at: r.irc_live_at ?? null }, now);
+    const pendingCount = r.pending_count ?? 0;
 
-    // If PartyKit was unreachable and D1 says non-offline, check staleness
-    if (!partyInfo && status !== 'offline') {
-      const updatedAt = new Date(r.updated_at + 'Z').getTime();
-      if (now - updatedAt > STALE_MS) {
-        console.log(`[rooms/active] ${r.id}: D1 status="${status}" is stale (updated ${Math.round((now - updatedAt) / 60000)}m ago), treating as offline`);
-        status = 'offline';
-      }
-    }
-
+    const { closed_by_owner: _c, owner_seen_at: _s, irc_live_at: _i, ...rest } = r;
     return {
-      ...r,
+      ...rest,
       status,
       pending_count: pendingCount,
       display_name: r.display_name ?? fresh?.display_name ?? null,
@@ -977,7 +688,7 @@ app.get("/rooms/search", async (c) => {
 app.get("/rooms/:roomId", async (c) => {
   const roomId = c.req.param("roomId").toLowerCase();
   const row = await c.env.DB.prepare(
-    "SELECT id, channel_login, display_name, avatar_url, status, updated_at FROM rooms WHERE id = ?"
+    "SELECT id, channel_login, display_name, avatar_url, updated_at, closed_by_owner, owner_seen_at, irc_live_at FROM rooms WHERE id = ?"
   ).bind(roomId).first<RoomRow>();
 
   // `registered` tells the client whether this channel ever used the app (has a
@@ -985,7 +696,14 @@ app.get("/rooms/:roomId", async (c) => {
   // channel with a closed queue. The profile enrichment below still runs either
   // way so the "not using Fila DBD yet" page can show the streamer's identity.
   const registered = !!row;
-  const room = row ?? { id: roomId, channel_login: roomId, display_name: null as string | null, avatar_url: null as string | null, banner_url: null, status: "offline", updated_at: null };
+  const room = {
+    id: roomId,
+    channel_login: row?.channel_login ?? roomId,
+    display_name: row?.display_name ?? null,
+    avatar_url: row?.avatar_url ?? null,
+    updated_at: row?.updated_at ?? null,
+    status: roomStatus(row ? { closed_by_owner: row.closed_by_owner ?? 0, owner_seen_at: row.owner_seen_at ?? null, irc_live_at: row.irc_live_at ?? null } : null),
+  };
 
   const token = await getAppToken(c.env);
   if (token && (!room.avatar_url || !room.display_name)) {
@@ -1020,5 +738,7 @@ app.get("/rooms/:roomId", async (c) => {
 
   return c.json({ room: { ...room, registered, is_live: isLive, viewer_count: viewerCount } });
 });
+
+app.route("/rooms", roomsSync as unknown as Hono<{ Bindings: Bindings; Variables: Variables }>);
 
 export default app;

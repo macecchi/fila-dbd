@@ -19,11 +19,12 @@
   "dependencies": {
     "@filadbd/shared": "workspace:*",
     "arctic": "^3.5.0",
-    "hono": "^4.7.0",
-    "partyserver": "^0.5.10"
+    "hono": "^4.7.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260424.1",
+    "@types/sql.js": "^1.4.11",
+    "sql.js": "^1.15.2",
     "typescript": "^5.7.0",
     "vitest": "^4.0.17",
     "wrangler": "^4.127.1"

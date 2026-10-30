@@ -540,7 +540,7 @@ describe('channel stores', () => {
       // Default is opt-in (enabled: false) — applied in-memory only.
       expect(state.extrasConfig).toEqual({ build: { enabled: false, price: 10 } });
       // Critical: must NOT broadcast on hydrate. Non-owner viewers run this code
-      // too, and broadcasting would trigger PartyKit's not-room-owner rejection.
+      // too, and broadcasting would trigger the server's not-room-owner rejection.
       expect(party.broadcastSources).not.toHaveBeenCalled();
     });
 
@@ -562,7 +562,7 @@ describe('channel stores', () => {
         },
       });
       expect(useSources.getState().extrasConfig).toEqual({ build: { enabled: false, price: 25 } });
-      // Critical: must not echo the sources back to PartyKit on hydrate — that would
+      // Critical: must not echo the sources back to the server on hydrate — that would
       // create a write-amplification loop across every connected client.
       expect(party.broadcastSources).not.toHaveBeenCalled();
     });

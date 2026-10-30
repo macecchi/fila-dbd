@@ -66,14 +66,14 @@ Install [Bun](https://bun.sh) and run:
 
 ```bash
 bun install
-bun dev  # Local server with frontend + API (the realtime rooms run in the API Worker)
+bun dev  # Local server with frontend + API
 ```
 
 ## Deploy
 
-The service is designed to be deployed on [Cloudflare Workers](https://workers.cloudflare.com/) (API + realtime rooms, one Worker) and Cloudflare Pages (frontend).
+The service is designed to be deployed on [Cloudflare Workers](https://workers.cloudflare.com/) (API) and Cloudflare Pages (frontend).
 
-The realtime rooms are Durable Objects built with [PartyServer](https://github.com/cloudflare/partykit/tree/main/packages/partyserver), served by the API Worker at `/parties/main/:room`. They used to run on hosted PartyKit, which [shut down on 2026-10-23](https://blog.partykit.io/posts/hosted-platform-shutdown); the deploy needs no PartyKit account anymore.
+The queues live in the D1 database and are synced over plain HTTP: the page polls `GET /rooms/:id/state` and the streamer's edits go to `POST /rooms/:id/ops`. They used to be realtime rooms on hosted PartyKit, which [shut down on 2026-10-23](https://blog.partykit.io/posts/hosted-platform-shutdown); the deploy needs no PartyKit account.
 
 **Required GitHub secrets:**
 
@@ -87,7 +87,6 @@ cd apps/api && bunx wrangler secret put <NAME> --env production
 
 - `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` - Twitch app
 - `JWT_SECRET` - any secure string
-- `INTERNAL_API_SECRET` - authenticates the `/internal/*` routes the rooms call
 - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` - Web Push keys for the "you're live" notification (generate with `bun scripts/generate-vapid-keys.ts` from `apps/api/`). Optional — the feature stays off without them
 - `EVENTSUB_SECRET` - any secure string; signs Twitch EventSub webhooks (`stream.online`). Optional, required for the "you're live" notification
 
@@ -104,14 +103,8 @@ cd apps/api && bunx wrangler secret put <NAME> --env production
 
 - `VITE_TWITCH_CLIENT_ID` - same Twitch app Client ID (used by frontend for OAuth redirect)
 - `VITE_API_URL` - Production Worker URL
-- `VITE_PARTY_HOST` - host serving the rooms: the production Worker's host, without `https://`. A value still ending in `.partykit.dev` is ignored
 
-Pages builds (production and previews) fall back to this repo's production values for all three (`PAGES_DEFAULTS` in `apps/web/vite.config.ts`), so preview deployments work without their own copies; a dashboard value overrides. Previews therefore talk to the production API and rooms.
-
-**PostHog (`[env.production] vars` in `apps/api/wrangler.toml`):**
-
-- `POSTHOG_KEY` - PostHog project token (`phc_…`), the public ingestion token the web bundle also carries. Keys the rooms' `fila_party_*` events. Ignored under `DEV_MODE` (`bun run dev`), so local rooms never reach the project.
-- `POSTHOG_HOST` - ingestion host, default `https://us.i.posthog.com`.
+Pages builds (production and previews) fall back to this repo's production values for both (`PAGES_DEFAULTS` in `apps/web/vite.config.ts`), so preview deployments work without their own copies; a dashboard value overrides. Previews therefore talk to the production API. A leftover `VITE_PARTY_HOST` is no longer read.
 
 **Chat confirmation bot (`@filadbd`):**
 
@@ -230,9 +223,8 @@ the next push follows.
 
 ### Observability
 
-Front-end errors, pageviews and the health of the streamer's realtime session go to PostHog
-(project token in `apps/web/.env.production` and `apps/api/wrangler.toml`, both public
-ingestion tokens). The Worker's logs, rooms included (each line tagged `[room]`), go to PostHog
+Front-end errors, pageviews and the health of the streamer's session go to PostHog
+(project token in `apps/web/.env.production`, a public ingestion token). The Worker's logs go to PostHog
 Logs as service `dbd-tracker-production` (`apps/api/wrangler.toml`); `bun run --filter
 @filadbd/api tail` streams them live. Local dev never reports. See the "Observability" section of `CLAUDE.md` for the event catalogue and
 the privacy rules (tokens are scrubbed before anything is sent).
