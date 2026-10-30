@@ -14,7 +14,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
 // so the browser keeps serving its cached copy (stale until a hard refresh). Bust
 // the cache once a minute. The profile banner is static, so it's used as-is.
 function channelThumbSrc(room: { thumbnail_url?: string | null; banner_url?: string | null }): string | null {
-  if (!room.thumbnail_url) return room.banner_url ?? null;
+  if (!room.thumbnail_url) return room.banner_url || null; // Twitch sends "" when there is no offline banner
   const sep = room.thumbnail_url.includes('?') ? '&' : '?';
   return `${room.thumbnail_url}${sep}t=${Math.floor(Date.now() / 60000)}`;
 }
