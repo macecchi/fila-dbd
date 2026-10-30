@@ -565,6 +565,18 @@ a.channel-header-live:hover {
     grid-area: right;
   }
 
+  /* Beside the button the profile column is narrow: a long channel's share link
+     truncates instead of running under it. */
+  .channel-header:has(.channel-header-actions) .channel-header-sub {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .channel-header:has(.channel-header-actions) .channel-header-sub > * {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .channel-header-actions .btn {
     flex: 0 0 auto;
     width: auto;
