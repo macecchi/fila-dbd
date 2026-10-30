@@ -571,10 +571,27 @@ a.channel-header-live:hover {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .channel-header:has(.channel-header-actions) .channel-header-sub > * {
+  .channel-header:has(.channel-header-actions) .channel-header-sub > *,
+  .channel-header:has(.channel-header-actions) .channel-header-share-url {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .channel-header:has(.channel-header-actions) .channel-header-share {
+    display: grid;
+    overflow: visible;
+  }
+
+  /* No room to the right of the link here, so "click to copy" / "copied" takes
+     its place while shown (a tap leaves the button in :hover). */
+  .channel-header:has(.channel-header-actions) .channel-header-share-hint {
+    left: 0;
+    margin-left: 0;
+  }
+
+  .channel-header:has(.channel-header-actions) .channel-header-share:hover .channel-header-share-url {
+    opacity: 0;
   }
 
   .channel-header-actions .btn {

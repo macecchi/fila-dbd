@@ -100,7 +100,7 @@ export function ChannelHeader() {
               which one it is: a closed queue reads "last used", which needs the room info. */}
           <span className={`channel-header-sub${queue.state === 'unknown' || (queue.state === 'closed' && !roomInfoLoaded) ? ' is-pending' : ''}`}>
             <button type="button" className={`channel-header-share${showLastUsed ? ' is-hidden' : ''}`} onClick={handleCopyLink}>
-              {new URL(shareUrl).href.replace(/https?:\/\//, '')}
+              <span className="channel-header-share-url">{new URL(shareUrl).href.replace(/https?:\/\//, '')}</span>
               <span className="channel-header-share-hint">{copied ? t('header.copied') : t('header.clickToCopy')}</span>
             </button>
             {lastActive && (
