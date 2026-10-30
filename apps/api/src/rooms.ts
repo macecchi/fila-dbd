@@ -202,10 +202,11 @@ function upsertRequest(db: D1Database, roomId: string, r: SerializedRequest, pos
 // replayed message must not come back) or the pending queue is full — both decided by
 // D1 inside the statement, so concurrent windows can't both pass. RETURNING yields a
 // row only for the inserter.
-// `whileId` only inserts once that request was just identified and is still pending (a
-// split of a donation the streamer skipped, played or deleted meanwhile is dropped).
-function insertRequest(db: D1Database, roomId: string, r: SerializedRequest, whileId?: number) {
-  const guard = whileId === undefined ? "" : " AND EXISTS (SELECT 1 FROM requests WHERE room_id = ?2 AND id = ?17 AND identifying_at IS NULL AND needs_identification = 0 AND done = 0 AND deleted_at IS NULL)";
+// `parent` only inserts while that identification still holds its claim on a pending row:
+// a split of a donation the streamer skipped, played or deleted meanwhile, or one a later
+// call already answered, is dropped.
+function insertRequest(db: D1Database, roomId: string, r: SerializedRequest, parent?: { id: number; claim: number }) {
+  const guard = parent === undefined ? "" : " AND EXISTS (SELECT 1 FROM requests WHERE room_id = ?2 AND id = ?17 AND identifying_at = ?18 AND needs_identification = 1 AND done = 0 AND deleted_at IS NULL)";
   return db.prepare(
     `INSERT INTO requests (id, room_id, position, timestamp, donor, amount, amount_val, message, character, type, done, done_at, source, sub_tier, needs_identification, matched_term, origin_msg_id, extras)
      SELECT ?1, ?2, (SELECT COALESCE(MAX(position), -1) + 1 FROM requests WHERE room_id = ?2), ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, NULL, ?10, ?11, ?12, ?13, ?14, ?15
@@ -216,7 +217,7 @@ function insertRequest(db: D1Database, roomId: string, r: SerializedRequest, whi
     r.id, roomId, r.timestamp, r.donor, r.amount ?? "", r.amountVal ?? 0, r.message ?? "",
     r.character ?? "", r.type ?? "unknown", r.source, r.subTier ?? null, r.needsIdentification ? 1 : 0,
     r.matchedTerm ?? null, (r as { originMsgId?: string }).originMsgId ?? null, r.extras ? JSON.stringify(r.extras) : null,
-    MAX_PENDING_REQUESTS, ...(whileId === undefined ? [] : [whileId]),
+    MAX_PENDING_REQUESTS, ...(parent === undefined ? [] : [parent.id, parent.claim]),
   );
 }
 
@@ -447,13 +448,13 @@ export async function applyOp(
       // Synchronously: the answer goes back as a full sync (a donation may have split into
       // several requests), and while this window waits the Worker has no time limit.
       if (req.needsIdentification) {
-        const identified = await identifyRequest(env, ctx, roomId, req.id, user);
-        if (identified !== null) {
+        const identified = await identifyRequest(env, ctx, roomId, req.id, user, true);
+        if (identified) {
           const room = await loadRoom(db, roomId);
           const sync: PartyMessage = {
             type: "sync-full", requests: await loadQueue(db, roomId, Date.now()), sources: roomSources(room), channel: channelState(room, Date.now()),
           };
-          return { version: identified, messages: [msg, sync] };
+          return { version: identified.version ?? undefined, messages: [msg, sync, ...identified.notices] };
         }
       }
       const notice = await confirmInChat(env, ctx, roomId, sources, req, next);
@@ -617,26 +618,32 @@ export async function identifyPending(env: RoomsEnv, ctx: Ctx, roomId: string, u
   const { results } = await env.DB.prepare(
     `SELECT id FROM requests
      WHERE room_id = ? AND needs_identification = 1 AND done = 0 AND deleted_at IS NULL
-       AND identify_attempts < ? AND (identifying_at IS NULL OR identifying_at < ?)
+       AND (identifying_at IS NULL OR identifying_at < ?)
      ORDER BY position LIMIT 5`
-  ).bind(roomId, IDENTIFY_MAX_ATTEMPTS, now - IDENTIFY_TTL_MS).all<{ id: number }>();
+  ).bind(roomId, now - IDENTIFY_TTL_MS).all<{ id: number }>();
   await Promise.all((results ?? []).map((r) => identifyRequest(env, ctx, roomId, r.id, user)));
 }
 
-/** The room's version once this request was identified, or null when nothing was written. */
-export async function identifyRequest(env: RoomsEnv, ctx: Ctx, roomId: string, id: number, user: JwtPayload): Promise<number | null> {
+/**
+ * The room's version once this request was identified (null when nothing was written),
+ * and the chat-confirmation notice when `notify` (someone is waiting on the answer).
+ */
+export async function identifyRequest(
+  env: RoomsEnv, ctx: Ctx, roomId: string, id: number, user: JwtPayload, notify = false,
+): Promise<{ version: number | null; notices: PartyMessage[] } | null> {
   const db = env.DB;
   const tag = `[${roomId}]`;
   const claim = Date.now();
   const row = await db.prepare(
     `UPDATE requests SET identifying_at = ?1, identify_attempts = identify_attempts + 1
      WHERE room_id = ?2 AND id = ?3 AND needs_identification = 1 AND done = 0 AND deleted_at IS NULL
-       AND identify_attempts < ?4 AND (identifying_at IS NULL OR identifying_at < ?5)
+       AND (identifying_at IS NULL OR identifying_at < ?4)
      RETURNING *`
-  ).bind(claim, roomId, id, IDENTIFY_MAX_ATTEMPTS, claim - IDENTIFY_TTL_MS).first();
+  ).bind(claim, roomId, id, claim - IDENTIFY_TTL_MS).first();
   if (!row) return null;
   const req = rowToRequest(row, roomId);
-  const lastAttempt = (row.identify_attempts as number) >= IDENTIFY_MAX_ATTEMPTS;
+  const attempt = row.identify_attempts as number;
+  const lastAttempt = attempt >= IDENTIFY_MAX_ATTEMPTS;
   const sources = roomSources(await loadRoom(db, roomId));
   const maxCount = req.source === "donation" ? computeEntitlement(req.amountVal, sources.minDonation) : 1;
   const extras = eligibleExtras(req.amountVal, sources.extrasConfig);
@@ -645,14 +652,16 @@ export async function identifyRequest(env: RoomsEnv, ctx: Ctx, roomId: string, i
   const rateKey = `ratelimit:extract:${user.sub}:${new Date(claim).toISOString().slice(0, 10)}`;
   const calls = parseInt((await env.CACHE.get(rateKey)) || "0", 10);
   let found: Awaited<ReturnType<typeof extractCharacters>> | null = null;
-  if (calls >= DAILY_EXTRACT_LIMIT) {
+  if (attempt > IDENTIFY_MAX_ATTEMPTS) {
+    // The last attempt's Worker went away too: give up without calling again.
+  } else if (calls >= DAILY_EXTRACT_LIMIT) {
     console.warn(`${tag} daily extract limit (${DAILY_EXTRACT_LIMIT}) reached, #${id} left unidentified`);
   } else {
     try {
       found = await extractCharacters(clipMessage(req.message), env.GEMINI_API_KEY, maxCount, extras);
       await env.CACHE.put(rateKey, String(calls + 1), { expirationTtl: 86400 });
     } catch (e) {
-      console.error(`${tag} identify #${id} failed (attempt ${row.identify_attempts}):`, e instanceof Error ? e.message : e);
+      console.error(`${tag} identify #${id} failed (attempt ${attempt}):`, e instanceof Error ? e.message : e);
       if (!lastAttempt) {
         // Free the claim; the next heartbeat retries.
         await db.prepare(`UPDATE requests SET identifying_at = NULL WHERE ${ours}`).bind(roomId, id, claim).run();
@@ -670,7 +679,7 @@ export async function identifyRequest(env: RoomsEnv, ctx: Ctx, roomId: string, i
         .bind(leftover.character, roomId, id, claim),
       bumpVersion(db, roomId),
     ]);
-    return versionOf(done[1]);
+    return { version: versionOf(done[1]), notices: [] };
   }
 
   const identified: Identified[] = (found.length ? found : [{ character: "", type: "none" as const }]).slice(0, maxCount).map((c) => {
@@ -695,24 +704,28 @@ export async function identifyRequest(env: RoomsEnv, ctx: Ctx, roomId: string, i
   const pending = await loadPending(db, roomId);
   const order = pending.map((r) => r.id).filter((x) => !split.some((r) => r.id === x));
   order.splice(order.indexOf(req.id) + 1, 0, ...split.map((r) => r.id));
+  // The splits go first, while the row still carries this call's claim; the update that
+  // fills the row in then releases it. One transaction, so either both land or neither.
   const results = await db.batch([
+    ...split.map((r) => insertRequest(db, roomId, r, { id, claim })),
     db.prepare(
       `UPDATE requests SET character = ?, type = ?, matched_term = ?, extras = ?, needs_identification = 0, identifying_at = NULL
-       WHERE ${ours} AND needs_identification = 1 AND deleted_at IS NULL RETURNING id`
+       WHERE ${ours} AND needs_identification = 1 AND done = 0 AND deleted_at IS NULL RETURNING id`
     ).bind(first.character, first.type, first.matchedTerm ?? null, first.extras ? JSON.stringify(first.extras) : null, roomId, id, claim),
-    ...split.map((r) => insertRequest(db, roomId, r, req.id)),
     writeOrder(db, roomId, order),
     bumpVersion(db, roomId),
   ]);
   const version = versionOf(results[results.length - 1]);
-  if (!results[0].results?.length) return version; // edited, played or deleted meanwhile
-  const added = split.filter((_, i) => results[i + 1].results?.length);
+  // Edited, played or deleted meanwhile, or answered by a call that took over.
+  if (!results[split.length].results?.length) return { version, notices: [] };
+  const added = split.filter((_, i) => results[i].results?.length);
   if (added.length < split.length) console.warn(`${tag} #${id}: ${split.length - added.length} split requests dropped (pending cap)`);
   console.log(`${tag} identified #${id} → ${[first, ...added].map((r) => r.character || r.type).join(", ")}`);
 
   const after = await loadPending(db, roomId);
-  for (const r of [first, ...added]) await confirmInChat(env, ctx, roomId, sources, r, after, false);
-  return version;
+  const notices: PartyMessage[] = [];
+  for (const r of [first, ...added]) notices.push(...await confirmInChat(env, ctx, roomId, sources, r, after, notify && !notices.length));
+  return { version, notices };
 }
 
 const versionOf = (result: D1Result) => (result.results?.[0] as { version: number } | undefined)?.version ?? null;

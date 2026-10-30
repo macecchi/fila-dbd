@@ -87,6 +87,21 @@ function deliver(s: Session, msg: PartyMessage) {
   }
 }
 
+// Applies an answer from the room. A full sync (what an add answers with once the Worker
+// identified it) replaces the store, so the edits still waiting to be sent are applied
+// again on top: they're optimistic on screen and would otherwise flicker back until sent.
+function deliverAll(s: Session, messages: PartyMessage[], unsent: PartyMessage[]) {
+  for (const m of messages) deliver(s, m);
+  if (!messages.some((m) => m.type === 'sync-full')) return;
+  for (const m of unsent) {
+    try {
+      s.onMessage(m);
+    } catch (e) {
+      console.error('[room] message handler failed', e);
+    }
+  }
+}
+
 function schedule(s: Session, delay = pollDelay(s)) {
   if (s.closed) return;
   if (s.timer) clearTimeout(s.timer);
@@ -185,7 +200,7 @@ async function flush(s: Session) {
       }
       const messages = body.messages ?? [];
       if (!messages.some((m) => m.type !== 'server-error')) observe(() => realtimeTelemetry.onNoEcho(msg));
-      for (const m of messages) deliver(s, m);
+      deliverAll(s, messages, s.queue.slice(1));
       relay(s, messages, body.version);
     } catch (e) {
       if (s.closed) return;
@@ -267,7 +282,7 @@ export function connectParty(
       const data = event.data;
       if (s.closed || !Array.isArray(data?.messages)) return;
       if (typeof data.version === 'number') s.writeVersion = Math.max(s.writeVersion, data.version);
-      for (const m of data.messages) deliver(s, m);
+      deliverAll(s, data.messages, s.queue);
       // Theirs moved the room on: fetch it in full next time.
       s.version = null;
     };

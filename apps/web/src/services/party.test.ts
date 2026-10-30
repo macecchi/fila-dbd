@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { connectParty, disconnectParty, broadcastToggleDone, broadcastIrcStatus } from './party';
+import { connectParty, disconnectParty, broadcastToggleDone, broadcastIrcStatus, broadcastAdd } from './party';
 import type { PartyMessage } from '../types';
 
 const channel = { status: 'online', owner: { login: 'streamer', displayName: 'Streamer', avatar: '' }, closedByOwner: false };
@@ -103,6 +103,32 @@ describe('room transport', () => {
     // A slow replica answering with the old version doesn't undo it either.
     await vi.advanceTimersByTimeAsync(5_000);
     expect(messages.at(-1)).toEqual({ type: 'toggle-done', id: 7, done: true });
+  });
+
+  it('keeps the edits still waiting to be sent on top of a full sync an add answers with', async () => {
+    handler = () => full(1, [{ id: 7, done: false }]);
+    const { messages } = connect();
+    await flush();
+    let identified!: () => void;
+    handler = (url, init) => {
+      if (url.includes('/state')) return full(1, [{ id: 7, done: false }]);
+      if (init?.method === 'POST') {
+        return new Promise<Response>((r) => {
+          identified = () => r(json({ version: 3, messages: [
+            { type: 'add-request', request: { id: 8 } },
+            { type: 'sync-full', requests: [{ id: 7, done: false }, { id: 8, done: false }], sources: { enabled: {} }, channel },
+          ] }));
+        });
+      }
+      return new Promise<Response>(() => {}); // the ✓ hasn't been answered yet
+    };
+    broadcastAdd({ id: 8, timestamp: new Date() } as never);
+    await flush();
+    broadcastToggleDone(7, true); // waits behind the add
+    identified();
+    await flush();
+    const syncAt = messages.findIndex((m) => m.type === 'sync-full' && m.requests.length === 2);
+    expect(messages[syncAt + 1]).toEqual({ type: 'toggle-done', id: 7, done: true });
   });
 
   it('retries a failed edit, then reports it as not saved', async () => {

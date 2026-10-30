@@ -349,6 +349,41 @@ describe('identification', () => {
     expect((await queue())[0]).toMatchObject({ character: 'Meg Thomas', needsIdentification: false });
   });
 
+  it("doesn't let a call that was taken over add its answer", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    let late!: () => void;
+    vi.mocked(extractCharacters).mockImplementationOnce(() => new Promise((res) => {
+      late = () => res([{ character: 'Trapper', type: 'killer' }, { character: 'Nurse', type: 'killer' }]);
+    }));
+    await op({ type: 'update-sources', sources: { minDonation: 5 } as never });
+    const donation = unidentified({ source: 'donation', amountVal: 10, message: 'trapper e nurse' });
+    const slow = op({ type: 'add-request', request: donation });
+    await vi.waitFor(() => expect(late).toBeDefined());
+    vi.mocked(extractCharacters).mockResolvedValueOnce([{ character: 'Huntress', type: 'killer' }]);
+    vi.setSystemTime(Date.now() + 61_000);
+    await state('', await token());
+    await settle();
+    late();
+    await slow;
+    expect((await queue()).map((r) => r.character)).toEqual(['Huntress']);
+  });
+
+  it('gives up without another call when the last attempt went away too', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.mocked(extractCharacters).mockImplementation(() => new Promise(() => {})); // never answers
+    const r = unidentified();
+    void op({ type: 'add-request', request: r });
+    await vi.waitFor(() => expect(extractCharacters).toHaveBeenCalledTimes(1));
+    const t = await token();
+    for (let i = 0; i < 3; i++) {
+      vi.setSystemTime(Date.now() + 61_000);
+      await state('', t);
+      pending.length = 0;
+    }
+    expect(extractCharacters).toHaveBeenCalledTimes(3);
+    await vi.waitFor(async () => expect((await queue())[0]).toMatchObject({ character: '', needsIdentification: false }));
+  });
+
   it("doesn't split a donation the streamer deleted meanwhile", async () => {
     let answer!: () => void;
     vi.mocked(extractCharacters).mockImplementationOnce(() => new Promise((res) => {
