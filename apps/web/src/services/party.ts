@@ -283,9 +283,11 @@ export function connectParty(
     s.channel.onmessage = (event: MessageEvent<Relay>) => {
       const data = event.data;
       if (s.closed || !Array.isArray(data?.messages)) return;
-      // A full sync from before one of our own writes would paint over it.
+      // An answer from before one of our own writes would paint over it (a full sync), or
+      // bring back what we changed since (an add we deleted): keep only the channel status.
+      // The next poll is a full one anyway.
       const stale = typeof data.version === 'number' && data.version < s.writeVersion;
-      const messages = stale ? data.messages.filter((m) => m.type !== 'sync-full') : data.messages;
+      const messages = stale ? data.messages.filter((m) => m.type === 'update-channel') : data.messages;
       if (typeof data.version === 'number') s.writeVersion = Math.max(s.writeVersion, data.version);
       deliverAll(s, messages, s.queue);
       // Theirs moved the room on: fetch it in full next time.
