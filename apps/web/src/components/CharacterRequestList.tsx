@@ -112,8 +112,25 @@ export function CharacterRequestList() {
     (!r.done && (!hideNonRequests || r.type !== 'none')) || exitingIds.has(r.id) || skippingIds.has(r.id)
   );
 
+  // The card tapped open on a touch screen, whose actions replace its badge and time.
+  // One at a time; any tap outside it closes it.
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const handleSelect = useCallback((id: number) => {
+    setSelectedId(prev => prev === id ? null : id);
+  }, []);
+  useEffect(() => {
+    if (selectedId === null) return;
+    const close = (e: PointerEvent) => {
+      const card = (e.target as Element | null)?.closest?.('.request-card');
+      if ((card as HTMLElement | null)?.dataset.requestId !== String(selectedId)) setSelectedId(null);
+    };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [selectedId]);
+
   const handleToggleDone = useCallback((id: number) => {
     if (readOnly) return;
+    setSelectedId(null);
     toggleDone(id);
   }, [toggleDone, readOnly]);
 
@@ -137,6 +154,7 @@ export function CharacterRequestList() {
 
   const handleEdit = useCallback((id: number) => {
     if (readOnly) return;
+    setSelectedId(null);
     setEditingId(id);
   }, [readOnly]);
 
@@ -265,6 +283,8 @@ export function CharacterRequestList() {
                 position={position}
                 onToggleDone={handleToggleDone}
                 onEdit={readOnly ? undefined : handleEdit}
+                selected={selectedId === r.id}
+                onSelect={readOnly ? undefined : handleSelect}
                 isDragging={draggedId === r.id}
                 isDragOver={dragOverId === r.id}
                 onDragStart={handleDragStart}

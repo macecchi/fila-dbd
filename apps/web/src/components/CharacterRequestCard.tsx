@@ -28,6 +28,9 @@ interface Props {
   onDragOver?: (id: number) => void;
   onDragEnd?: () => void;
   onEdit?: (id: number) => void;
+  /** Tapped open: on touch screens the actions show only on the selected card. */
+  selected?: boolean;
+  onSelect?: (id: number) => void;
   readOnly?: boolean;
   exiting?: boolean;
   skipping?: boolean;
@@ -38,7 +41,7 @@ interface Props {
 }
 
 export const CharacterRequestCard = memo(function CharacterRequestCard({
-  request, position, onToggleDone, onEdit,
+  request, position, onToggleDone, onEdit, selected = false, onSelect,
   isDragging, isDragOver, onDragStart, onDragOver, onDragEnd, readOnly = false, exiting = false, skipping = false, entering = false,
   groupIndex, groupTotal,
 }: Props) {
@@ -77,6 +80,11 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
     if (readOnly) return;
     onToggleDone(r.id);
   };
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (readOnly || !onSelect) return;
+    if ((e.target as HTMLElement).closest('button')) return;
+    onSelect(r.id);
+  };
   const handleContext = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -112,7 +120,8 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
     exiting && 'deleting',
     skipping && 'skipping',
     entering && 'entering',
-    readOnly && 'read-only'
+    readOnly && 'read-only',
+    selected && 'selected'
   ].filter(Boolean).join(' ');
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -138,6 +147,7 @@ export const CharacterRequestCard = memo(function CharacterRequestCard({
       className={className}
       data-request-id={r.id}
       onContextMenu={handleContext}
+      onClick={handleCardClick}
       {...(!readOnly && {
         onDragOver: handleDragOver,
         onDragStart: handleDragStart,

@@ -51,8 +51,8 @@
   overflow: hidden;
 }
 
-/* On mobile .request-actions is position: static (always visible, not a hover
-   overlay), so it's a second in-flow grid item here — without this it gets its
+/* On mobile .request-actions is position: static (in flow on a tapped card, not a
+   hover overlay), so it's a second in-flow grid item here — without this it gets its
    own implicit auto-sized row and is left floating after .request-card-content's
    row collapses to 0, instead of collapsing away with the rest of the card. */
 .request-card.deleting .request-actions {
@@ -101,6 +101,26 @@
   }
 
   .request-card:hover .request-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* Keyboard focus on a card's button shows its actions, like the hover. :focus-visible,
+   not :focus-within: a tapped button keeps focus, which would hold the card open. */
+.request-card:has(:focus-visible) .request-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Touch screens have no hover: a tap selects the card instead, and the selected
+   card gets the hover look and actions. Instant, like the hover. */
+@media (hover: none) {
+  .request-card.selected {
+    background: var(--bg-card-hover);
+  }
+
+  .request-card.selected .request-actions {
     opacity: 1;
     pointer-events: auto;
   }
@@ -541,14 +561,18 @@
     font-size: 0.65rem;
   }
 
-  .request-actions {
+  /* Shown only on the card tapped open (.selected), or holding keyboard focus, in
+     place of its badge and time. At rest they stay the base hidden overlay
+     (opacity 0, not display: none) so Tab can still reach them. */
+  .request-card.selected .request-actions,
+  .request-card:has(:focus-visible) .request-actions {
     opacity: 1;
     pointer-events: auto;
     position: static;
     padding: 0;
     background: none;
-    flex-direction: column;
-    justify-content: center;
+    /* Side by side: stacked, the two buttons were taller than the row they open on. */
+    align-items: center;
     gap: var(--space-xs);
     margin-left: var(--space-sm);
   }
@@ -568,6 +592,15 @@
     flex-direction: column;
     align-items: flex-end;
     gap: var(--space-xs);
+  }
+
+  .request-card.selected {
+    background: var(--bg-card-hover);
+  }
+
+  .request-card.selected .request-card-meta,
+  .request-card:has(:focus-visible) .request-card-meta {
+    display: none;
   }
 }
 

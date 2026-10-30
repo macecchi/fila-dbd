@@ -541,6 +541,59 @@ a.channel-header-live:hover {
     width: auto;
   }
 
+  /* The streamer's open/close button sits on the profile row, beside the queue
+     status it switches, instead of alone on a row of its own under the recently
+     played strip. */
+  .channel-header:has(.channel-header-actions) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "profile right"
+      "plays plays";
+    align-items: center;
+  }
+
+  .channel-header:has(.channel-header-actions) .channel-header-profile {
+    grid-area: profile;
+  }
+
+  .channel-header:has(.channel-header-actions) .recent-plays {
+    grid-area: plays;
+  }
+
+  .channel-header:has(.channel-header-actions) .channel-header-right {
+    grid-area: right;
+  }
+
+  /* Beside the button the profile column is narrow: a long channel's share link
+     truncates instead of running under it. */
+  .channel-header:has(.channel-header-actions) .channel-header-sub {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .channel-header:has(.channel-header-actions) .channel-header-sub > *,
+  .channel-header:has(.channel-header-actions) .channel-header-share-url {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .channel-header:has(.channel-header-actions) .channel-header-share {
+    display: grid;
+    overflow: visible;
+  }
+
+  /* No room to the right of the link here, so "click to copy" / "copied" takes
+     its place while shown (a tap leaves the button in :hover). */
+  .channel-header:has(.channel-header-actions) .channel-header-share-hint {
+    left: 0;
+    margin-left: 0;
+  }
+
+  .channel-header:has(.channel-header-actions) .channel-header-share:hover .channel-header-share-url {
+    opacity: 0;
+  }
+
   .channel-header-actions .btn {
     flex: 0 0 auto;
     width: auto;
