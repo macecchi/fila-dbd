@@ -25,6 +25,8 @@ type Bindings = {
   GEMINI_API_KEY: string;
   INTERNAL_API_SECRET: string;
   PARTY_HOST: string;
+  // The rooms' Durable Object namespace (worker.ts `Main`), in this same Worker.
+  Main?: DurableObjectNamespace;
   // Web Push / EventSub — optional: the live-notification feature degrades to
   // off when they're unset (see /push/vapid-public-key and /twitch/eventsub).
   VAPID_PUBLIC_KEY?: string;
@@ -33,6 +35,22 @@ type Bindings = {
   DB: D1Database;
   CACHE: KVNamespace;
 };
+
+// A room's status (`onRequest` in party.ts) — straight from its Durable Object when this
+// Worker hosts the rooms, over HTTP to PARTY_HOST otherwise (tests).
+async function fetchRoomStatus(env: Bindings, room: string): Promise<Response | null> {
+  if (env.Main) {
+    // Not partyserver's getServerByName: importing it here pulls `cloudflare:workers` into
+    // the module tests load. The header is how PartyServer names a stub-fetched room.
+    const stub = env.Main.get(env.Main.idFromName(room));
+    return stub.fetch(`https://party/parties/main/${room}`, { headers: { "x-partykit-room": room } });
+  }
+  if (!env.PARTY_HOST) return null;
+  const protocol = env.PARTY_HOST.startsWith("localhost") ? "http" : "https";
+  return fetch(`${protocol}://${env.PARTY_HOST}/parties/main/${room}`, {
+    signal: AbortSignal.timeout(3000),
+  });
+}
 
 type Variables = {
   jwtPayload: JwtPayload;
@@ -480,13 +498,10 @@ async function notifyChannelLive(env: Bindings, login: string, eventSubId: strin
   // gives us how many requests are already waiting, which goes in the title.
   // Best-effort: if PartyKit can't answer, notify anyway (without the count).
   let pending = 0;
-  if (env.PARTY_HOST) {
+  if (env.Main || env.PARTY_HOST) {
     try {
-      const protocol = env.PARTY_HOST.startsWith("localhost") ? "http" : "https";
-      const res = await fetch(`${protocol}://${env.PARTY_HOST}/parties/main/${login}`, {
-        signal: AbortSignal.timeout(3000),
-      });
-      if (res.ok) {
+      const res = await fetchRoomStatus(env, login);
+      if (res?.ok) {
         const data = await res.json<{ status: string; connections: number; pending_count?: number }>();
         if (data.status !== "offline" && data.connections > 0) {
           console.log(`[push] ${login} went live but queue is already ${data.status}, skipping`);
@@ -814,16 +829,13 @@ app.get("/rooms/active", async (c) => {
   const streamMap = new Map(streams.map((s) => [s.user_login, s]));
 
   // For rooms that D1 claims are non-offline, ask PartyKit for authoritative status
-  const partyHost = c.env.PARTY_HOST;
   const partyStatusMap = new Map<string, { status: string; pending_count: number }>();
-  if (partyHost) {
+  if (c.env.Main || c.env.PARTY_HOST) {
     const nonOffline = results.filter((r) => r.status !== 'offline');
-    const protocol = partyHost.startsWith('localhost') ? 'http' : 'https';
     const fetches = nonOffline.map(async (r) => {
       try {
-        const res = await fetch(`${protocol}://${partyHost}/parties/main/${r.id}`, {
-          signal: AbortSignal.timeout(3000),
-        });
+        const res = await fetchRoomStatus(c.env, r.id);
+        if (!res) return;
         if (res.ok) {
           const data = await res.json<{ status: string; connections: number; pending_count: number }>();
           // If no connections remain, the room is definitively offline regardless of stored status

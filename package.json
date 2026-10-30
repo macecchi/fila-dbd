@@ -6,14 +6,12 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -k \"bun run --filter '*' dev\" \"bun run dev:party\"",
+    "dev": "bun run --filter '*' dev",
     "build": "bun run --filter '*' build",
     "test": "bun run --filter '*' test",
     "deploy:api": "bun run --filter @filadbd/api deploy",
     "deploy:api:preview": "bun run --filter @filadbd/api deploy:preview",
     "deploy:migrations": "bun run --filter @filadbd/api deploy:migrations",
-    "dev:party": "bun run --filter @filadbd/api dev:party",
-    "deploy:party": "bun run --filter @filadbd/api deploy:party",
     "typecheck": "bun run --filter '*' typecheck"
   },
   "devDependencies": {

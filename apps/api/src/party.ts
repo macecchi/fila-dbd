@@ -1,4 +1,3 @@
-import type * as Party from 'partykit/server';
 import { verifyJwt, type JwtPayload } from './jwt';
 import { RoomTelemetry, describeRejectedToken } from './telemetry';
 import { RoomLogger } from './logs';
@@ -43,7 +42,26 @@ interface ConnectionInfo {
   user: JwtPayload | null;
 }
 
-export default class PartyServer implements Party.Server {
+// What the room logic needs from its host: the Durable Object behind `Main` (worker.ts),
+// or a plain object in tests. Kept this narrow so the logic doesn't depend on partyserver.
+export interface PartyConnection {
+  id: string;
+  send(message: string): void;
+}
+
+export interface PartyRoom {
+  id: string;
+  env: Record<string, unknown>;
+  storage: Pick<DurableObjectStorage, 'get' | 'put' | 'delete' | 'list'>;
+  getConnections(): Iterable<PartyConnection>;
+  // Calls the API's Hono app in-process (same Worker). Without it, `fetch(API_URL + path)`.
+  fetchApi?: (path: string, init?: RequestInit) => Promise<Response>;
+  // The host already ships console output to PostHog (Workers Logs export), so the
+  // logger must only print: exporting it too would land every line twice.
+  consoleExported?: boolean;
+}
+
+export default class PartyServer {
   requests: SerializedRequest[] = [];
   sources: SourcesSettings = SOURCES_DEFAULTS;
   channel: ChannelState = { status: 'offline', owner: null };
@@ -57,14 +75,14 @@ export default class PartyServer implements Party.Server {
   private notModNotifiedAt = 0;
   private static readonly D1_SYNC_FAIL_NOTIFY = 3;
   private rejectedLoggedAt = new Map<string, number>();
-  // Every log line goes through this: printed to the console as-is (`partykit tail`)
+  // Every log line goes through this: printed to the console as-is (`wrangler tail`)
   // and shipped to PostHog Logs with the room id (logs.ts). Never `console.*` directly.
   readonly logger: RoomLogger;
   // PostHog events (telemetry.ts). Both are no-ops without POSTHOG_KEY or under DEV_MODE.
   readonly telemetry: RoomTelemetry;
 
-  constructor(public room: Party.Room) {
-    this.logger = new RoomLogger(room.id.toLowerCase(), room.env);
+  constructor(public room: PartyRoom) {
+    this.logger = new RoomLogger(room.id.toLowerCase(), room.consoleExported ? {} : room.env);
     this.telemetry = new RoomTelemetry(room.id.toLowerCase(), room.env, undefined, undefined, (...args) => this.logger.warn(...args));
   }
 
@@ -158,7 +176,7 @@ export default class PartyServer implements Party.Server {
     await this.room.storage.put('order', this.requests.map(r => r.id));
   }
 
-  async onRequest(req: Party.Request) {
+  async onRequest(req: Request) {
     if (req.method === 'POST') {
       const secret = this.room.env.INTERNAL_API_SECRET as string | undefined;
       const authHeader = req.headers.get('Authorization');
@@ -194,7 +212,7 @@ export default class PartyServer implements Party.Server {
     });
   }
 
-  async onConnect(conn: Party.Connection, ctx: Party.ConnectionContext) {
+  async onConnect(conn: PartyConnection, ctx: { request: Request }) {
     const url = new URL(ctx.request.url);
     const token = url.searchParams.get('token');
     // Client-controlled and unbounded: it goes into log lines and event properties, so
@@ -261,7 +279,7 @@ export default class PartyServer implements Party.Server {
     conn.send(JSON.stringify(syncMsg));
   }
 
-  onClose(conn: Party.Connection) {
+  onClose(conn: PartyConnection) {
     const info = this.connections.get(conn.id);
     this.connections.delete(conn.id);
     this.logger.log(`${this.tag} Disconnected: ${conn.id} (${info?.user?.login ?? 'anon'}) - ${this.connections.size} remaining`);
@@ -281,7 +299,7 @@ export default class PartyServer implements Party.Server {
     }
   }
 
-  onError(conn: Party.Connection, error: unknown) {
+  onError(conn: PartyConnection, error: unknown) {
     this.logger.error(`${this.tag} Error on ${conn.id}:`, error);
     this.connections.delete(conn.id);
 
@@ -292,7 +310,7 @@ export default class PartyServer implements Party.Server {
     }
   }
 
-  async onMessage(message: string, sender: Party.Connection) {
+  async onMessage(message: string, sender: PartyConnection) {
     let msg: PartyMessage;
     try {
       msg = JSON.parse(message);
@@ -575,9 +593,8 @@ export default class PartyServer implements Party.Server {
   }
 
   private async syncRequestsToD1(pruneDiscarded = false) {
-    const apiUrl = this.room.env.API_URL as string | undefined;
     const secret = this.room.env.INTERNAL_API_SECRET as string | undefined;
-    if (!apiUrl || !secret) return;
+    if (!this.hasApi || !secret) return;
 
     // Snapshot and clear dirty IDs — new mutations during sync accumulate fresh
     const syncingIds = new Set(this.dirtyRequestIds);
@@ -591,7 +608,7 @@ export default class PartyServer implements Party.Server {
       : allWithPositions.filter(r => syncingIds.has(r.id));
 
     try {
-      const res = await fetch(`${apiUrl}/internal/rooms/${this.room.id}/requests`, {
+      const res = await this.apiFetch(`/internal/rooms/${this.room.id}/requests`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer internal:${secret}`,
@@ -647,12 +664,11 @@ export default class PartyServer implements Party.Server {
   }
 
   private async recoverSourcesFromD1(): Promise<Partial<SourcesSettings> | null> {
-    const apiUrl = this.room.env.API_URL as string | undefined;
     const secret = this.room.env.INTERNAL_API_SECRET as string | undefined;
-    if (!apiUrl || !secret) return null;
+    if (!this.hasApi || !secret) return null;
 
     try {
-      const res = await fetch(`${apiUrl}/internal/rooms/${this.room.id}/sources`, {
+      const res = await this.apiFetch(`/internal/rooms/${this.room.id}/sources`, {
         headers: { 'Authorization': `Bearer internal:${secret}` },
       });
       if (!res.ok) {
@@ -671,12 +687,11 @@ export default class PartyServer implements Party.Server {
 
   private async recoverFromD1(): Promise<SerializedRequest[] | null> {
 
-    const apiUrl = this.room.env.API_URL as string | undefined;
     const secret = this.room.env.INTERNAL_API_SECRET as string | undefined;
-    if (!apiUrl || !secret) return null;
+    if (!this.hasApi || !secret) return null;
 
     try {
-      const res = await fetch(`${apiUrl}/internal/rooms/${this.room.id}/requests`, {
+      const res = await this.apiFetch(`/internal/rooms/${this.room.id}/requests`, {
         headers: { 'Authorization': `Bearer internal:${secret}` },
       });
       if (!res.ok) {
@@ -694,12 +709,11 @@ export default class PartyServer implements Party.Server {
   }
 
   private async syncSourcesToD1() {
-    const apiUrl = this.room.env.API_URL as string | undefined;
     const secret = this.room.env.INTERNAL_API_SECRET as string | undefined;
-    if (!apiUrl || !secret) return;
+    if (!this.hasApi || !secret) return;
 
     try {
-      const res = await fetch(`${apiUrl}/internal/rooms/${this.room.id}/sources`, {
+      const res = await this.apiFetch(`/internal/rooms/${this.room.id}/sources`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer internal:${secret}`,
@@ -767,9 +781,8 @@ export default class PartyServer implements Party.Server {
     if (req.needsIdentification) return;
     if (!req.character || req.type === 'none') return;
 
-    const apiUrl = this.room.env.API_URL as string | undefined;
     const secret = this.room.env.INTERNAL_API_SECRET as string | undefined;
-    if (!apiUrl || !secret) return;
+    if (!this.hasApi || !secret) return;
 
     const position = this.queuePositionFor(req);
     const message = req.source === 'manual'
@@ -777,7 +790,7 @@ export default class PartyServer implements Party.Server {
       : `@${req.donor} seu pedido de ${req.character} entrou na fila na posição ${position}! 🎯`;
 
     try {
-      const res = await fetch(`${apiUrl}/internal/chat/send`, {
+      const res = await this.apiFetch(`/internal/chat/send`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer internal:${secret}`,
@@ -877,6 +890,15 @@ export default class PartyServer implements Party.Server {
     this.telemetry.captureThrottled(`d1:${target}`, 'fila_party_d1_sync_failed', { target, ...props });
   }
 
+  private get hasApi() {
+    return !!this.room.fetchApi || !!this.room.env.API_URL;
+  }
+
+  private apiFetch(path: string, init?: RequestInit): Promise<Response> {
+    if (this.room.fetchApi) return this.room.fetchApi(path, init);
+    return fetch(`${this.room.env.API_URL as string}${path}`, init);
+  }
+
   private get tag() {
     return `[${this.room.id}]`;
   }
@@ -911,12 +933,11 @@ export default class PartyServer implements Party.Server {
   }
 
   private async syncStatusToD1() {
-    const apiUrl = this.room.env.API_URL as string | undefined;
     const secret = this.room.env.INTERNAL_API_SECRET as string | undefined;
-    if (!apiUrl || !secret) return;
+    if (!this.hasApi || !secret) return;
 
     try {
-      const res = await fetch(`${apiUrl}/internal/rooms/${this.room.id}/status`, {
+      const res = await this.apiFetch(`/internal/rooms/${this.room.id}/status`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer internal:${secret}`,

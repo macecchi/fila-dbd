@@ -16,7 +16,7 @@ if (!roomId) {
   process.exit(1);
 }
 
-const partyHost = local ? 'localhost:1999' : 'dbd-tracker-party.macecchi.partykit.dev';
+const partyHost = local ? 'localhost:8787' : 'dbd-tracker-production.meriw.workers.dev';
 const protocol = local ? 'http' : 'https';
 const url = `${protocol}://${partyHost}/parties/main/${roomId}`;
 

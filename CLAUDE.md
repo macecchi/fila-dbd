@@ -10,7 +10,7 @@ Before and after each feature or refactoring, evaluate how changes impact existi
 - Are new fields optional/defaulted so old data doesn't break? (e.g. `hideNonRequests ?? true`)
 - Is there risk of data loss if old clients/servers interact with new data shapes?
 - Do users need to take any action (clear cache, re-auth, re-deploy)?
-- Will the PartyKit server and Cloudflare Worker stay compatible during rolling deploys?
+- The realtime rooms (`Main` Durable Object) and the Hono API ship in one Worker, so they deploy together; old web clients stay compatible with the server across a deploy (protocol `v`)?
 
 ## Performance
 
@@ -48,11 +48,12 @@ apps/
 │   │   ├── types/
 │   │   └── App.tsx
 │   └── public/
-└── api/              # Cloudflare Worker backend (Hono) + PartyKit
+└── api/              # Cloudflare Worker: Hono API + realtime rooms (PartyServer Durable Objects)
     ├── migrations/     # D1 database migrations
     └── src/
+        ├── worker.ts   # Worker entry: /parties/main/:room → `Main` DO, everything else → Hono
         ├── index.ts    # Hono API (auth, LLM, internal D1 endpoints, public /rooms/active)
-        └── party.ts    # PartyKit server (real-time sync + D1 write-through)
+        └── party.ts    # Room logic (real-time sync + D1 write-through), hosted by `Main`
 ```
 
 ## Commands
@@ -61,12 +62,11 @@ ALWAYS use bun, never npm. npm -> bunm, npx -> bunx, node -> bun.
 
 ```bash
 bun install          # Install all deps
-bun run dev          # Start frontend + API + PartyKit
+bun run dev          # Start frontend + API (rooms included, :8787)
 bun run build        # Build frontend
 bun run test         # Run all tests (uses Vitest)
 bun run typecheck    # Type check all packages
-bun run deploy:api   # Deploy API to Cloudflare
-bun run deploy:party # Deploy PartyKit
+bun run deploy:api   # Deploy the Worker (API + rooms) to Cloudflare
 ```
 
 > **Note:** Use `bun run test`, not `bun test`. The project uses Vitest for testing,
@@ -77,19 +77,25 @@ account-level `posthog` OTLP destination (`[observability.logs] destinations` in
 `apps/api/wrangler.toml`). Keep observability settings in that file — every deploy overwrites
 whatever was set in the Cloudflare dashboard.
 
-PartyKit has no log export, so `party.ts` logs **only** through `this.logger` (`RoomLogger`,
-`apps/api/src/logs.ts`), never `console.*` directly: it prints the same arguments to the console
-(`partykit tail` unchanged) and ships each line over OTLP/HTTP to PostHog Logs as service
-`dbd-tracker-party`, with the room id in the `room.id` attribute and the console method in
-`name` (like the Worker's export). Buffered and flushed fire-and-forget every 2s / 200 lines and
-when a room's last connection closes; bodies are scrubbed of JWTs, `token=`/`code=` params and
-Bearer values as a backstop — still never log a token. Keyed by the `POSTHOG_KEY` PartyKit env
-var, which the deploy workflow sets with `partykit env add` — ⚠️ `partykit deploy` never ships
-`partykit.json` `vars`, and `--with-vars` would also push its local-dev secrets. Off under
-`DEV_MODE`. Export failures go to the console only, and one export per room is in flight at a
-time (5s timeout) so a slow PostHog can't hold the room's D1/chat fetch slots. Client-supplied
-values (e.g. an unknown message `type`) never name a throttle key or reach a log line verbatim:
-`messageTypeLabel()` maps them to a fixed set.
+⚠️ **The realtime rooms run in this same Worker** (`src/worker.ts`): hosted PartyKit
+(`*.partykit.dev`) shut down on 2026-10-23 and deleted its room storage, so the rooms moved to
+PartyServer — a `Main` Durable Object (SQLite-backed, `[[migrations]]` in `wrangler.toml`)
+served at `/parties/main/:room`, the path partysocket already used. `party.ts` stays
+host-agnostic behind `PartyRoom` (tests drive it with a plain object); `worker.ts` adapts it and
+gives it `fetchApi`, an in-process call into the Hono app, so the D1 write-through no longer
+leaves the Worker. The API reaches a room through the `Main` binding (`fetchRoomStatus`), not
+over HTTP. Rooms don't hibernate (`static options = { hibernate: false }`): the lock holder,
+connections and debounced D1 sync live in memory, so a room is billed for DO duration while
+any socket is open.
+
+`party.ts` logs **only** through `this.logger` (`RoomLogger`, `apps/api/src/logs.ts`), never
+`console.*` directly. Hosted in the Worker, the console output is already exported with the
+rest of the Worker's logs (service `dbd-tracker-production`, each line tagged `[room]`), so
+`worker.ts` sets `consoleExported` and the logger only prints. Its OTLP path (service
+`dbd-tracker-party`, `room.id` attribute, buffered, scrubbed of JWTs / `token=` / `code=` /
+Bearer values as a backstop) only runs for a host without its own export — still never log a
+token. Client-supplied values (e.g. an unknown message `type`) never name a throttle key or
+reach a log line verbatim: `messageTypeLabel()` maps them to a fixed set.
 
 ## Observability (PostHog)
 
@@ -118,18 +124,19 @@ on `app = 'fila-dbd'` (every event carries it). Event names are prefixed `fila_`
   and `fila_sync_diverged`: a `sync-full` that undoes what this window showed (`initial: true`
   = the queue cache, i.e. what the streamer saw before F5). Echo matching relies on the server
   echoing edits to their sender and on `reorder` carrying its `opId` — keep both.
-- **PartyKit** (`apps/api/src/telemetry.ts`): PartyKit has no log export, so `party.ts` posts
+- **Rooms** (`apps/api/src/telemetry.ts`): `party.ts` posts
   events straight to PostHog's `/batch/` endpoint — buffered, fire-and-forget, never awaited by
   storage or broadcast, throttled per room+key (one event per 60s plus a folded `count`).
   `fila_party_auth_failed` (JWT rejected at connect: `reason` expired/invalid/malformed,
   `claimed_login`, `is_room_login`), `fila_party_owner_connected`, `fila_party_claim_denied`,
   `fila_party_mutation_rejected` (`code`, `message_type`, `sender_authenticated`,
   `room_has_lock_holder`), `fila_party_persist_failed`, `fila_party_d1_sync_failed` /
-  `_recovered`. Same `POSTHOG_KEY` env var as the logs; off under `DEV_MODE` (i.e. `partykit dev`).
+  `_recovered`. Keyed by the `POSTHOG_KEY` var in `wrangler.toml`'s production env (the
+  public ingestion token); off under `DEV_MODE` (`bun run dev` passes `--var DEV_MODE:true`).
   `distinct_id` is the room (= streamer login), with `$process_person_profile: false`.
 - Test locally without touching the real project: build with `VITE_POSTHOG_HOST` pointing at
-  a local sink + `VITE_POSTHOG_ALLOW_LOCAL=true`, run `partykit dev --var POSTHOG_KEY=phc_test
-  --var POSTHOG_HOST=<sink>` (without `DEV_MODE`; the key is deliberately not in `partykit.json`).
+  a local sink + `VITE_POSTHOG_ALLOW_LOCAL=true`, run `wrangler dev --var POSTHOG_KEY:phc_test
+  --var POSTHOG_HOST:<sink>` from `apps/api` (without `DEV_MODE`; the key is only in the production env).
   posthog-js drops headless browsers as bots: mask `navigator.webdriver` **and**
   `navigator.userAgentData`, and set a non-headless user agent, in the test browser.
 
@@ -144,7 +151,7 @@ cd apps/api && bun run dev:login <channel>   # e.g. bun run dev:login meriw_
 ```
 
 It signs the same payload `/auth/token` signs after Twitch confirms identity, using the
-`JWT_SECRET` from `apps/api/.env` (which `wrangler dev` and `partykit dev` both read via
+`JWT_SECRET` from `apps/api/.env` (which `wrangler dev` reads via
 dotenv). It prints a one-line `localStorage.setItem('dbd-auth', …)` snippet — paste it into
 the DevTools console on `localhost:5173`, and the reload comes back signed in with the owner
 UI live and mutations accepted.
@@ -199,7 +206,7 @@ queue cache before reloading: `Object.keys(localStorage).filter(k => k.startsWit
 
 ## Sessions & ownership
 
-One PartyKit connection at a time holds the room lock (`activeOwnerConnId`), and the server
+One room connection at a time holds the room lock (`activeOwnerConnId`), and the server
 drops it whenever that socket closes — a wifi blip, a sleeping tab, a deploy. Ownership is
 internal bookkeeping and must never surface as a mode the streamer has to notice or fix:
 
@@ -276,7 +283,7 @@ the low bits of the hash away. Ordering comes from `position`, never from the ID
 
 ## Data
 
-**Primary (real-time):** PartyKit room storage (Durable Objects)
+**Primary (real-time):** room storage in the `Main` Durable Objects (PartyServer, this Worker)
 - Requests stored as individual keys (`req:${id}`) with ordering in `order` key
 - Sources settings per room
 - Write-through to D1 via async HTTP calls to Hono API
@@ -306,7 +313,7 @@ the low bits of the hash away. Ordering comes from `position`, never from the ID
   parses as **local** time (hours off) and which sorts below ISO values because
   `' ' < 'T'`. Rows written by older deploys still hold the naive form; `rooms.updated_at`
   is one, which is why `ChannelHeader` reads it as `new Date(updated_at + 'Z')`.
-- Internal auth via `INTERNAL_API_SECRET` shared between Worker and PartyKit
+- Internal auth via `INTERNAL_API_SECRET` on the `/internal/*` routes, which the rooms now call in-process
 - ⚠️ **100 bound params per statement** — D1 free plan limit. Full sync's `NOT IN` clause fails at ≥100 requests. See Known Issues below.
 - `push_subscriptions` table — one Web Push subscription per (streamer, browser), registered by the client once notification permission is granted on the streamer's own channel (`services/push.ts`). Fed by the Twitch EventSub `stream.online` webhook (`POST /twitch/eventsub` in `index.ts`, HMAC-verified via `EVENTSUB_SECRET`): when a channel goes live, the Worker pushes a "you're live, open your queue" notification (`src/webpush.ts` — hand-rolled VAPID + aes128gcm, `web-push` is Node-only). Rows are dropped when the push service answers 404/410. The whole feature is optional: without `VAPID_*`/`EVENTSUB_SECRET` secrets, `/push/vapid-public-key` returns an empty key and clients never subscribe. Pushes are skipped when the queue is already open (PartyKit check); there is no rate limit, because `stream.online` fires once per stream and Twitch's own retries are deduped by message id. ⚠️ **The notification is localized via the payload, not the browser language**: the service worker cannot read the app's language toggle (`dbd-locale` in localStorage is off-limits there) and the browser language can contradict the UI, so each subscription stores the `locale` its browser registered with and the Worker sends it back (with the pending count) for `sw.ts` to render. The strings live in `apps/web/src/i18n/pushCopy.ts` — deliberately **not** in `locales/{en,pt-BR}.ts`, whose ~200-key object literals don't tree-shake and would triple a service worker that is re-fetched on every deploy. The client sends `locale` on every `/api/push/subscribe`, and `ChannelContext` re-registers whenever the language changes; a NULL `locale` (rows predating the column) is English. Clicking the notification focuses the channel tab **and opens the queue** — a tab already on the channel is told over `postMessage`, one the worker has to open or navigate carries `?open-queue=1` (there is no client to message until it loads). `ChannelContext` consumes both, waits for `partySynced`, and strips the param so a reload can't reopen a queue the streamer just closed.
 

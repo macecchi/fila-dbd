@@ -52,7 +52,7 @@ const secret = await jwtSecret();
 if (!secret) {
   console.error('No JWT_SECRET found in the environment or apps/api/.env.');
   console.error('Copy .env.example to .env and set JWT_SECRET to any random string —');
-  console.error('it just has to match what `wrangler dev` and `partykit dev` read.');
+  console.error('it just has to match what `wrangler dev` reads.');
   process.exit(1);
 }
 

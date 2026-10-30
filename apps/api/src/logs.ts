@@ -92,7 +92,7 @@ export class RoomLogger {
     private sink: Pick<Console, Level> = console,
   ) {
     const key = typeof env.POSTHOG_KEY === 'string' && env.POSTHOG_KEY ? env.POSTHOG_KEY : null;
-    // `partykit dev` runs with DEV_MODE=true: local rooms stay out of the production project.
+    // `bun run dev` runs with DEV_MODE=true: local rooms stay out of the production project.
     this.key = env.DEV_MODE === 'true' ? null : key;
     const host = (typeof env.POSTHOG_HOST === 'string' && env.POSTHOG_HOST) || 'https://us.i.posthog.com';
     this.endpoint = `${host.replace(/\/+$/, '')}/i/v1/logs`;

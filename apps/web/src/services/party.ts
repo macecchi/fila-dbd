@@ -3,7 +3,7 @@ import type { Request, PartyMessage, SerializedRequest, SourcesSettings } from '
 import { serializeRequest, PROTOCOL_VERSION } from '../types';
 import { realtimeTelemetry, describeSocketUrl } from './realtimeTelemetry';
 
-const PARTY_HOST = import.meta.env.VITE_PARTY_HOST || 'localhost:1999';
+const PARTY_HOST = import.meta.env.VITE_PARTY_HOST || 'localhost:8787';
 
 let socket: PartySocket | null = null;
 

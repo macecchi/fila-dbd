@@ -7,14 +7,18 @@ const commitHash = (process.env.GITHUB_SHA ?? process.env.CF_PAGES_COMMIT_SHA)?.
 // Cloudflare Pages builds (CF_PAGES=1) default to the production backends: the dashboard
 // only sets these for the production environment, not previews. All three are public (they
 // ship in the bundle); a dashboard value still wins. Not in .env.production, so a local
-// production build (`vite preview`) keeps talking to the local Worker and PartyKit. Vite
+// production build (`vite preview`) keeps talking to the local Worker. Vite
 // reads VITE_* from process.env after loading this file.
 const PAGES_DEFAULTS = {
   VITE_TWITCH_CLIENT_ID: 'dqx7wpexjk0780igjk7luea6xz3im9',
   VITE_API_URL: 'https://dbd-tracker-production.meriw.workers.dev',
-  VITE_PARTY_HOST: 'dbd-tracker-party.macecchi.partykit.dev',
+  // The rooms live in the API Worker (/parties/main/:room) since hosted PartyKit shut down.
+  VITE_PARTY_HOST: 'dbd-tracker-production.meriw.workers.dev',
 };
 if (process.env.CF_PAGES) {
+  // A dashboard value still pointing at hosted PartyKit (shut down 2026-10-23) would ship
+  // a dead socket host: drop it so the default above applies.
+  if (process.env.VITE_PARTY_HOST?.endsWith('.partykit.dev')) delete process.env.VITE_PARTY_HOST;
   for (const [key, value] of Object.entries(PAGES_DEFAULTS)) process.env[key] ||= value;
 }
 

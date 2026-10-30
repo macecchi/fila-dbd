@@ -63,7 +63,7 @@ export class RoomTelemetry {
     private warn: (...args: unknown[]) => void = (...args) => console.warn(...args),
   ) {
     const key = typeof env.POSTHOG_KEY === 'string' && env.POSTHOG_KEY ? env.POSTHOG_KEY : null;
-    // `partykit dev` runs with DEV_MODE=true: keep local rooms out of the production project.
+    // `bun run dev` runs with DEV_MODE=true: keep local rooms out of the production project.
     this.key = env.DEV_MODE === 'true' ? null : key;
     this.host = (typeof env.POSTHOG_HOST === 'string' && env.POSTHOG_HOST) || 'https://us.i.posthog.com';
   }
