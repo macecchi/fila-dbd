@@ -105,9 +105,17 @@ D1, which was already the persistent store:
   transaction with the order and the version bump, which only run when the insert did
   (`changes() > 0`); only the window whose insert landed gets the echo and sends the chat
   confirmation. `update-request` writes only the fields it names, on a row not deleted, so it
-  can't undo another window's ✓ or delete. An LLM call is claimed in `llm_claims` (`claimLlm`, by Twitch
-  message id or `req:<id>`; 60s takeover in case the window died): the loser gets `409` and
-  writes nothing. Keep a new single-writer side effect behind one of these two claims.
+  can't undo another window's ✓ or delete. Keep a new single-writer side effect behind the
+  insert, or a claim on the row like identification's.
+- ⚠️ **The Worker identifies requests, never a window.** A request the local match can't settle
+  is added as `needsIdentification` ("Identificando..."), including a donation that pays for
+  several (`computeEntitlement`); the add that inserted it runs Gemini in `waitUntil`
+  (`identifyRequest` in `rooms.ts`), fills the row in and adds the rest of a multi-request
+  donation right after it (ids `splitRequestId`). The claim is `requests.identifying_at` (60s
+  takeover); the streamer's heartbeat (`identifyPending`) retries what's left — a cut-off
+  Worker, a Gemini error — up to `IDENTIFY_MAX_ATTEMPTS`, then leaves it unidentified. The
+  streamer's windows poll every 1.5s while something is identifying. `/api/extract-character`
+  remains only for the manual tools (re-identify, the debug panel), which write through edits.
 
 Logs: plain `console.*`, exported with the rest of the Worker's (service
 `dbd-tracker-production`). Never log a token.
@@ -206,7 +214,7 @@ queue cache before reloading: `Object.keys(localStorage).filter(k => k.startsWit
 - `handleUserNotice()` - Parse resub USERNOTICE
 - `handleChatCommand()` - Process chat requests with session limits
 - `callLLM()` - Gemini API with model fallback/retry
-- `identifyCharacter()` - Local match first, then LLM fallback
+- `identifyCharacter()` - Local match first, then LLM fallback (manual re-identify; queue requests are identified by the Worker, `identifyRequest`)
 - `loadAndReplayVOD()` - VOD chat replay via GQL
 - `useRequestToasts()` - One toast, updated in place, for what arrives while the page is open (requests + skipped `type: 'none'` messages): one arrival keeps its classic look, more become "3 novos pedidos" / "Huntress e Lich · 2 mensagens sem pedidos de Ana e Beto". It waits while the streamer is off the tab and goes `READ_DELAY_MS` after they're back (`utils/toastDigest.ts`). The baseline is the queue at the first party sync
 
@@ -218,7 +226,7 @@ There is no lock and no "session that owns the room". The server keeps one switc
 - **`canEditQueue` (= own channel) gates the whole owner UI**: the server authorizes edits per
   *room owner*, so every window of the streamer is a full editor, including the queue toggle.
 - **Every window of the streamer takes requests while the queue is open** — joins chat,
-  identifies with the LLM, scans the VOD. That is `hasLock` in the channel store (the name is
+  scans the VOD. That is `hasLock` in the channel store (the name is
   historical): `isOwnChannel && first sync seen && !closedByOwner`, set by `ChannelContext`. It
   waits for the first sync so `closedByOwner` is the server's answer, then survives connection
   blips; only the switch drops it. Duplicates are the server's job (see "Concurrency is D1's"
@@ -299,7 +307,8 @@ the low bits of the hash away. Ordering comes from `position`, never from the ID
   cutoff, or deleted requests come back into the strip. Every list that renders the queue
   filters `!r.done` — DO add that filter to anything new that consumes the requests store
   (`hooks/useRequestToasts.tsx` needs it).
-- `llm_claims` table — (room, key) claims for LLM calls; see "Concurrency is D1's".
+- `requests.identifying_at` / `identify_attempts` — the Worker's claim and retry count while it
+  identifies a request; see "The Worker identifies requests".
 - ⚠️ Timestamps are written as ISO-8601 with `Z`. Use `strftime('%Y-%m-%dT%H:%M:%fZ','now')`,
   never bare `datetime('now')` — that yields `YYYY-MM-DD HH:MM:SS`, which `new Date()`
   parses as **local** time (hours off) and which sorts below ISO values because

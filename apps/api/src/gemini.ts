@@ -6,6 +6,21 @@ const RETRIABLE_CODES = [429, 500, 502, 503, 504];
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [2000, 4000, 8000];
 
+// Twitch caps chat messages at 500 characters, but JS `length` counts UTF-16
+// code units (emoji count 2+ each), so a legitimate emoji-heavy message can
+// exceed 500. Cap at 1000 units — enough for any real Twitch message — and
+// truncate instead of rejecting so long donates still get an extraction.
+const MAX_MESSAGE_LENGTH = 1000;
+
+export function clipMessage(message: string): string {
+  if (message.length <= MAX_MESSAGE_LENGTH) return message;
+  console.warn(`[extract] Truncating message from ${message.length} to ${MAX_MESSAGE_LENGTH} chars`);
+  const clipped = message.slice(0, MAX_MESSAGE_LENGTH);
+  // Don't leave half a surrogate pair (e.g. a split emoji) at the cut point.
+  const last = clipped.charCodeAt(clipped.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? clipped.slice(0, -1) : clipped;
+}
+
 export type ExtractionResult = {
   character: string;
   type: 'survivor' | 'killer' | 'none';

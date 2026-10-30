@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { sign } from 'hono/jwt';
 import { PROTOCOL_VERSION, editRoute, type PartyMessage, type SerializedRequest } from '@filadbd/shared';
 import app from './index';
-import { claimLlm, PRESENCE_TTL_MS } from './rooms';
+import { PRESENCE_TTL_MS } from './rooms';
+import { extractCharacters } from './gemini';
 import { createTestD1 } from './test/d1';
 
 vi.mock('./twitch', async (orig) => ({
@@ -10,8 +11,9 @@ vi.mock('./twitch', async (orig) => ({
   sendChatMessage: vi.fn().mockResolvedValue({ ok: true }),
   getAppToken: vi.fn().mockResolvedValue(null),
 }));
-vi.mock('./gemini', () => ({
-  extractCharacters: vi.fn().mockResolvedValue([{ character: 'Meg Thomas', type: 'survivor' }]),
+vi.mock('./gemini', async (orig) => ({
+  ...(await orig<typeof import('./gemini')>()),
+  extractCharacters: vi.fn(),
 }));
 
 const SECRET = 'test-secret';
@@ -63,6 +65,7 @@ beforeEach(async () => {
   env = { DB: d1, CACHE: kv(), JWT_SECRET: SECRET, FRONTEND_URL: 'http://localhost:5173', TWITCH_CLIENT_ID: 'x', TWITCH_CLIENT_SECRET: 'x' };
   pending = [];
   nextId = 1;
+  vi.mocked(extractCharacters).mockReset().mockResolvedValue([{ character: 'Meg Thomas', type: 'survivor' }]);
   vi.spyOn(console, 'log').mockImplementation(() => {});
 });
 
@@ -263,22 +266,95 @@ describe('owner edits (REST on /rooms/:id)', () => {
   });
 });
 
-describe('LLM claims', () => {
-  it('lets one caller run a key until its claim expires', async () => {
-    const db = env.DB as D1Database;
-    expect(await claimLlm(db, ROOM, 'm1', 1_000)).toBe(true);
-    expect(await claimLlm(db, ROOM, 'm1', 2_000)).toBe(false);
-    expect(await claimLlm(db, 'other', 'm1', 2_000)).toBe(true);
-    expect(await claimLlm(db, ROOM, 'm1', 62_000)).toBe(true);
+describe('identification', () => {
+  const settle = async () => { while (pending.length) await Promise.all(pending.splice(0)); };
+  const unidentified = (over: Partial<SerializedRequest> = {}) =>
+    req({ character: 'Identificando...', type: 'unknown', needsIdentification: true, message: 'quero a meg', ...over });
+  const queue = async () => (await state()).body.requests as SerializedRequest[];
+
+  it('runs the LLM once however many windows add the same message', async () => {
+    const r = unidentified();
+    await Promise.all([1, 2, 3].map(() => op({ type: 'add-request', request: r })));
+    await settle();
+    expect(extractCharacters).toHaveBeenCalledTimes(1);
+    expect(await queue()).toEqual([expect.objectContaining({ id: r.id, character: 'Meg Thomas', type: 'survivor', needsIdentification: false })]);
   });
 
-  it('answers 409 to the second window extracting the same message', async () => {
-    const call = async () => app.fetch(new Request('http://x/api/extract-character', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await token()}` },
-      body: JSON.stringify({ message: 'meg', claimKey: 'msg-1' }),
-    }), env, ctx());
-    expect((await call()).status).toBe(200);
-    expect((await call()).status).toBe(409);
+  it('splits a donation that pays for several requests, right after it', async () => {
+    let answer!: () => void;
+    vi.mocked(extractCharacters).mockImplementationOnce(() => new Promise((res) => {
+      answer = () => res([{ character: 'Trapper', type: 'killer' }, { character: 'Trapper', type: 'killer' }, { character: 'Nurse', type: 'killer' }]);
+    }));
+    await op({ type: 'update-sources', sources: { minDonation: 5 } as never });
+    const donation = unidentified({ source: 'donation', amount: 'R$ 15', amountVal: 15, message: '2 de trapper e 1 de nurse' });
+    await op({ type: 'add-request', request: donation });
+    const later = req();
+    await op({ type: 'add-request', request: later });
+    answer();
+    await settle();
+    expect(vi.mocked(extractCharacters).mock.calls[0][2]).toBe(3);
+    const q = await queue();
+    expect(q.map((r) => r.character)).toEqual(['Trapper', 'Trapper', 'Nurse', 'Meg Thomas']);
+    expect(q[0].id).toBe(donation.id);
+    expect(q.at(-1)!.id).toBe(later.id);
+    expect(q.every((r) => !r.needsIdentification)).toBe(true);
+  });
+
+  it('keeps a cut-off LivePix donate visible when the LLM finds no request', async () => {
+    vi.mocked(extractCharacters).mockResolvedValueOnce([]);
+    const r = unidentified({ source: 'donation', amountVal: 5, message: 'x'.repeat(250) });
+    await op({ type: 'add-request', request: r });
+    await settle();
+    expect((await queue())[0]).toMatchObject({ type: 'unknown', character: '', needsIdentification: false });
+  });
+
+  it('retries on the heartbeat after a failure, then leaves it to the streamer', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(extractCharacters).mockRejectedValue(new Error('503'));
+    const r = unidentified();
+    await op({ type: 'add-request', request: r });
+    await settle();
+    expect((await queue())[0].needsIdentification).toBe(true);
+    const t = await token();
+    for (let i = 0; i < 3; i++) {
+      vi.setSystemTime(Date.now() + 31_000);
+      await state('', t);
+      await settle();
+    }
+    expect(extractCharacters).toHaveBeenCalledTimes(3);
+    expect((await queue())[0]).toMatchObject({ character: '', needsIdentification: false });
+  });
+
+  it('takes over an identification whose Worker went away', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.mocked(extractCharacters).mockImplementationOnce(() => new Promise(() => {})); // never answers
+    const r = unidentified();
+    await op({ type: 'add-request', request: r });
+    pending.length = 0;
+    const t = await token();
+    vi.setSystemTime(Date.now() + 31_000);
+    await state('', t);
+    await settle();
+    expect(extractCharacters).toHaveBeenCalledTimes(1); // still claimed
+    vi.setSystemTime(Date.now() + 61_000);
+    await state('', t);
+    await settle();
+    expect(extractCharacters).toHaveBeenCalledTimes(2);
+    expect((await queue())[0]).toMatchObject({ character: 'Meg Thomas', needsIdentification: false });
+  });
+
+  it("doesn't split a donation the streamer deleted meanwhile", async () => {
+    let answer!: () => void;
+    vi.mocked(extractCharacters).mockImplementationOnce(() => new Promise((res) => {
+      answer = () => res([{ character: 'Trapper', type: 'killer' }, { character: 'Nurse', type: 'killer' }]);
+    }));
+    await op({ type: 'update-sources', sources: { minDonation: 5 } as never });
+    const donation = unidentified({ source: 'donation', amountVal: 10, message: 'trapper e nurse' });
+    await op({ type: 'add-request', request: donation });
+    await op({ type: 'delete-request', id: donation.id });
+    answer();
+    await settle();
+    expect(await queue()).toEqual([]);
   });
 });

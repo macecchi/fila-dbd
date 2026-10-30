@@ -1,12 +1,10 @@
 import { tryLocalMatch, isWholeMessageMatch } from '../data/characters';
-import { parseAmount, parseDonationMessage, isDonateBot, isLikelyTruncatedDonation } from '../utils/helpers';
+import { parseAmount, parseDonationMessage, isDonateBot } from '../utils/helpers';
 import { useSettings } from '../store/settings';
 import { useAuth } from '../store/auth';
 import type { Request } from '../types';
 import type { ChannelStores } from '../store/channel';
 import { computeEntitlement, buildDonationRequests } from './donation';
-import { identifyMultiple } from './llm';
-import { eligibleExtras } from './extras';
 import { showNewVersionToast } from '../components/UpdateToast';
 import { t } from '../i18n';
 
@@ -352,30 +350,17 @@ export function handleMessage(raw: string) {
   }
 
   // Multi-request donation: always go through the LLM for accurate parsing
-  // (quantifiers like "2 de X", mixed natural language).
-  const extras = eligibleExtras(amountVal, useSources.getState().extrasConfig);
-  // Every window of the streamer reads chat; the claim lets one of them run the LLM and
-  // add the result. The others get null and leave it to that one.
-  const claimKey = twitchMsgId ? `msg:${twitchMsgId}` : undefined;
-  identifyMultiple(parsed.message, entitlement, extras, undefined, claimKey).then(characters => {
-    if (characters === null) return;
-    // LivePix cuts long donor messages at 250 chars, so the request may live in
-    // the lost tail. Never let the LLM's "no request" verdict hide a paid donate
-    // it only saw part of — keep it in the queue as unidentified for manual review.
-    if (isLikelyTruncatedDonation(parsed.message)) {
-      characters = characters.map(c => c.type === 'none' ? { ...c, type: 'unknown' as const, character: '' } : c);
-    }
-    const built = buildDonationRequests({
-      donor: parsed.donor,
-      amount: parsed.amount,
-      amountVal,
-      message: parsed.message,
-      twitchMsgId,
-      timestampMs,
-      identified: characters,
-    });
-    for (const r of built) addRequest(r);
-  });
+  // (quantifiers like "2 de X", mixed natural language). It enters the queue as one
+  // "Identificando..." request; the Worker identifies it and adds the rest after it.
+  for (const r of buildDonationRequests({
+    donor: parsed.donor,
+    amount: parsed.amount,
+    amountVal,
+    message: parsed.message,
+    twitchMsgId,
+    timestampMs,
+    identified: [],
+  })) addRequest(r);
 }
 
 // Debug helpers exposed to window for DevTools testing

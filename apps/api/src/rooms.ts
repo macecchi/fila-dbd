@@ -11,8 +11,10 @@
 // There is no lock. Every window of the streamer reads chat and sends what it sees; D1 is
 // the arbiter. An add is claimed by its insert (`ON CONFLICT DO NOTHING RETURNING` on the
 // request id, a hash of the Twitch message id — see CLAUDE.md "Idempotency"), so only the
-// first window's add lands and confirms in chat. An LLM call is claimed in `llm_claims`
-// (`claimLlm`). KV can't do either: it has no put-if-absent and propagates in ~60s.
+// first window's add lands and confirms in chat. The LLM runs here too, never in a
+// client: the inserter identifies the new request after the response (`identifyRequest`),
+// claimed on the row itself. KV can't do either: it has no put-if-absent and propagates
+// in ~60s.
 //
 // The channel status is derived on read from two heartbeats and the open/closed switch,
 // so a window that vanishes (closed laptop, crashed tab) simply ages out.
@@ -22,9 +24,14 @@ import {
   PROTOCOL_VERSION,
   RECENT_DONE_KEPT,
   compareRequests,
+  computeEntitlement,
+  eligibleExtras,
+  isLikelyTruncatedDonation,
   normalizeSourcesSettings,
+  splitRequestId,
 } from "@filadbd/shared";
-import type { ChannelState, ChannelStatus, PartyMessage, SerializedRequest, SourcesSettings } from "@filadbd/shared";
+import type { ChannelState, ChannelStatus, PartyMessage, RequestExtra, SerializedRequest, SourcesSettings } from "@filadbd/shared";
+import { clipMessage, extractCharacters } from "./gemini";
 import { verifyJwt, type JwtPayload } from "./jwt";
 import { sendChatMessage } from "./twitch";
 
@@ -34,6 +41,7 @@ export interface RoomsEnv {
   JWT_SECRET: string;
   TWITCH_CLIENT_ID: string;
   TWITCH_CLIENT_SECRET: string;
+  GEMINI_API_KEY: string;
   DEV_MODE?: string;
 }
 
@@ -50,8 +58,13 @@ const HEARTBEAT_WRITE_MS = 30_000;
 const DELETES_RECORDED_SINCE = "2026-10-30T00:00:00.000Z";
 const RECENT_DONE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const CHAT_NOT_MOD_NOTIFY_TTL_S = 5 * 60;
-// An LLM claim older than this can be taken over: its window went away mid-call.
-const LLM_CLAIM_TTL_MS = 60_000;
+// An identification running longer than this is taken over: the Worker running it was
+// cut off (waitUntil has a time limit) or died.
+const IDENTIFY_TTL_MS = 60_000;
+// Gemini failures retried before the request is left unidentified for the streamer.
+const IDENTIFY_MAX_ATTEMPTS = 3;
+// LLM calls per streamer per day (one call however many requests it returns).
+export const DAILY_EXTRACT_LIMIT = 200;
 const NOW_ISO = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 
 interface RoomRow {
@@ -189,18 +202,21 @@ function upsertRequest(db: D1Database, roomId: string, r: SerializedRequest, pos
 // replayed message must not come back) or the pending queue is full — both decided by
 // D1 inside the statement, so concurrent windows can't both pass. RETURNING yields a
 // row only for the inserter.
-function insertRequest(db: D1Database, roomId: string, r: SerializedRequest) {
+// `whileId` only inserts once that request was just identified and is still pending (a
+// split of a donation the streamer skipped, played or deleted meanwhile is dropped).
+function insertRequest(db: D1Database, roomId: string, r: SerializedRequest, whileId?: number) {
+  const guard = whileId === undefined ? "" : " AND EXISTS (SELECT 1 FROM requests WHERE room_id = ?2 AND id = ?17 AND identifying_at IS NULL AND needs_identification = 0 AND done = 0 AND deleted_at IS NULL)";
   return db.prepare(
     `INSERT INTO requests (id, room_id, position, timestamp, donor, amount, amount_val, message, character, type, done, done_at, source, sub_tier, needs_identification, matched_term, origin_msg_id, extras)
      SELECT ?1, ?2, (SELECT COALESCE(MAX(position), -1) + 1 FROM requests WHERE room_id = ?2), ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, NULL, ?10, ?11, ?12, ?13, ?14, ?15
-     WHERE (SELECT COUNT(*) FROM requests WHERE room_id = ?2 AND done = 0 AND deleted_at IS NULL) < ?16
+     WHERE (SELECT COUNT(*) FROM requests WHERE room_id = ?2 AND done = 0 AND deleted_at IS NULL) < ?16${guard}
      ON CONFLICT (room_id, id) DO NOTHING
      RETURNING id`
   ).bind(
     r.id, roomId, r.timestamp, r.donor, r.amount ?? "", r.amountVal ?? 0, r.message ?? "",
     r.character ?? "", r.type ?? "unknown", r.source, r.subTier ?? null, r.needsIdentification ? 1 : 0,
     r.matchedTerm ?? null, (r as { originMsgId?: string }).originMsgId ?? null, r.extras ? JSON.stringify(r.extras) : null,
-    MAX_PENDING_REQUESTS,
+    MAX_PENDING_REQUESTS, ...(whileId === undefined ? [] : [whileId]),
   );
 }
 
@@ -258,20 +274,6 @@ function queuePosition(pending: SerializedRequest[], req: SerializedRequest, sou
   return idx === -1 ? ordered.length : idx + 1;
 }
 
-/** True when this caller may run the LLM call for `key`; false while another one is. */
-export async function claimLlm(db: D1Database, roomId: string, key: string, now = Date.now()): Promise<boolean> {
-  const row = await db.prepare(
-    `INSERT INTO llm_claims (room_id, key, claimed_at) VALUES (?1, ?2, ?3)
-     ON CONFLICT (room_id, key) DO UPDATE SET claimed_at = excluded.claimed_at WHERE claimed_at < ?4
-     RETURNING claimed_at`
-  ).bind(roomId, key, now, now - LLM_CLAIM_TTL_MS).first();
-  return row !== null;
-}
-
-export async function releaseLlm(db: D1Database, roomId: string, key: string): Promise<void> {
-  await db.prepare("DELETE FROM llm_claims WHERE room_id = ? AND key = ?").bind(roomId, key).run();
-}
-
 const errorMsg = (code: string, message: string, id?: number): PartyMessage =>
   ({ type: "server-error", code, message, ...(id !== undefined ? { id } : {}) });
 
@@ -314,6 +316,8 @@ roomsSync.get("/:roomId/state", async (c) => {
         ).bind(now, irc ? 1 : 0, now, roomId),
       ]);
       row = await loadRoom(db, roomId);
+      // The heartbeat is also when what an add left unidentified gets retried.
+      if (row && !row.closed_by_owner) c.executionCtx.waitUntil(identifyPending(c.env, roomId, user!));
     }
   }
 
@@ -439,6 +443,8 @@ export async function applyOp(
       }
       const version = (results[3].results?.[0] as { version: number } | undefined)?.version;
       console.log(`${tag} add-request #${req.id} "${req.character}" (${req.source})`);
+      // Only the inserter identifies it, so the LLM runs once however many windows sent it.
+      if (req.needsIdentification) ctx.waitUntil(identifyRequest(env, roomId, req.id, user));
       const notice = await confirmInChat(env, ctx, roomId, sources, req, next);
       return { version, messages: [msg, ...notice] };
     }
@@ -554,6 +560,8 @@ async function confirmInChat(
   sources: SourcesSettings,
   req: SerializedRequest,
   pending: SerializedRequest[],
+  // Off when nobody is waiting on the response to show the "bot isn't a mod" notice.
+  notify = true,
 ): Promise<PartyMessage[]> {
   if (!sources.confirmInChat || req.needsIdentification || !req.character || req.type === "none") return [];
   const position = queuePosition(pending, req, sources);
@@ -573,8 +581,125 @@ async function confirmInChat(
     }
   })());
 
+  if (!notify) return [];
   const flagged = await env.CACHE.get(notifyKey);
   if (flagged !== "pending") return [];
   await env.CACHE.put(notifyKey, "shown", { expirationTtl: CHAT_NOT_MOD_NOTIFY_TTL_S });
   return [errorMsg("chat_send_not_mod", "Confirme que @filadbd está como mod no seu canal (/mod filadbd) para as mensagens de confirmação funcionarem.")];
+}
+
+// Identification. A request that needs the LLM (`needs_identification = 1`: a donation,
+// resub or chat message the local match couldn't settle) is identified here, never by a
+// client. The add that inserted it starts the call after the response; the streamer's
+// heartbeats retry whatever that left behind (the Worker was cut off, Gemini failed).
+// `identifying_at` is the claim, so one call runs per row at a time.
+//
+// A donation that pays for several requests ("2 de trapper e 1 de nurse") is one row
+// until then; the answer fills it in and adds the rest right after it.
+
+const IDENTIFYING = new Set(["Identificando...", "Identifying..."]);
+
+type Identified = Pick<SerializedRequest, "character" | "type" | "matchedTerm" | "extras">;
+
+/** Identifies the requests the heartbeat finds waiting: never started, failed, or abandoned. */
+export async function identifyPending(env: RoomsEnv, roomId: string, user: JwtPayload, now = Date.now()): Promise<void> {
+  const { results } = await env.DB.prepare(
+    `SELECT id FROM requests
+     WHERE room_id = ? AND needs_identification = 1 AND done = 0 AND deleted_at IS NULL
+       AND identify_attempts < ? AND (identifying_at IS NULL OR identifying_at < ?)
+     ORDER BY position LIMIT 5`
+  ).bind(roomId, IDENTIFY_MAX_ATTEMPTS, now - IDENTIFY_TTL_MS).all<{ id: number }>();
+  await Promise.all((results ?? []).map((r) => identifyRequest(env, roomId, r.id, user)));
+}
+
+export async function identifyRequest(env: RoomsEnv, roomId: string, id: number, user: JwtPayload): Promise<void> {
+  const db = env.DB;
+  const tag = `[${roomId}]`;
+  const claim = Date.now();
+  const row = await db.prepare(
+    `UPDATE requests SET identifying_at = ?1, identify_attempts = identify_attempts + 1
+     WHERE room_id = ?2 AND id = ?3 AND needs_identification = 1 AND done = 0 AND deleted_at IS NULL
+       AND identify_attempts < ?4 AND (identifying_at IS NULL OR identifying_at < ?5)
+     RETURNING *`
+  ).bind(claim, roomId, id, IDENTIFY_MAX_ATTEMPTS, claim - IDENTIFY_TTL_MS).first();
+  if (!row) return;
+  const req = rowToRequest(row, roomId);
+  const lastAttempt = (row.identify_attempts as number) >= IDENTIFY_MAX_ATTEMPTS;
+  const sources = roomSources(await loadRoom(db, roomId));
+  const maxCount = req.source === "donation" ? computeEntitlement(req.amountVal, sources.minDonation) : 1;
+  const extras = eligibleExtras(req.amountVal, sources.extrasConfig);
+  const ours = "room_id = ? AND id = ? AND identifying_at = ?";
+
+  const rateKey = `ratelimit:extract:${user.sub}:${new Date(claim).toISOString().slice(0, 10)}`;
+  const calls = parseInt((await env.CACHE.get(rateKey)) || "0", 10);
+  let found: Awaited<ReturnType<typeof extractCharacters>> | null = null;
+  if (calls >= DAILY_EXTRACT_LIMIT) {
+    console.warn(`${tag} daily extract limit (${DAILY_EXTRACT_LIMIT}) reached, #${id} left unidentified`);
+  } else {
+    try {
+      found = await extractCharacters(clipMessage(req.message), env.GEMINI_API_KEY, maxCount, extras);
+      await env.CACHE.put(rateKey, String(calls + 1), { expirationTtl: 86400 });
+    } catch (e) {
+      console.error(`${tag} identify #${id} failed (attempt ${row.identify_attempts}):`, e instanceof Error ? e.message : e);
+      if (!lastAttempt) {
+        // Free the claim; the next heartbeat retries.
+        await db.prepare(`UPDATE requests SET identifying_at = NULL WHERE ${ours}`).bind(roomId, id, claim).run();
+        return;
+      }
+    }
+  }
+
+  if (!found) {
+    // Out of attempts (or calls): keep the local guess if there was one, and let the
+    // streamer sort it out.
+    const leftover: Identified = { character: IDENTIFYING.has(req.character) ? "" : req.character, type: req.type };
+    await db.batch([
+      db.prepare(`UPDATE requests SET character = ?, needs_identification = 0, identifying_at = NULL WHERE ${ours}`)
+        .bind(leftover.character, roomId, id, claim),
+      bumpVersion(db, roomId),
+    ]);
+    return;
+  }
+
+  const identified: Identified[] = (found.length ? found : [{ character: "", type: "none" as const }]).slice(0, maxCount).map((c) => {
+    const build: RequestExtra[] | undefined = c.build?.text ? [{ type: "build", text: c.build.text, matchedTerms: c.build.matchedTerms }] : undefined;
+    // A LivePix donate cut at 250 chars may carry its request in the lost tail: never
+    // hide it as "no request", leave it for the streamer to read.
+    const hide = c.type === "none" && !(req.source === "donation" && isLikelyTruncatedDonation(req.message));
+    return {
+      character: c.type === "none" ? "" : c.character || "",
+      type: c.type === "none" && !hide ? "unknown" : (c.type || "unknown"),
+      matchedTerm: c.matchedTerm,
+      extras: build,
+    };
+  });
+  const first: SerializedRequest = { ...req, ...identified[0], needsIdentification: false };
+  const split: SerializedRequest[] = identified.slice(1).map((c, i) => ({
+    ...req, ...c, id: splitRequestId(req.id, i + 1), needsIdentification: false, done: false, doneAt: undefined,
+  }));
+
+  // The split requests go right after the donation they came from, in either sort mode
+  // (they share every field priority compares).
+  const pending = await loadPending(db, roomId);
+  const order = pending.map((r) => r.id).filter((x) => !split.some((r) => r.id === x));
+  order.splice(order.indexOf(req.id) + 1, 0, ...split.map((r) => r.id));
+  const results = await db.batch([
+    db.prepare(
+      `UPDATE requests SET character = ?, type = ?, matched_term = ?, extras = ?, needs_identification = 0, identifying_at = NULL
+       WHERE ${ours} AND needs_identification = 1 AND deleted_at IS NULL RETURNING id`
+    ).bind(first.character, first.type, first.matchedTerm ?? null, first.extras ? JSON.stringify(first.extras) : null, roomId, id, claim),
+    ...split.map((r) => insertRequest(db, roomId, r, req.id)),
+    writeOrder(db, roomId, order),
+    bumpVersion(db, roomId),
+  ]);
+  if (!results[0].results?.length) return; // edited, played or deleted meanwhile
+  const added = split.filter((_, i) => results[i + 1].results?.length);
+  if (added.length < split.length) console.warn(`${tag} #${id}: ${split.length - added.length} split requests dropped (pending cap)`);
+  console.log(`${tag} identified #${id} → ${[first, ...added].map((r) => r.character || r.type).join(", ")}`);
+
+  const after = await loadPending(db, roomId);
+  const confirmations: Promise<unknown>[] = [];
+  const collect = { waitUntil: (p: Promise<unknown>) => void confirmations.push(p) };
+  for (const r of [first, ...added]) await confirmInChat(env, collect, roomId, sources, r, after, false);
+  await Promise.all(confirmations);
 }

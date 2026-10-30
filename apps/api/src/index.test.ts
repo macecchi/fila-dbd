@@ -3,7 +3,8 @@ import { sign } from 'hono/jwt';
 import app from './index';
 
 // Mock gemini
-vi.mock('./gemini', () => ({
+vi.mock('./gemini', async (orig) => ({
+  ...(await orig<typeof import('./gemini')>()),
   extractCharacters: vi.fn().mockResolvedValue([
     { character: 'Meg Thomas', type: 'survivor' },
   ]),

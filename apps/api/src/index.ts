@@ -3,9 +3,9 @@ import { cors } from "hono/cors";
 import { sign } from "hono/jwt";
 import { Twitch } from "arctic";
 import { verifyJwt, type JwtPayload } from "./jwt";
-import { extractCharacters } from "./gemini";
-import { claimLlm, releaseLlm, roomStatus, roomsSync, PRESENCE_TTL_MS } from "./rooms";
-import type { RequestExtraType } from "@filadbd/shared";
+import { clipMessage, extractCharacters } from "./gemini";
+import { DAILY_EXTRACT_LIMIT, roomStatus, roomsSync, PRESENCE_TTL_MS } from "./rooms";
+import { MAX_DONATION_REQUESTS, type RequestExtraType } from "@filadbd/shared";
 import { getAppToken, fetchProfiles, fetchStreams, cacheProfiles, sendChatMessage, checkBotIsMod } from "./twitch";
 import { sendWebPush, isWebPushConfigured, type PushSubscriptionKeys } from "./webpush";
 import { verifyEventSubSignature, ensureStreamOnlineSubscription, deleteEventSubSubscription, clearEventSubMarker } from "./eventsub";
@@ -202,31 +202,16 @@ api.use("*", async (c, next) => {
   await next();
 });
 
-// Twitch caps chat messages at 500 characters, but JS `length` counts UTF-16
-// code units (emoji count 2+ each), so a legitimate emoji-heavy message can
-// exceed 500. Cap at 1000 units — enough for any real Twitch message — and
-// truncate instead of rejecting so long donates still get an extraction.
-const MAX_MESSAGE_LENGTH = 1000;
-const DAILY_EXTRACT_LIMIT = 200;
-const MAX_DONATION_REQUESTS = 10;
-
 api.post("/extract-character", async (c) => {
   const user = c.get("jwtPayload");
   const clientVersion = c.req.header("X-Client-Version") || "unknown";
-  const body = await c.req.json<{ message: string; maxCount?: number; extras?: RequestExtraType[]; claimKey?: string }>();
+  const body = await c.req.json<{ message: string; maxCount?: number; extras?: RequestExtraType[] }>();
 
   if (!body.message || typeof body.message !== "string") {
     return c.json({ error: "invalid_input" }, 400);
   }
 
-  let message = body.message;
-  if (message.length > MAX_MESSAGE_LENGTH) {
-    console.warn(`[extract] Truncating message from ${message.length} to ${MAX_MESSAGE_LENGTH} chars`);
-    message = message.slice(0, MAX_MESSAGE_LENGTH);
-    // Don't leave half a surrogate pair (e.g. a split emoji) at the cut point.
-    const last = message.charCodeAt(message.length - 1);
-    if (last >= 0xd800 && last <= 0xdbff) message = message.slice(0, -1);
-  }
+  const message = clipMessage(body.message);
 
   const requestedMax = typeof body.maxCount === "number" ? body.maxCount : 1;
   const maxCount = Math.max(1, Math.min(MAX_DONATION_REQUESTS, Math.floor(requestedMax)));
@@ -239,14 +224,6 @@ api.post("/extract-character", async (c) => {
   if (currentCount >= DAILY_EXTRACT_LIMIT) {
     console.warn(`[ratelimit] User ${user.login} (${user.sub}) hit daily extract limit of ${DAILY_EXTRACT_LIMIT}`);
     return c.json({ error: "daily_limit_exceeded", limit: DAILY_EXTRACT_LIMIT }, 429);
-  }
-
-  // Every window of the streamer reads chat, so each sends the same message here. The
-  // claim (a Twitch message id or request id) lets only the first one run the call.
-  const claim = typeof body.claimKey === "string" && body.claimKey ? body.claimKey.slice(0, 128) : null;
-  const room = user.login.toLowerCase();
-  if (claim && !(await claimLlm(c.env.DB, room, claim))) {
-    return c.json({ error: "in_flight" }, 409);
   }
 
   console.log(`[v${clientVersion}] Extract request from ${user.login} (maxCount=${maxCount}): ${message}`);
@@ -276,8 +253,6 @@ api.post("/extract-character", async (c) => {
     });
   } catch (e: any) {
     console.error("Gemini error:", e.message);
-    // Free the claim so the retry (auto-identify, or another window) isn't held off.
-    if (claim) await releaseLlm(c.env.DB, room, claim).catch(() => {});
     return c.json({ error: "llm_error", message: e.message }, 502);
   }
 });

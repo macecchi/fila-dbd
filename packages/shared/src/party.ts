@@ -1,7 +1,8 @@
 import type { Request, SourcesEnabled, RequestExtra, RoomExtras } from './types';
 
 // Bump on non-backwards-compatible changes to PartyMessage formats or the sync endpoints.
-// 2: rooms over HTTP polling (GET /rooms/:id/state, REST edits — `editRoute`), no lock.
+// 2: rooms over HTTP polling (GET /rooms/:id/state, REST edits — `editRoute`), no lock;
+//    requests are identified by the Worker, never by a window.
 export const PROTOCOL_VERSION = 2;
 export const MAX_PENDING_REQUESTS = 99;
 // How many done requests the room state carries, newest first, for the header's

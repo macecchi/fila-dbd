@@ -8,12 +8,8 @@ ALTER TABLE rooms ADD COLUMN closed_by_owner INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE rooms ADD COLUMN owner_seen_at INTEGER;
 ALTER TABLE rooms ADD COLUMN irc_live_at INTEGER;
 
--- Every window of the streamer reads chat, so the same message reaches the LLM endpoint
--- from each of them. The first to claim (room, key) runs the call; the others get 409.
--- A claim older than a minute can be taken over, in case its window went away mid-call.
-CREATE TABLE llm_claims (
-  room_id TEXT NOT NULL,
-  key TEXT NOT NULL,
-  claimed_at INTEGER NOT NULL,
-  PRIMARY KEY (room_id, key)
-);
+-- Requests needing the LLM are identified by the Worker. `identifying_at` (epoch ms) is
+-- the claim on the row while a call runs, taken over after a minute in case the Worker
+-- running it was cut off; `identify_attempts` caps the retries after Gemini failures.
+ALTER TABLE requests ADD COLUMN identifying_at INTEGER;
+ALTER TABLE requests ADD COLUMN identify_attempts INTEGER NOT NULL DEFAULT 0;
