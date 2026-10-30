@@ -95,7 +95,9 @@ function deliverAll(s: Session, messages: PartyMessage[], unsent: PartyMessage[]
   if (!messages.some((m) => m.type === 'sync-full')) return;
   for (const m of unsent) {
     try {
-      s.onMessage(m);
+      // A replayed move carries no opId: the store keeps that id pending, so the move's
+      // own echo is still skipped when it arrives.
+      s.onMessage(m.type === 'reorder' ? { type: 'reorder', fromId: m.fromId, toId: m.toId } : m);
     } catch (e) {
       console.error('[room] message handler failed', e);
     }

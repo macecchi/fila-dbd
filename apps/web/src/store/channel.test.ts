@@ -353,6 +353,21 @@ describe('channel stores', () => {
       expect(stores.useRequests.getState().requests.map(r => r.id)).toEqual([3, 1, 2]);
     });
 
+    it('a reorder replayed over a full sync still skips its own echo', () => {
+      const stores = connectedStore();
+      seed(stores, [1, 2, 3]);
+      stores.useRequests.getState().reorder(3, 1);
+      const opId = vi.mocked(party.broadcastReorder).mock.calls[0][2];
+      // A full sync from before the move lands, and the transport replays the unsent move
+      // (without its opId, which stays pending for the echo).
+      seed(stores, [1, 2, 3]);
+      stores.useRequests.getState().handlePartyMessage({ type: 'reorder', fromId: 3, toId: 1 } as any);
+      expect(stores.useRequests.getState().requests.map(r => r.id)).toEqual([3, 1, 2]);
+      // Then its echo arrives.
+      stores.useRequests.getState().handlePartyMessage({ type: 'reorder', fromId: 3, toId: 1, opId } as any);
+      expect(stores.useRequests.getState().requests.map(r => r.id)).toEqual([3, 1, 2]);
+    });
+
     it('a foreign reorder with the same coords as a pending one still applies (operation identity)', () => {
       const stores = connectedStore();
       seed(stores, [1, 2, 3]);

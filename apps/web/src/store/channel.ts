@@ -50,7 +50,8 @@ export function createRequestsStore(
   // our OWN move (it would double-move). Each optimistic reorder is tagged with a
   // unique opId that the server forwards verbatim, so we match echoes by identity
   // rather than by {fromId,toId} value — which can't tell our move apart from another
-  // client's identical move. Cleared on the authoritative sync-full/set-all.
+  // client's identical move. Kept across a sync-full: the transport replays the edits
+  // still unsent on top of one, so their echoes must still be skipped. Cleared on set-all.
   const pendingReorderOpIds = new Set<string>();
   const newOpId = (): string =>
     globalThis.crypto?.randomUUID?.() ?? `r-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -122,9 +123,9 @@ export function createRequestsStore(
         handlePartyMessage: (msg) => {
           switch (msg.type) {
             case 'sync-full': {
-              // Authoritative full replace — ordering is reset, so drop any
-              // pending optimistic reorders awaiting an echo.
-              pendingReorderOpIds.clear();
+              // Authoritative full replace. Pending reorder ids stay: an unsent one is
+              // replayed on top of this (services/party.ts), and its echo must still be
+              // skipped.
               set({ requests: deserializeRequests(msg.requests) });
               break;
             }
