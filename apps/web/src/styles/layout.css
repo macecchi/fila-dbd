@@ -172,6 +172,8 @@ a.brand {
     position: static;
   }
 
+  /* Stacked under the queue, the settings are always there: the hide/show
+     toggle is a desktop side-column affordance. */
   .sidebar.collapsed {
     display: flex;
   }
@@ -189,13 +191,6 @@ a.brand {
 
   .stats {
     justify-content: center;
-  }
-}
-
-@media (max-width: 600px) {
-  .sidebar,
-  .sidebar.collapsed {
-    display: none;
   }
 }
 
@@ -523,10 +518,6 @@ a.brand {
     font-size: var(--text-xs);
     padding: 0.15rem 0.35rem;
     white-space: nowrap;
-  }
-
-  .panel-header .panel-actions {
-    display: none;
   }
 
   .footer {
