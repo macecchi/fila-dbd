@@ -112,11 +112,25 @@ describe('presence', () => {
     expect((await state('', t)).body.channel).toMatchObject({ status: 'online', closedByOwner: false, owner: { login: ROOM } });
   });
 
-  it('irc-status drops live without waiting for the heartbeat to age out', async () => {
+  it("one window losing chat doesn't take the room off live for the others", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
     await op({ type: 'irc-status', connected: true });
     expect((await state()).body.channel.status).toBe('live');
     const { body } = await op({ type: 'irc-status', connected: false });
-    expect(body.messages[0]).toMatchObject({ type: 'update-channel', channel: { status: 'online' } });
+    expect(body.messages[0]).toMatchObject({ type: 'update-channel', channel: { status: 'live' } });
+    // Nobody refreshes it: it ages out.
+    vi.setSystemTime(Date.now() + PRESENCE_TTL_MS + 1);
+    expect((await state()).body.channel.status).toBe('offline');
+  });
+
+  it('closing drops the hidden non-requests so they never fill the queue', async () => {
+    const none = req({ type: 'none', character: '' });
+    const real = req();
+    await op({ type: 'add-request', request: none });
+    await op({ type: 'add-request', request: real });
+    await op({ type: 'close-queue' });
+    expect((await state()).body.requests.map((x: SerializedRequest) => x.id)).toEqual([real.id]);
+    expect((await op({ type: 'add-request', request: none })).body.messages).toEqual([]);
   });
 });
 
@@ -136,7 +150,10 @@ describe('POST /rooms/:id/ops', () => {
     const r = req();
     const results = await Promise.all([1, 2, 3].map(() => op({ type: 'add-request', request: r })));
     expect(results.filter((x) => x.body.messages.length > 0)).toHaveLength(1);
-    expect((await state()).body.requests.map((x: SerializedRequest) => x.id)).toEqual([r.id]);
+    const { body } = await state();
+    expect(body.requests.map((x: SerializedRequest) => x.id)).toEqual([r.id]);
+    // The losers moved nothing on: one write, one version.
+    expect(body.version).toBe(1);
   });
 
   it('never brings back a request that was played or deleted', async () => {
@@ -177,6 +194,19 @@ describe('POST /rooms/:id/ops', () => {
     const res = await op({ type: 'reorder', fromId: chat2.id, toId: dono.id, opId: 'op1' });
     expect(res.body.messages).toEqual([{ type: 'reorder', fromId: chat2.id, toId: dono.id, opId: 'op1' }]);
     expect(await order()).toEqual([chat2.id, dono.id, chat1.id]);
+  });
+
+  it("an edit doesn't undo a ✓ or a delete another window made meanwhile", async () => {
+    const a = req();
+    const b = req();
+    await op({ type: 'add-request', request: a });
+    await op({ type: 'add-request', request: b });
+    await op({ type: 'toggle-done', id: a.id, done: true });
+    await op({ type: 'delete-request', id: b.id });
+    await op({ type: 'update-request', id: a.id, updates: { character: 'Nea Karlsson' } });
+    await op({ type: 'update-request', id: b.id, updates: { character: 'Nea Karlsson' } });
+    const { body } = await state();
+    expect(body.requests.map((x: SerializedRequest) => [x.id, x.character, !!x.done])).toEqual([[a.id, 'Nea Karlsson', true]]);
   });
 
   it('caps the pending queue', async () => {

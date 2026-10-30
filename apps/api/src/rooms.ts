@@ -185,18 +185,57 @@ function upsertRequest(db: D1Database, roomId: string, r: SerializedRequest, pos
 }
 
 // A new row at the end of the queue, unless the id exists (pending, done or deleted: a
-// replayed message must not come back). RETURNING yields a row only for the inserter.
+// replayed message must not come back) or the pending queue is full — both decided by
+// D1 inside the statement, so concurrent windows can't both pass. RETURNING yields a
+// row only for the inserter.
 function insertRequest(db: D1Database, roomId: string, r: SerializedRequest) {
   return db.prepare(
     `INSERT INTO requests (id, room_id, position, timestamp, donor, amount, amount_val, message, character, type, done, done_at, source, sub_tier, needs_identification, matched_term, origin_msg_id, extras)
-     VALUES (?1, ?2, (SELECT COALESCE(MAX(position), -1) + 1 FROM requests WHERE room_id = ?2), ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, NULL, ?10, ?11, ?12, ?13, ?14, ?15)
+     SELECT ?1, ?2, (SELECT COALESCE(MAX(position), -1) + 1 FROM requests WHERE room_id = ?2), ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, NULL, ?10, ?11, ?12, ?13, ?14, ?15
+     WHERE (SELECT COUNT(*) FROM requests WHERE room_id = ?2 AND done = 0 AND deleted_at IS NULL) < ?16
      ON CONFLICT (room_id, id) DO NOTHING
      RETURNING id`
   ).bind(
     r.id, roomId, r.timestamp, r.donor, r.amount ?? "", r.amountVal ?? 0, r.message ?? "",
     r.character ?? "", r.type ?? "unknown", r.source, r.subTier ?? null, r.needsIdentification ? 1 : 0,
     r.matchedTerm ?? null, (r as { originMsgId?: string }).originMsgId ?? null, r.extras ? JSON.stringify(r.extras) : null,
+    MAX_PENDING_REQUESTS,
   );
+}
+
+// Columns an update-request may set, by request field. Anything else (id, validating,
+// isBroadcaster) is ignored.
+const UPDATABLE: Record<string, { column: string; encode?: (v: unknown) => unknown }> = {
+  timestamp: { column: "timestamp" },
+  donor: { column: "donor" },
+  amount: { column: "amount" },
+  amountVal: { column: "amount_val" },
+  message: { column: "message" },
+  character: { column: "character" },
+  type: { column: "type" },
+  done: { column: "done", encode: (v) => (v ? 1 : 0) },
+  doneAt: { column: "done_at" },
+  source: { column: "source" },
+  subTier: { column: "sub_tier" },
+  needsIdentification: { column: "needs_identification", encode: (v) => (v ? 1 : 0) },
+  matchedTerm: { column: "matched_term" },
+  extras: { column: "extras", encode: (v) => (v ? JSON.stringify(v) : null) },
+};
+
+// Only the fields the edit names, on a row that still exists: a snapshot written back
+// would undo what another window did in between (a ✓, a delete).
+function updateFields(db: D1Database, roomId: string, id: number, updates: Partial<SerializedRequest>) {
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  for (const [key, value] of Object.entries(updates)) {
+    const field = UPDATABLE[key];
+    if (!field) continue;
+    sets.push(`${field.column} = ?`);
+    values.push(field.encode ? field.encode(value) : (value ?? null));
+  }
+  if (!sets.length) return null;
+  return db.prepare(`UPDATE requests SET ${sets.join(", ")} WHERE room_id = ? AND id = ? AND deleted_at IS NULL`)
+    .bind(...values, roomId, id);
 }
 
 function insertIndex(pending: SerializedRequest[], req: SerializedRequest, sources: SourcesSettings): number {
@@ -332,18 +371,29 @@ export async function applyOp(
       const req = msg.request;
       const pending = await loadPending(db, roomId);
       if (pending.some((r) => r.id === req.id)) return { messages: [] };
-      if (pending.length >= MAX_PENDING_REQUESTS) {
-        console.warn(`${tag} add-request #${req.id} rejected (pending cap ${MAX_PENDING_REQUESTS})`);
-        return { messages: [errorMsg("pending_cap", `Fila cheia (${MAX_PENDING_REQUESTS}). Marque pedidos como feitos para liberar espaço.`, req.id)] };
-      }
-      // The insert is the claim: another window (or a VOD replay) that sent the same
-      // message gets nothing back and stops here, so only one add lands and confirms.
-      const [, inserted] = await db.batch([ensureRoom(db, roomId, user), insertRequest(db, roomId, { ...req, done: false })]);
-      if (!inserted.results?.length) return { messages: [] };
       const idx = insertIndex(pending, req, sources);
       const next = [...pending];
       next.splice(idx, 0, req);
-      const version = await commit([writeOrder(db, roomId, next.map((r) => r.id))]);
+      // One transaction. The insert is the claim: another window (or a VOD replay) that
+      // sent the same message gets no row back. The order and the version only follow an
+      // insert that happened: `changes()` is the previous statement's row count (the
+      // insert's for the order, the order's for the version).
+      const results = await db.batch([
+        ensureRoom(db, roomId, user),
+        insertRequest(db, roomId, { ...req, done: false }),
+        db.prepare(
+          `UPDATE requests SET position = (SELECT CAST(key AS INTEGER) FROM json_each(?1) WHERE value = requests.id)
+           WHERE room_id = ?2 AND id IN (SELECT value FROM json_each(?1)) AND changes() > 0`
+        ).bind(JSON.stringify(next.map((r) => r.id)), roomId),
+        db.prepare("UPDATE rooms SET version = version + 1 WHERE id = ? AND changes() > 0 RETURNING version").bind(roomId),
+      ]);
+      if (!results[1].results?.length) {
+        const exists = await db.prepare("SELECT 1 FROM requests WHERE room_id = ? AND id = ?").bind(roomId, req.id).first();
+        if (exists) return { messages: [] };
+        console.warn(`${tag} add-request #${req.id} rejected (pending cap ${MAX_PENDING_REQUESTS})`);
+        return { messages: [errorMsg("pending_cap", `Fila cheia (${MAX_PENDING_REQUESTS}). Marque pedidos como feitos para liberar espaço.`, req.id)] };
+      }
+      const version = (results[3].results?.[0] as { version: number } | undefined)?.version;
       console.log(`${tag} add-request #${req.id} "${req.character}" (${req.source})`);
       const notice = await confirmInChat(env, ctx, roomId, sources, req, next);
       return { version, messages: [msg, ...notice] };
@@ -353,7 +403,9 @@ export async function applyOp(
       if (!current) return { messages: [] };
       const before = rowToRequest(current, roomId);
       const after = { ...before, ...msg.updates, id: before.id } as SerializedRequest;
-      const version = await commit([upsertRequest(db, roomId, after, current.position as number)]);
+      const update = updateFields(db, roomId, msg.id, msg.updates);
+      if (!update) return { messages: [] };
+      const version = await commit([update]);
       let notice: PartyMessage[] = [];
       if (before.needsIdentification && !after.needsIdentification && !after.done) {
         notice = await confirmInChat(env, ctx, roomId, sources, after, await loadPending(db, roomId));
@@ -413,9 +465,12 @@ export async function applyOp(
       return { version, messages: [{ type: "update-sources", sources: normalized }] };
     }
     case "irc-status": {
+      // A window that lost chat doesn't clear the heartbeat: another window may still be
+      // reading it, and an unrefreshed one ages out on its own (PRESENCE_TTL_MS).
       await db.batch([
         ensureRoom(db, roomId, user),
-        db.prepare("UPDATE rooms SET owner_seen_at = ?, irc_live_at = ? WHERE id = ?").bind(now, msg.connected ? now : null, roomId),
+        db.prepare("UPDATE rooms SET owner_seen_at = ?, irc_live_at = CASE WHEN ? THEN ? ELSE irc_live_at END WHERE id = ?")
+          .bind(now, msg.connected ? 1 : 0, now, roomId),
       ]);
       return { messages: [{ type: "update-channel", channel: await presence() }] };
     }
@@ -426,6 +481,13 @@ export async function applyOp(
         ensureRoom(db, roomId, user),
         db.prepare("UPDATE rooms SET closed_by_owner = ?, owner_seen_at = ?, irc_live_at = CASE WHEN ? THEN NULL ELSE irc_live_at END WHERE id = ?")
           .bind(closing ? 1 : 0, now, closing ? 1 : 0, roomId),
+        // Closing drops the messages that weren't requests (type 'none', hidden by
+        // hideNonRequests), as the old rooms did: otherwise they'd pile up toward the
+        // pending cap across streams while the visible queue looks short.
+        ...(closing ? [
+          db.prepare(`UPDATE requests SET deleted_at = ${NOW_ISO} WHERE room_id = ? AND done = 0 AND deleted_at IS NULL AND type = 'none'`).bind(roomId),
+          bumpVersion(db, roomId),
+        ] : []),
       ]);
       console.log(`${tag} ${msg.type}`);
       return { messages: [{ type: "update-channel", channel: await presence() }] };

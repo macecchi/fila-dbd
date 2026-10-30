@@ -96,8 +96,11 @@ D1, which was already the persistent store:
   about once a minute. `/rooms/active`, `/rooms/:id` and the live-push skip read the same function.
 - **Concurrency is D1's, never KV's** (KV has no put-if-absent and propagates in ~60s): every
   window of the streamer reads chat and sends what it sees. An add is claimed by its insert
-  (`ON CONFLICT DO NOTHING RETURNING`); only the window whose insert landed gets the echo and
-  sends the chat confirmation. An LLM call is claimed in `llm_claims` (`claimLlm`, by Twitch
+  (`INSERT … SELECT … WHERE <pending < cap> ON CONFLICT DO NOTHING RETURNING`), in one
+  transaction with the order and the version bump, which only run when the insert did
+  (`changes() > 0`); only the window whose insert landed gets the echo and sends the chat
+  confirmation. `update-request` writes only the fields it names, on a row not deleted, so it
+  can't undo another window's ✓ or delete. An LLM call is claimed in `llm_claims` (`claimLlm`, by Twitch
   message id or `req:<id>`; 60s takeover in case the window died): the loser gets `409` and
   writes nothing. Keep a new single-writer side effect behind one of these two claims.
 
@@ -219,10 +222,13 @@ There is no lock and no "session that owns the room". The server keeps one switc
   `update-channel`, relayed to this browser's windows at once; windows elsewhere see it on their
   next poll and join or leave chat. A closed queue stays closed across reloads and devices until
   the streamer opens it: a fresh room starts open. While closed, the server ignores `irc=1`.
+  Closing also deletes the pending `type: 'none'` rows (hidden by `hideNonRequests`), so they
+  never pile up toward the pending cap.
 - **Every chat join re-reports chat**: the effect that joins on `hasLock` sends
   `irc-status: true` when chat is already joined (a reopen), since no IRC transition fires then.
   After that, each poll from a window reading chat carries `irc=1`, which is what keeps the
-  room `live`; a window that stops polling ages out after `PRESENCE_TTL_MS`.
+  room `live`; a window that stops polling ages out after `PRESENCE_TTL_MS`. `irc-status: false`
+  never clears the heartbeat (another window may still be reading chat).
 - **One status, read off the channel** (`hooks/useQueueStatus.ts`): open / connecting /
   closed, the same for streamer and viewer, derived from `channelStatus` rather than this
   window's own connection — so every window says the same thing. Failures surface as toasts,

@@ -114,6 +114,12 @@ describe('room transport', () => {
     await vi.advanceTimersByTimeAsync(8_000);
     expect(fetchMock.mock.calls.filter(([url]) => url.includes('/ops'))).toHaveLength(4);
     expect(messages.at(-1)).toMatchObject({ type: 'server-error', code: 'persist_failed' });
+
+    // The next poll is a full one, so the unsaved optimistic change goes away.
+    const before = polls().length;
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(polls().length).toBeGreaterThan(before);
+    expect(polls().at(-1)![0]).not.toContain('v=');
   });
 
   it('reports an outage once and syncs in full when the room is back', async () => {

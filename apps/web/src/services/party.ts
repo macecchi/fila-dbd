@@ -185,10 +185,13 @@ async function flush(s: Session) {
       const messages = body.messages ?? [];
       if (!messages.some((m) => m.type !== 'server-error')) observe(() => realtimeTelemetry.onNoEcho(msg));
       for (const m of messages) deliver(s, m);
-      relay(s, messages);
+      relay(s, messages, body.version);
     } catch (e) {
       if (s.closed) return;
       console.error('[room] edit failed', msg.type, e);
+      // The optimistic change on screen never reached the server: the next poll brings
+      // back the saved queue.
+      s.version = null;
       deliver(s, {
         type: 'server-error',
         code: 'persist_failed',
@@ -222,9 +225,15 @@ async function post(s: Session, msg: PartyMessage): Promise<OpResponse> {
 
 // Other windows of this browser on the same room apply our echoes at once instead of
 // waiting for their next poll. Server errors stay with the window that caused them.
-function relay(s: Session, messages: PartyMessage[]) {
+// The version travels along, so the receiver also drops a poll that left before this edit.
+interface Relay {
+  messages: PartyMessage[];
+  version?: number;
+}
+
+function relay(s: Session, messages: PartyMessage[], version?: number) {
   const shared = messages.filter((m) => m.type !== 'server-error');
-  if (shared.length) s.channel?.postMessage(shared);
+  if (shared.length) s.channel?.postMessage({ messages: shared, version } satisfies Relay);
 }
 
 /**
@@ -251,9 +260,11 @@ export function connectParty(
     channel: typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(`fila-room:${room}`) : null,
   };
   if (s.channel) {
-    s.channel.onmessage = (event: MessageEvent<PartyMessage[]>) => {
-      if (s.closed || !Array.isArray(event.data)) return;
-      for (const m of event.data) deliver(s, m);
+    s.channel.onmessage = (event: MessageEvent<Relay>) => {
+      const data = event.data;
+      if (s.closed || !Array.isArray(data?.messages)) return;
+      if (typeof data.version === 'number') s.writeVersion = Math.max(s.writeVersion, data.version);
+      for (const m of data.messages) deliver(s, m);
       // Theirs moved the room on: fetch it in full next time.
       s.version = null;
     };
