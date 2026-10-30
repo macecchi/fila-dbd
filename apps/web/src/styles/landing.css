@@ -324,11 +324,20 @@
   object-fit: cover;
 }
 
-.landing-channel-thumb-placeholder {
+/* No live preview or offline banner: the emblem sits in the top part of the card,
+   clear of the info overlay (whose gradient would otherwise swallow its lower half
+   and leave a sliver that reads as a broken image). */
+.landing-channel-thumb .landing-channel-thumb-placeholder {
+  height: 58%;
+  padding: 1.5rem 30% 0;
   object-fit: contain;
-  padding: 25%;
-  opacity: 0.08;
+  opacity: 0.12;
   filter: brightness(0) invert(1);
+}
+
+.landing-featured-grid > :not(.hero) .landing-channel-thumb-placeholder {
+  height: 50%;
+  padding: 0.9rem 30% 0;
 }
 
 .landing-channel-live {
