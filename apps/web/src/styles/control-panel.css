@@ -541,6 +541,30 @@ a.channel-header-live:hover {
     width: auto;
   }
 
+  /* The streamer's open/close button sits on the profile row, beside the queue
+     status it switches, instead of alone on a row of its own under the recently
+     played strip. */
+  .channel-header:has(.channel-header-actions) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "profile right"
+      "plays plays";
+    align-items: center;
+  }
+
+  .channel-header:has(.channel-header-actions) .channel-header-profile {
+    grid-area: profile;
+  }
+
+  .channel-header:has(.channel-header-actions) .recent-plays {
+    grid-area: plays;
+  }
+
+  .channel-header:has(.channel-header-actions) .channel-header-right {
+    grid-area: right;
+  }
+
   .channel-header-actions .btn {
     flex: 0 0 auto;
     width: auto;
