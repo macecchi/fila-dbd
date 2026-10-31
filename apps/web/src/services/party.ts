@@ -41,6 +41,9 @@ interface OpResponse {
   messages?: PartyMessage[];
 }
 
+/** A poll with no answer by then counts as failed (fila_party_unreachable, backoff). */
+const POLL_TIMEOUT_MS = 15_000;
+
 class HttpError extends Error {
   constructor(readonly status: number) {
     super(`HTTP ${status}`);
@@ -129,6 +132,8 @@ async function poll(s: Session) {
     const res = await fetch(`${API_URL}/rooms/${encodeURIComponent(s.room)}/state?${params}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       cache: 'no-store',
+      // A poll that hangs would never fail, so the outage would never be reported or retried.
+      signal: AbortSignal.timeout(POLL_TIMEOUT_MS),
     });
     if (s.closed) return;
     if (res.status === 426) {
