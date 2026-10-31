@@ -152,6 +152,23 @@ on `app = 'fila-dbd'` (every event carries it). Event names are prefixed `fila_`
   carry other windows' edits and aren't compared. Echo matching relies on the ops response
   echoing the edit and on `reorder` carrying its `opId` — keep both. An edit answered with no
   echo (a duplicate add another window won) is cleared, not reported (`onNoEcho`).
+- `fila_party_unreachable`: the room has been out of reach for 60s (`UNREACHABLE_REPORT_MS`),
+  then again every 5 min while it lasts — including a page that never connected, which emits
+  nothing else (that's how the PartyKit shutdown went unalerted for a week). Carries `down_ms`,
+  `failed_attempts`, `ever_connected`, `last_status` (HTTP status, null for a network error).
+- **Alerting** (configured in PostHog, not in the repo; Telegram goes through the
+  `posthog-telegram-relay` Worker, which renders the `logs_alert.*` webhook shape):
+  - *Urgent, real time → Telegram + Discord*: event destinations on `fila_party_unreachable` and
+    `fila_server_error` `code=persist_failed`, masked per event + channel for 30 min, so an ongoing
+    outage re-alerts every 30 min instead of once.
+  - *Worker logs* (service `dbd-tracker-production`, checked every 5 min) → Telegram: any
+    `error`/`fatal` in 10 min, and more than 10 `warn` in 60 min. Logs alerts notify on firing and
+    on resolve, not on every check — a new incident after a resolve notifies again. Use
+    `console.error` for anything that should page; `console.warn` only counts in bursts.
+  - *Hourly insight alerts → Discord* (dashboard 2146684): unacked/dropped edits, ✓s reverted,
+    `persist_failed`, `not_room_owner`. They read client events only — the old `fila_party_*`
+    server events died with PartyKit. Renaming or retiring an event means updating its alert query.
+  - *Error tracking → Discord*: issue created and issue reopened (shared project, all apps).
 - Test locally without touching the real project: build with `VITE_POSTHOG_HOST` pointing at
   a local sink + `VITE_POSTHOG_ALLOW_LOCAL=true`.
   posthog-js drops headless browsers as bots: mask `navigator.webdriver` **and**

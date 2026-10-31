@@ -149,7 +149,7 @@ async function poll(s: Session) {
   } catch (e) {
     if (s.closed) return;
     console.warn('[room] poll failed', e);
-    return fail(s);
+    return fail(s, e instanceof HttpError ? e.status : undefined);
   }
   schedule(s);
 }
@@ -171,7 +171,7 @@ function apply(s: Session, body: StateResponse) {
   }
 }
 
-function fail(s: Session) {
+function fail(s: Session, status?: number) {
   s.failures++;
   if (s.open) {
     s.open = false;
@@ -180,7 +180,7 @@ function fail(s: Session) {
     observe(() => realtimeTelemetry.onClose({}));
     s.onClose?.();
   } else {
-    observe(() => realtimeTelemetry.onClose({}));
+    observe(() => realtimeTelemetry.onClose({ status }));
     s.onError?.();
   }
   schedule(s);

@@ -17,6 +17,12 @@
 //                                                   undoes what this window showed — the
 //                                                   ✓ that comes back after F5
 //   fila_server_error                               persist_failed, …
+//   fila_party_unreachable                          the room has been out of reach for
+//                                                   UNREACHABLE_REPORT_MS, then every
+//                                                   UNREACHABLE_REPEAT_MS while it lasts —
+//                                                   the outage itself, which is silent
+//                                                   otherwise when the page never connected
+//                                                   (the PartyKit shutdown went unalerted)
 //
 // Only the streamer's own channel reports (viewers never edit). Nothing here may carry
 // a token: it is reduced to token_present / token_ttl_s before it leaves.
@@ -42,6 +48,8 @@ export interface OpenInfo {
 export interface CloseInfo {
   code?: number;
   wasClean?: boolean;
+  /** HTTP status of the failed poll; absent for a network error (no answer at all). */
+  status?: number;
 }
 
 type Emit = (event: string, props: Properties) => void;
@@ -50,6 +58,10 @@ type Emit = (event: string, props: Properties) => void;
 export const ACK_TIMEOUT_MS = 15_000;
 const SWEEP_INTERVAL_MS = 5_000;
 const MAX_REPORTED_IDS = 5;
+/** How long the room must be out of reach before it's reported: longer than a reconnect blip. */
+export const UNREACHABLE_REPORT_MS = 60_000;
+/** While it stays out of reach, report again this often, so an alert sees an ongoing outage. */
+export const UNREACHABLE_REPEAT_MS = 5 * 60_000;
 
 // Authority rejections: the server refused the edit itself.
 const REJECTION_CODES = new Set(['not_room_owner', 'pending_cap', 'queue_closed']);
@@ -133,6 +145,10 @@ export class RealtimeTelemetry {
   private closedAt = 0;
   private everOpened = false;
   private failedAttempts = 0;
+  // Since when the room has been out of reach (first failed poll, or the drop), and
+  // when that was last reported. Null while connected.
+  private unreachableSince: number | null = null;
+  private unreachableReportedAt: number | null = null;
   private syncsSeen = 0;
   private lastSyncAt = 0;
   // Only the first sync after (re)connecting is compared with what the window showed:
@@ -158,6 +174,8 @@ export class RealtimeTelemetry {
     this.isOpen = false;
     this.everOpened = false;
     this.failedAttempts = 0;
+    this.unreachableSince = null;
+    this.unreachableReportedAt = null;
     this.syncsSeen = 0;
     this.rejectedSince = null;
     this.rejections = 0;
@@ -339,17 +357,23 @@ export class RealtimeTelemetry {
     this.checkNextSync = true;
     this.openedAt = now;
     this.failedAttempts = 0;
+    this.unreachableSince = null;
+    this.unreachableReportedAt = null;
   }
 
   onClose(info: CloseInfo = {}): void {
     if (!this.isOpen) {
-      // A reconnect attempt that never opened.
+      // A reconnect attempt that never opened — or, before the first open, every poll
+      // of a page that can't reach the room at all.
       this.failedAttempts++;
+      this.unreachableSince ??= this.now();
+      this.checkUnreachable(info);
       return;
     }
     const now = this.now();
     this.isOpen = false;
     this.closedAt = now;
+    this.unreachableSince = now;
     this.report('fila_party_disconnected', {
       connected_ms: now - this.openedAt,
       code: info.code ?? null,
@@ -363,6 +387,21 @@ export class RealtimeTelemetry {
     }
     this.pending = [];
     this.clearSweep();
+  }
+
+  private checkUnreachable(info: CloseInfo) {
+    if (this.unreachableSince === null) return;
+    const now = this.now();
+    const downMs = now - this.unreachableSince;
+    if (downMs < UNREACHABLE_REPORT_MS) return;
+    if (this.unreachableReportedAt !== null && now - this.unreachableReportedAt < UNREACHABLE_REPEAT_MS) return;
+    this.unreachableReportedAt = now;
+    this.report('fila_party_unreachable', {
+      down_ms: downMs,
+      failed_attempts: this.failedAttempts,
+      ever_connected: this.everOpened,
+      last_status: info.status ?? null,
+    });
   }
 
   // ---------- timeouts ----------
