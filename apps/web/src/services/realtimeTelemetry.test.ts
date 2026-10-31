@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { RealtimeTelemetry, ACK_TIMEOUT_MS, describeToken, tokenTtlSeconds, type TelemetryContext } from './realtimeTelemetry';
+import { RealtimeTelemetry, ACK_TIMEOUT_MS, UNREACHABLE_REPORT_MS, UNREACHABLE_REPEAT_MS, describeToken, tokenTtlSeconds, type TelemetryContext } from './realtimeTelemetry';
 import type { PartyMessage, Request, SerializedRequest } from '../types';
 
 vi.mock('./analytics', () => ({ track: vi.fn() }));
@@ -207,6 +207,52 @@ describe('RealtimeTelemetry', () => {
         token_ttl_s: -120,
         token_expired: true,
       });
+    });
+
+    it('reports a room the page never reached, and keeps reporting while it lasts', () => {
+      // Every poll fails from page load: no connected/disconnected pair is ever emitted.
+      t.onClose({});
+      now += UNREACHABLE_REPORT_MS - 1;
+      t.onClose({ status: 530 });
+      expect(events('fila_party_unreachable')).toHaveLength(0);
+      now += 1;
+      t.onClose({ status: 530 });
+      expect(events('fila_party_unreachable')).toEqual([expect.objectContaining({
+        down_ms: UNREACHABLE_REPORT_MS, failed_attempts: 3, ever_connected: false, last_status: 530,
+      })]);
+      now += UNREACHABLE_REPEAT_MS - 1;
+      t.onClose({});
+      expect(events('fila_party_unreachable')).toHaveLength(1);
+      now += 1;
+      t.onClose({});
+      expect(events('fila_party_unreachable')).toHaveLength(2);
+      expect(events('fila_party_unreachable')[1]).toMatchObject({ last_status: null });
+    });
+
+    it('reports an outage after a drop, and stops once the room answers again', () => {
+      t.onOpen({ tokenPresent: true, tokenTtlS: 3500 });
+      t.onClose({});
+      now += 30_000;
+      t.onClose({});
+      now += 30_000;
+      t.onClose({ status: 503 });
+      expect(events('fila_party_unreachable')).toEqual([expect.objectContaining({
+        down_ms: 60_000, ever_connected: true, last_status: 503,
+      })]);
+      t.onOpen({ tokenPresent: true, tokenTtlS: 3500 });
+      now += UNREACHABLE_REPEAT_MS;
+      t.onClose({}); // a fresh drop starts its own clock
+      t.onClose({});
+      expect(events('fila_party_unreachable')).toHaveLength(1);
+    });
+
+    it('never reports a short blip', () => {
+      t.onOpen({ tokenPresent: true, tokenTtlS: 3500 });
+      t.onClose({});
+      now += 5_000;
+      t.onClose({});
+      t.onOpen({ tokenPresent: true, tokenTtlS: 3500 });
+      expect(events('fila_party_unreachable')).toHaveLength(0);
     });
 
     it('starts over on a channel change', () => {
