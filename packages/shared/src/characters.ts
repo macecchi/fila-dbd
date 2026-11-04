@@ -56,6 +56,7 @@ export const CHARACTERS: CharacterData = {
         { name: "Kwon Tae-young", aliases: [], portrait: "/images/portraits/S52_KwonTae-young.webp" },
         { name: "Shane Wiigwaas", aliases: [], portrait: "/images/portraits/S53_ShaneWiigwaas.webp" },
         { name: "Aurora Stardotter", aliases: [], portrait: "/images/portraits/S54_AuroraStardotter.webp" },
+        { name: "Sienna Shaw", aliases: [], portrait: "/images/portraits/S55_SiennaShaw.webp" },
     ],
     killers: [
         { name: "Trapper", aliases: ["Caçador"], portrait: "/images/portraits/K01_TheTrapper.webp" },
@@ -102,6 +103,7 @@ export const CHARACTERS: CharacterData = {
         { name: "The First", aliases: ["First", "Vecna", "Vecna Stranger Things", "Vecna Novo", "One", "Número Um", "Henry Creel"], portrait: "/images/portraits/K42_TheFirst.webp" },
         { name: "Slasher", aliases: ["Jason", "Jason Voorhees", "Voorhees", "Sexta-feira 13", "Friday the 13th"], portrait: "/images/portraits/K43_TheSlasher.webp" },
         { name: "Judgment", aliases: ["Judgement", "Julgamento"], portrait: "/images/portraits/K44_TheJudgment.webp" },
+        { name: "Terrifier", aliases: ["Art the Clown", "Art The Clown", "Palhaço Art", "Palhaço Terrifier"], portrait: "/images/portraits/K45_TheTerrifier.webp" },
     ]
 };
 
