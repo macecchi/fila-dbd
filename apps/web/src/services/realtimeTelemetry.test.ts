@@ -32,6 +32,9 @@ describe('RealtimeTelemetry', () => {
   let emit: ReturnType<typeof vi.fn<(event: string, props: Record<string, unknown>) => void>>;
   let local: Request[];
   let t: RealtimeTelemetry;
+  let online: boolean;
+  /** Lets the network probe of a no-answer outage settle. */
+  const flush = () => vi.advanceTimersByTimeAsync(0);
 
   const ctx = (over: Partial<TelemetryContext> = {}): TelemetryContext => ({
     channel: 'Streamer',
@@ -48,7 +51,8 @@ describe('RealtimeTelemetry', () => {
     now = 1_000_000;
     emit = vi.fn();
     local = [];
-    t = new RealtimeTelemetry(emit, () => now);
+    online = true;
+    t = new RealtimeTelemetry(emit, () => now, () => Promise.resolve(online));
     t.setContext(ctx());
   });
 
@@ -209,7 +213,7 @@ describe('RealtimeTelemetry', () => {
       });
     });
 
-    it('reports a room the page never reached, and keeps reporting while it lasts', () => {
+    it('reports a room the page never reached, and keeps reporting while it lasts', async () => {
       // Every poll fails from page load: no connected/disconnected pair is ever emitted.
       t.onClose({});
       now += UNREACHABLE_REPORT_MS - 1;
@@ -220,13 +224,42 @@ describe('RealtimeTelemetry', () => {
       expect(events('fila_party_unreachable')).toEqual([expect.objectContaining({
         down_ms: UNREACHABLE_REPORT_MS, failed_attempts: 3, ever_connected: false, last_status: 530,
       })]);
+      expect(events('fila_party_unreachable')[0]).toMatchObject({ client_offline: false });
       now += UNREACHABLE_REPEAT_MS - 1;
       t.onClose({});
+      await flush();
       expect(events('fila_party_unreachable')).toHaveLength(1);
       now += 1;
       t.onClose({});
+      await flush();
       expect(events('fila_party_unreachable')).toHaveLength(2);
-      expect(events('fila_party_unreachable')[1]).toMatchObject({ last_status: null });
+      expect(events('fila_party_unreachable')[1]).toMatchObject({ last_status: null, client_offline: false });
+    });
+
+    it("flags an outage seen while the streamer's own connection was down", async () => {
+      t.onOpen({ tokenPresent: true, tokenTtlS: 3500 });
+      online = false;
+      t.onClose({});
+      now += UNREACHABLE_REPORT_MS;
+      t.onClose({});
+      expect(events('fila_party_unreachable')).toHaveLength(0); // probing
+      await flush();
+      expect(events('fila_party_unreachable')).toEqual([expect.objectContaining({
+        down_ms: UNREACHABLE_REPORT_MS, last_status: null, client_offline: true,
+      })]);
+      now += 1_000;
+      t.onClose({}); // one probe per report, not per failed poll
+      await flush();
+      expect(events('fila_party_unreachable')).toHaveLength(1);
+    });
+
+    it('drops a probe that settles after a channel change', async () => {
+      t.onClose({});
+      now += UNREACHABLE_REPORT_MS;
+      t.onClose({});
+      t.setContext(ctx({ channel: 'other' }));
+      await flush();
+      expect(events('fila_party_unreachable')).toHaveLength(0);
     });
 
     it('reports an outage after a drop, and stops once the room answers again', () => {

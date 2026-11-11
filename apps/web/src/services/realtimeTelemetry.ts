@@ -22,7 +22,9 @@
 //                                                   UNREACHABLE_REPEAT_MS while it lasts —
 //                                                   the outage itself, which is silent
 //                                                   otherwise when the page never connected
-//                                                   (the PartyKit shutdown went unalerted)
+//                                                   (the PartyKit shutdown went unalerted).
+//                                                   `client_offline` says the streamer's own
+//                                                   connection was down too (alerts skip it)
 //
 // Only the streamer's own channel reports (viewers never edit). Nothing here may carry
 // a token: it is reduced to token_present / token_ttl_s before it leaves.
@@ -53,6 +55,30 @@ export interface CloseInfo {
 }
 
 type Emit = (event: string, props: Properties) => void;
+/** Whether this machine can reach the internet at all, apart from the room. */
+type ProbeNetwork = () => Promise<boolean>;
+
+/** How long the network probe may take before it counts as offline. */
+export const PROBE_TIMEOUT_MS = 5_000;
+
+/**
+ * A poll that got no answer at all may be the room or this machine's own connection.
+ * Asks the site's own origin (Pages, not the Worker) for its index, with a query the
+ * service worker's precache doesn't match, so it really goes out to the network.
+ */
+export const probeNetwork: ProbeNetwork = async () => {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+  try {
+    await fetch(`/?net-probe=${Date.now()}`, {
+      method: 'HEAD',
+      cache: 'no-store',
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 /** An edit with no echo after this long is reported as unacked. */
 export const ACK_TIMEOUT_MS = 15_000;
@@ -159,7 +185,11 @@ export class RealtimeTelemetry {
   private rejectedSince: number | null = null;
   private rejections = 0;
 
-  constructor(private emit: Emit, private now: () => number = Date.now) {}
+  constructor(
+    private emit: Emit,
+    private now: () => number = Date.now,
+    private probe: ProbeNetwork = probeNetwork,
+  ) {}
 
   setContext(ctx: TelemetryContext | null): void {
     const channelChanged = ctx?.channel !== this.ctx?.channel;
@@ -396,11 +426,23 @@ export class RealtimeTelemetry {
     if (downMs < UNREACHABLE_REPORT_MS) return;
     if (this.unreachableReportedAt !== null && now - this.unreachableReportedAt < UNREACHABLE_REPEAT_MS) return;
     this.unreachableReportedAt = now;
-    this.report('fila_party_unreachable', {
+    const props = {
       down_ms: downMs,
       failed_attempts: this.failedAttempts,
       ever_connected: this.everOpened,
       last_status: info.status ?? null,
+    };
+    // An HTTP status means the room answered, so this machine is online.
+    if (info.status !== undefined) {
+      this.report('fila_party_unreachable', { ...props, client_offline: false });
+      return;
+    }
+    // No answer at all: a streamer whose own connection dropped (Wi-Fi, ISP, sleep)
+    // looks exactly like an outage from here. Ask another host before calling it one.
+    const ctx = this.ctx;
+    void this.probe().then((online) => {
+      if (this.ctx !== ctx) return; // channel changed while probing
+      this.report('fila_party_unreachable', { ...props, client_offline: !online });
     });
   }
 
