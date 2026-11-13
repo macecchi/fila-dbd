@@ -138,7 +138,10 @@ on `app = 'fila-dbd'` (every event carries it). Event names are prefixed `fila_`
 - ⚠️ **Tokens never leave the browser.** Room requests carry `Authorization: Bearer <JWT>`, the OAuth
   callback carries `?code=&state=`, `dbd-auth` holds both tokens. `before_send` runs every
   event through `scrubProperties()` (JWT-shaped strings, token/code/state URL params,
-  `accessToken`-style keys). Don't redact the bare `token` key — that's the SDK's project token,
+  `accessToken`-style keys), and drops a bare `Script error.` with no stack
+  (`isOpaqueScriptError`): the browser's mask for an error in a cross-origin script
+  (extensions, content blockers, the Cloudflare beacon), never ours, since every script of
+  ours is same-origin. Don't redact the bare `token` key — that's the SDK's project token,
   and ingestion routes on it. New event properties: report *facts about* a token
   (`token_present`, `token_ttl_s`), never the token or a URL containing it.
 - **Realtime health** (`services/realtimeTelemetry.ts`, fed from `services/party.ts`): only the
@@ -155,10 +158,15 @@ on `app = 'fila-dbd'` (every event carries it). Event names are prefixed `fila_`
 - `fila_party_unreachable`: the room has been out of reach for 60s (`UNREACHABLE_REPORT_MS`),
   then again every 5 min while it lasts — including a page that never connected, which emits
   nothing else (that's how the PartyKit shutdown went unalerted for a week). Carries `down_ms`,
-  `failed_attempts`, `ever_connected`, `last_status` (HTTP status, null for a network error).
+  `failed_attempts`, `ever_connected`, `last_status` (HTTP status, null for a network error),
+  `client_offline`: on a network error the page first probes its own origin (Pages, not the
+  Worker; `probeNetwork`), and `true` means the streamer's own connection was down too — a
+  Wi-Fi/ISP blip, not an outage. The real-time alert skips `client_offline = true`; old
+  cached clients don't send it, so they still alert.
 - **Alerting** (configured in PostHog, not in the repo; Telegram goes through the
   `posthog-telegram-relay` Worker, which renders the `logs_alert.*` webhook shape):
-  - *Urgent, real time → Telegram + Discord*: event destinations on `fila_party_unreachable` and
+  - *Urgent, real time → Telegram + Discord*: event destinations on `fila_party_unreachable`
+    (except `client_offline = true`) and
     `fila_server_error` `code=persist_failed`, masked per event + channel for 30 min, so an ongoing
     outage re-alerts every 30 min instead of once.
   - *Worker logs* (service `dbd-tracker-production`, checked every 5 min) → Telegram: any
