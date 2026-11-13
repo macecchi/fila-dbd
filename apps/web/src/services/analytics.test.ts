@@ -9,7 +9,7 @@ const posthog = vi.hoisted(() => ({
 }));
 vi.mock('posthog-js', () => ({ default: posthog }));
 
-import { scrubProperties, scrubString, track, identify, resetIdentity, initAnalytics, __resetAnalyticsForTests } from './analytics';
+import { isOpaqueScriptError, scrubProperties, scrubString, track, identify, resetIdentity, initAnalytics, __resetAnalyticsForTests } from './analytics';
 
 const JWT = 'eyJhbGciOiJIUzI1NiJ9.eyJsb2dpbiI6InN0cmVhbWVyIiwiZXhwIjoxfQ.c2lnbmF0dXJlLWJ5dGVz';
 
@@ -46,6 +46,23 @@ describe('scrubbing', () => {
       $exception_list: [{ value: 'failed with [redacted]' }],
     });
     expect(JSON.stringify(out)).not.toContain(JWT);
+  });
+});
+
+describe('opaque cross-origin errors', () => {
+  const ex = (...list: unknown[]) => ({ event: '$exception', properties: { $exception_list: list } });
+
+  it('drops a bare "Script error." with no stack', () => {
+    expect(isOpaqueScriptError(ex({ type: 'Error', value: 'Script error.' }))).toBe(true);
+    expect(isOpaqueScriptError(ex({ type: 'Error', value: 'Script error' }))).toBe(true);
+  });
+
+  it('keeps anything with a stack, another message, or another event', () => {
+    expect(isOpaqueScriptError(ex({ value: 'Script error.', stacktrace: { frames: [{ filename: 'a.js' }] } }))).toBe(false);
+    expect(isOpaqueScriptError(ex({ value: 'TypeError: x is undefined' }))).toBe(false);
+    expect(isOpaqueScriptError(ex({ value: 'Script error.' }, { value: 'Real failure' }))).toBe(false);
+    expect(isOpaqueScriptError(ex())).toBe(false);
+    expect(isOpaqueScriptError({ event: '$pageview', properties: { $exception_list: [{ value: 'Script error.' }] } })).toBe(false);
   });
 });
 
@@ -113,5 +130,6 @@ describe('analytics loader', () => {
     const beforeSend = posthog.init.mock.calls[0][1].before_send as (e: unknown) => { properties: Record<string, unknown> };
     const out = beforeSend({ event: '$pageview', properties: { $current_url: `https://x/?token=${JWT}` } });
     expect(out.properties.$current_url).toBe('https://x/?token=[redacted]');
+    expect(beforeSend({ event: '$exception', properties: { $exception_list: [{ value: 'Script error.' }] } })).toBeNull();
   });
 });

@@ -61,8 +61,26 @@ export function scrubProperties<T>(value: T, depth = 0): T {
   return value;
 }
 
+/**
+ * Safari (and other browsers) replace an error thrown by a script from another origin
+ * with a bare "Script error." and no stack. Ours are all same-origin, so these come from
+ * extensions, content blockers or the Cloudflare beacon: nothing to act on, but each new
+ * or reopened issue pages. Dropped only when there's no stack at all.
+ */
+export function isOpaqueScriptError(event: Pick<CaptureResult, 'event' | 'properties'>): boolean {
+  if (event.event !== '$exception') return false;
+  const list = event.properties?.$exception_list;
+  if (!Array.isArray(list) || list.length === 0) return false;
+  return list.every((ex: { value?: unknown; stacktrace?: { frames?: unknown[] } }) =>
+    typeof ex?.value === 'string' &&
+    /^Script error\.?$/.test(ex.value.trim()) &&
+    !ex.stacktrace?.frames?.length,
+  );
+}
+
 function beforeSend(event: CaptureResult | null): CaptureResult | null {
   if (!event) return event;
+  if (isOpaqueScriptError(event)) return null;
   event.properties = scrubProperties(event.properties);
   if (event.$set) event.$set = scrubProperties(event.$set);
   if (event.$set_once) event.$set_once = scrubProperties(event.$set_once);

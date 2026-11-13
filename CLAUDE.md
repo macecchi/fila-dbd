@@ -138,7 +138,10 @@ on `app = 'fila-dbd'` (every event carries it). Event names are prefixed `fila_`
 - ⚠️ **Tokens never leave the browser.** Room requests carry `Authorization: Bearer <JWT>`, the OAuth
   callback carries `?code=&state=`, `dbd-auth` holds both tokens. `before_send` runs every
   event through `scrubProperties()` (JWT-shaped strings, token/code/state URL params,
-  `accessToken`-style keys). Don't redact the bare `token` key — that's the SDK's project token,
+  `accessToken`-style keys), and drops a bare `Script error.` with no stack
+  (`isOpaqueScriptError`): the browser's mask for an error in a cross-origin script
+  (extensions, content blockers, the Cloudflare beacon), never ours, since every script of
+  ours is same-origin. Don't redact the bare `token` key — that's the SDK's project token,
   and ingestion routes on it. New event properties: report *facts about* a token
   (`token_present`, `token_ttl_s`), never the token or a URL containing it.
 - **Realtime health** (`services/realtimeTelemetry.ts`, fed from `services/party.ts`): only the
