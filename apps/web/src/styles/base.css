@@ -90,6 +90,9 @@
   --text-sm: 0.75rem;
   --text-base: 0.85rem;
   --text-md: 0.9rem;
+  /* Form fields never go below 16px: iOS Safari zooms the page into any focused
+     input/select/textarea with a smaller computed font-size. */
+  --text-input: 16px;
 
   /* Spacing */
   --space-xs: 0.25rem;
