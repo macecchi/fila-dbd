@@ -150,7 +150,7 @@
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
   padding: 0 0.5rem;
-  font-size: var(--text-sm);
+  font-size: var(--text-input);
   color: var(--text);
   font-family: inherit;
 }

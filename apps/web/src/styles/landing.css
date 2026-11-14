@@ -514,7 +514,7 @@
 .landing-channel-search input {
   width: 100%;
   padding: 0.5rem 0.85rem 0.5rem 2.2rem;
-  font-size: var(--text-sm);
+  font-size: var(--text-input);
   font-family: inherit;
   color: var(--text);
   background: var(--bg-elevated);

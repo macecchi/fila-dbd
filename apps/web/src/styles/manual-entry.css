@@ -52,7 +52,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: var(--space-md) var(--space-lg);
-  font-size: var(--text-md);
+  font-size: var(--text-input);
   color: var(--text);
 }
 
@@ -73,7 +73,7 @@
 }
 
 .manual-entry-note {
-  font-size: var(--text-base) !important;
+  font-size: var(--text-input) !important;
   color: var(--text-muted);
   /* Auto-grown in JS to fit the message; cap the growth so a long donate
      scrolls inside the field instead of pushing the dialog off-screen. */
@@ -88,12 +88,3 @@
 .manual-entry-note:focus {
   color: var(--text);
 }
-
-/* Mobile */
-@media (max-width: 480px) {
-  .manual-entry-body input,
-  .manual-entry-body textarea {
-    font-size: 16px; /* Prevent iOS zoom */
-  }
-}
-

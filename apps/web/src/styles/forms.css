@@ -21,7 +21,7 @@ input,
 select,
 textarea {
   font-family: 'JetBrains Mono', monospace;
-  font-size: var(--text-base);
+  font-size: var(--text-input);
   padding: 0.6rem 0.9rem;
   background: var(--bg);
   border: 1px solid var(--border);
