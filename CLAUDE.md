@@ -173,6 +173,9 @@ on `app = 'fila-dbd'` (every event carries it). Event names are prefixed `fila_`
     `error`/`fatal` in 10 min, and more than 10 `warn` in 60 min. Logs alerts notify on firing and
     on resolve, not on every check — a new incident after a resolve notifies again. Use
     `console.error` for anything that should page; `console.warn` only counts in bursts.
+    A passing D1 fault (`D1_ERROR: internal error`, a reset object) on `/state` is retried
+    twice (`withD1Retry` in `rooms.ts`) and logged as a `warn`; only one that outlasts the
+    retries reaches Hono's error handler and pages.
   - *Hourly insight alerts → Discord* (dashboard 2146684): unacked/dropped edits, ✓s reverted,
     `persist_failed`, `not_room_owner`. They read client events only — the old `fila_party_*`
     server events died with PartyKit. Renaming or retiring an event means updating its alert query.

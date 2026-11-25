@@ -303,6 +303,11 @@ roomsSync.get("/:roomId/state", async (c) => {
     return c.json({ error: "version_mismatch" }, 426);
   }
 
+  // Safe to run again: the heartbeat write is idempotent and identifyPending claims its rows.
+  return c.json(await withD1Retry(`[room ${roomId}] state`, () => readState(c, roomId, db, now)));
+});
+
+async function readState(c: Context<{ Bindings: RoomsEnv }>, roomId: string, db: D1Database, now: number) {
   let row = await loadRoom(db, roomId);
 
   // The streamer's windows check in through their polls; the one reading chat says so.
@@ -330,15 +335,38 @@ roomsSync.get("/:roomId/state", async (c) => {
   const version = row?.version ?? 0;
   const channel = channelState(row, now);
   if (c.req.query("v") === String(version)) {
-    return c.json({ version, channel });
+    return { version, channel };
   }
-  return c.json({
+  return {
     version,
     channel,
     requests: await loadQueue(db, roomId, now),
     sources: roomSources(row),
-  });
-});
+  };
+}
+
+// The faults D1 itself calls retryable (a storage blip, a reset object): the same query
+// works a moment later. Anything else (bad SQL, a constraint) fails the same way again.
+const TRANSIENT_D1_ERROR = /D1_ERROR.*(internal error|network connection lost|storage caused object to be reset|reset because its code was updated)/i;
+export const D1_RETRY_DELAYS_MS = [100, 400];
+
+/**
+ * Runs a read again when D1 answers with a passing fault. Each retry is a `warn` (the logs
+ * alert only pages on a burst of those); only a fault that outlasts the retries reaches
+ * Hono's error handler, which logs it as an error.
+ */
+export async function withD1Retry<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (attempt >= D1_RETRY_DELAYS_MS.length || !TRANSIENT_D1_ERROR.test(message)) throw e;
+      console.warn(`${label} transient D1 error, retrying (${attempt + 1}/${D1_RETRY_DELAYS_MS.length}): ${message}`);
+      await new Promise((r) => setTimeout(r, D1_RETRY_DELAYS_MS[attempt]));
+    }
+  }
+}
 
 // The streamer's edits, as REST on the room. Each route builds the PartyMessage the
 // room logic (and the client stores) already speak; the response is

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { sign } from 'hono/jwt';
 import { PROTOCOL_VERSION, editRoute, type PartyMessage, type SerializedRequest } from '@filadbd/shared';
 import app from './index';
-import { PRESENCE_TTL_MS } from './rooms';
+import { D1_RETRY_DELAYS_MS, PRESENCE_TTL_MS } from './rooms';
 import { extractCharacters } from './gemini';
 import { createTestD1 } from './test/d1';
 
@@ -94,6 +94,48 @@ describe('GET /rooms/:id/state', () => {
     const { body } = await state(`&v=${full.version}`);
     expect(body.requests).toBeUndefined();
     expect(body.version).toBe(full.version);
+  });
+});
+
+describe('GET /rooms/:id/state on a D1 fault', () => {
+  // The first `n` statements prepared fail as D1 fails them.
+  function failPrepare(n: number, message: string) {
+    const db = env.DB as D1Database;
+    const real = db.prepare.bind(db);
+    let left = n;
+    env.DB = Object.assign(Object.create(db), {
+      prepare: (sql: string) => {
+        if (left-- > 0) throw new Error(message);
+        return real(sql);
+      },
+      batch: db.batch.bind(db),
+    });
+  }
+  const raw = () => app.fetch(new Request(`http://x/rooms/${ROOM}/state?p=${PROTOCOL_VERSION}`), env, ctx());
+
+  it('retries a passing D1 fault and answers, as a warning', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    failPrepare(1, 'D1_ERROR: internal error; reference = e_x');
+    const res = await raw();
+    expect(res.status).toBe(200);
+    expect((await res.json() as any).channel.status).toBe('offline');
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives up after the retries, as an error', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    failPrepare(D1_RETRY_DELAYS_MS.length + 1, 'D1_ERROR: internal error; reference = e_x');
+    expect((await raw()).status).toBe(500);
+    expect(error).toHaveBeenCalled();
+  });
+
+  it('never retries a fault that would fail the same way again', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    failPrepare(1, 'D1_ERROR: no such column: nope: SQLITE_ERROR');
+    expect((await raw()).status).toBe(500);
+    expect(warn).not.toHaveBeenCalled();
   });
 });
 
